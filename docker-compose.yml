@@ -7,5 +7,12 @@ services:
       - indexer_state:/state
     restart: unless-stopped
 
+  brain-api:
+    build: ./api
+    env_file: .env
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
 volumes:
   indexer_state:

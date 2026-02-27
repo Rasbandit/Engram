@@ -160,9 +160,8 @@ def full_scan(client, conn: sqlite3.Connection) -> None:
 class VaultHandler(FileSystemEventHandler):
     """Watches for file changes in the vault and re-indexes."""
 
-    def __init__(self, client, conn: sqlite3.Connection):
+    def __init__(self, client):
         self.client = client
-        self.conn = conn
 
     def on_modified(self, event):
         if event.is_directory:
@@ -179,8 +178,39 @@ class VaultHandler(FileSystemEventHandler):
             return
         path = event.src_path
         logger.info("File deleted: %s", path)
-        delete_by_source(self.client, COLLECTION, path)
-        remove_indexed(self.conn, path)
+        conn = get_state_db()
+        try:
+            delete_by_source(self.client, COLLECTION, path)
+            remove_indexed(conn, path)
+        finally:
+            conn.close()
+
+    def on_moved(self, event):
+        if event.is_directory:
+            return
+        src = Path(event.src_path)
+        dest = Path(event.dest_path)
+
+        # If moved out of vault or into a skipped dir (e.g. .trash), treat as delete
+        if should_skip(dest) or not str(dest).startswith(str(VAULT_PATH)):
+            logger.info("File moved to skipped location: %s -> %s", src, dest)
+            conn = get_state_db()
+            try:
+                delete_by_source(self.client, COLLECTION, str(src))
+                remove_indexed(conn, str(src))
+            finally:
+                conn.close()
+        else:
+            # Moved within vault (e.g. renamed) — remove old, index new
+            logger.info("File moved: %s -> %s", src, dest)
+            conn = get_state_db()
+            try:
+                delete_by_source(self.client, COLLECTION, str(src))
+                remove_indexed(conn, str(src))
+                if dest.suffix.lower() == ".md" and not should_skip(dest):
+                    index_file(self.client, conn, dest)
+            finally:
+                conn.close()
 
     def _handle(self, file_path: Path):
         if file_path.suffix.lower() != ".md":
@@ -189,7 +219,11 @@ class VaultHandler(FileSystemEventHandler):
             return
         # Small delay to let file writes finish
         time.sleep(0.5)
-        index_file(self.client, self.conn, file_path)
+        conn = get_state_db()
+        try:
+            index_file(self.client, conn, file_path)
+        finally:
+            conn.close()
 
 
 def wait_for_qdrant(client, max_retries: int = 30, delay: float = 2.0) -> None:
@@ -257,7 +291,7 @@ def main():
 
     # Watch for changes
     logger.info("Starting file watcher on: %s", VAULT_PATH)
-    handler = VaultHandler(client, conn)
+    handler = VaultHandler(client)
     observer = Observer()
     observer.schedule(handler, str(VAULT_PATH), recursive=True)
     observer.start()

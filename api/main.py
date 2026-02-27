@@ -8,13 +8,16 @@ from pydantic import BaseModel, Field
 
 from search import search
 from notes import get_all_tags, get_note_by_path
+from mcp_tools import mcp as mcp_server
 
 logging.basicConfig(
     level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO")),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-app = FastAPI(title="EDI-Brain API", version="0.1.0")
+mcp_app = mcp_server.http_app(path="/", transport="sse")
+app = FastAPI(title="EDI-Brain API", version="0.1.0", lifespan=mcp_app.lifespan)
+app.mount("/mcp", mcp_app)
 
 
 class SearchRequest(BaseModel):

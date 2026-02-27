@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "brain": {
-      "type": "sse",
-      "url": "http://10.0.20.214:8001/sse"
-    }
-  }
-}

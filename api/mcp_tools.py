@@ -1,24 +1,15 @@
-"""brain-mcp: MCP server that wraps brain-api for Claude Code."""
+"""MCP tool definitions for EDI-Brain, calling search/notes in-process."""
 
-import json
 import logging
-import os
 
-import httpx
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
-logging.basicConfig(
-    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO")),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+from search import search
+from notes import get_all_tags, get_note_by_path
+
 logger = logging.getLogger("brain-mcp")
 
-BRAIN_API_URL = os.environ.get("BRAIN_API_URL", "http://localhost:8000")
-PORT = int(os.environ.get("PORT", "8001"))
-
-_http = httpx.Client(timeout=30.0)
-
-mcp = FastMCP("EDI-Brain", host="0.0.0.0", port=PORT)
+mcp = FastMCP("EDI-Brain")
 
 
 @mcp.tool()
@@ -30,16 +21,10 @@ def search_notes(query: str, limit: int = 5, tags: list[str] | None = None) -> s
         limit: Maximum number of results (1-20, default 5)
         tags: Optional list of tags to filter by (e.g. ["health", "supplements"])
     """
-    resp = _http.post(
-        f"{BRAIN_API_URL}/search",
-        json={"query": query, "limit": min(limit, 20), "tags": tags},
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    results = search(query, limit=min(limit, 20), tags=tags)
 
-    # Format results for Claude
     lines = []
-    for i, r in enumerate(data["results"], 1):
+    for i, r in enumerate(results, 1):
         lines.append(f"## Result {i} (score: {r['score']:.3f})")
         if r.get("title"):
             lines.append(f"**Title:** {r['title']}")
@@ -61,14 +46,9 @@ def get_note(source_path: str) -> str:
     Args:
         source_path: The source path of the note (e.g. /vault/2. Knowledge Vault/Health/Omega Oils.md)
     """
-    resp = _http.get(
-        f"{BRAIN_API_URL}/note",
-        params={"source_path": source_path},
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    data = get_note_by_path(source_path)
 
-    if "error" in data:
+    if data is None:
         return f"Note not found: {source_path}"
 
     lines = [f"# {data.get('title', 'Untitled')}"]
@@ -88,11 +68,8 @@ def get_note(source_path: str) -> str:
 @mcp.tool()
 def list_tags() -> str:
     """List all tags in the knowledge base with document counts."""
-    resp = _http.get(f"{BRAIN_API_URL}/tags")
-    resp.raise_for_status()
-    data = resp.json()
+    tags = get_all_tags()
 
-    tags = data.get("tags", [])
     if not tags:
         return "No tags found."
 
@@ -101,9 +78,3 @@ def list_tags() -> str:
         lines.append(f"| {t['name']} | {t['count']} |")
 
     return "\n".join(lines)
-
-
-if __name__ == "__main__":
-    logger.info("Starting brain-mcp on port %d", PORT)
-    logger.info("Brain API URL: %s", BRAIN_API_URL)
-    mcp.run(transport="sse")
