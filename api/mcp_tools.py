@@ -40,12 +40,15 @@ def search_notes(query: str, limit: int = 5, tags: list[str] | None = None) -> s
 
 
 @mcp.tool()
-def get_note(source_path: str) -> str:
+def get_note(source_path: str = "", path: str = "") -> str:
     """Get the full content of a specific note from the knowledge base.
 
     Args:
-        source_path: The source path of the note (e.g. /vault/2. Knowledge Vault/Health/Omega Oils.md)
+        source_path: The source path of the note (e.g. 2. Knowledge Vault/Health/Omega Oils.md)
     """
+    source_path = source_path or path
+    if not source_path:
+        return "Error: source_path is required."
     data = get_note_by_path(source_path)
 
     if data is None:
