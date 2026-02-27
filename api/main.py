@@ -31,6 +31,7 @@ class SearchResult(BaseModel):
     wikilinks: list[str] = []
     score: float = 0.0
     vector_score: float = 0.0
+    rerank_score: float = 0.0
 
 
 class SearchResponse(BaseModel):
