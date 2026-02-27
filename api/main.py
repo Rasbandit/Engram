@@ -3,10 +3,11 @@
 import logging
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from pydantic import BaseModel, Field
 
 from search import search
+from notes import get_all_tags, get_note_by_path
 
 logging.basicConfig(
     level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO")),
@@ -48,3 +49,16 @@ def health():
 def search_endpoint(req: SearchRequest):
     results = search(req.query, limit=req.limit, tags=req.tags)
     return SearchResponse(query=req.query, results=results)
+
+
+@app.get("/tags")
+def tags_endpoint():
+    return {"tags": get_all_tags()}
+
+
+@app.get("/note")
+def note_endpoint(source_path: str = Query(...)):
+    result = get_note_by_path(source_path)
+    if result is None:
+        return {"error": "Note not found", "source_path": source_path}
+    return result
