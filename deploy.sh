@@ -124,9 +124,9 @@ ssh "${SERVER}" "sed -i 's|brain-api:[0-9.]*|brain-api:${VERSION}|' ${TEMPLATE}"
 
 # --- Update version in docs ---
 echo "--- Updating version references..."
-sed -i "s|Current version | [0-9.]*|Current version | ${VERSION}|" "${SCRIPT_DIR}/CLAUDE.md"
-sed -i "s|brain-api current version\*\*: [0-9.]*|brain-api current version**: ${VERSION}|" "${MEMORY_DIR}/MEMORY.md"
-sed -i "s|currently [0-9.]*)|currently ${VERSION})|" "${MEMORY_DIR}/servers.md"
+sed -i "s#Current version | [0-9.]*#Current version | ${VERSION}#" "${SCRIPT_DIR}/CLAUDE.md"
+sed -i "s#brain-api current version\*\*: [0-9.]*#brain-api current version**: ${VERSION}#" "${MEMORY_DIR}/MEMORY.md"
+sed -i "s#currently [0-9.]*)\$#currently ${VERSION})#" "${MEMORY_DIR}/servers.md"
 
 # --- Tag the deploy commit ---
 echo "--- Tagging git commit as v${VERSION}..."
