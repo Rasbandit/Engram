@@ -1,6 +1,7 @@
 """MCP tool definitions for EDI-Brain, calling search/notes in-process."""
 
 import logging
+from typing import Optional
 
 from fastmcp import FastMCP
 
@@ -13,7 +14,7 @@ mcp = FastMCP("EDI-Brain")
 
 
 @mcp.tool()
-def search_notes(query: str, limit: int = 5, tags: list[str] | None = None) -> str:
+def search_notes(query: str, limit: int = 5, tags: Optional[list[str]] = None) -> str:
     """Search the Obsidian vault knowledge base. Returns relevant notes ranked by relevance.
 
     Args:
