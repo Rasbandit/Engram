@@ -1,0 +1,11 @@
+services:
+  brain-indexer:
+    build: ./indexer
+    env_file: .env
+    volumes:
+      - "/home/open-claw/Obsidian Vault:/vault:ro"
+      - indexer_state:/state
+    restart: unless-stopped
+
+volumes:
+  indexer_state:
