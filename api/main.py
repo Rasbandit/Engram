@@ -15,7 +15,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-mcp_app = mcp_server.http_app(path="/", transport="sse")
+mcp_app = mcp_server.http_app(path="/", transport="streamable-http")
 app = FastAPI(title="EDI-Brain API", version="0.1.0", lifespan=mcp_app.lifespan)
 app.mount("/mcp", mcp_app)
 

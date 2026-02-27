@@ -95,7 +95,7 @@ ssh root@10.0.20.214 "sed -i 's|brain-api:[0-9.]*|brain-api:<version>|' /boot/co
 | Port | 8000:8000 |
 | Log limits | max-size=50m, max-file=1 |
 | Label | `net.unraid.docker.managed=dockerman` |
-| Current version | 1.1.0 |
+| Current version | 1.2.2 |
 
 ### Infrastructure on FastRaid
 
