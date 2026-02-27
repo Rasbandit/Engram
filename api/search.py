@@ -72,10 +72,15 @@ def search(query: str, limit: int = 5, tags: list[str] | None = None) -> list[di
     texts = [c["text"] for c in candidates]
     try:
         reranked = _rerank(query, texts)
-        # Build a map from text → rerank score
         rerank_scores = {item["text"]: item["score"] for item in reranked}
+        matched = 0
         for c in candidates:
-            c["score"] = rerank_scores.get(c["text"], c["vector_score"])
+            if c["text"] in rerank_scores:
+                c["score"] = rerank_scores[c["text"]]
+                matched += 1
+            else:
+                c["score"] = c["vector_score"]
+        logger.info("Reranker matched %d/%d candidates", matched, len(candidates))
         candidates.sort(key=lambda x: x["score"], reverse=True)
     except Exception:
         logger.warning("Jina reranker failed, falling back to vector scores", exc_info=True)
