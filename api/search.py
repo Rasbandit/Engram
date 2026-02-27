@@ -23,13 +23,30 @@ def _embed(text: str) -> list[float]:
     return resp.json()["embeddings"][0]
 
 
-def _rerank(query: str, texts: list[str]) -> list[dict]:
+def _rerank(query: str, texts: list[str]) -> list[float]:
+    """Rerank texts and return scores in the same order as input texts."""
     resp = _http.post(
         f"{JINA_URL}/rerank",
         json={"query": query, "texts": texts},
     )
     resp.raise_for_status()
-    return resp.json()
+    # Jina may truncate/modify text, so match back by position using index
+    # Request with index to get positional mapping
+    results = resp.json()
+    # Build text→score map from response, then match back to input by index
+    # Since Jina returns texts in score-sorted order but may truncate them,
+    # we need to send with index support or match differently.
+    # Safest: send one-at-a-time is too slow. Instead, use the fact that
+    # Jina returns results in the same count as inputs, sorted by score desc.
+    # We can match by checking which input text starts with the returned text.
+    scores = [0.0] * len(texts)
+    for item in results:
+        returned_text = item["text"]
+        for i, original in enumerate(texts):
+            if original.startswith(returned_text) or returned_text.startswith(original):
+                scores[i] = item["score"]
+                break
+    return scores
 
 
 def search(query: str, limit: int = 5, tags: list[str] | None = None) -> list[dict]:
@@ -71,16 +88,9 @@ def search(query: str, limit: int = 5, tags: list[str] | None = None) -> list[di
     # Stage 2: Jina reranker
     texts = [c["text"] for c in candidates]
     try:
-        reranked = _rerank(query, texts)
-        rerank_scores = {item["text"]: item["score"] for item in reranked}
-        matched = 0
-        for c in candidates:
-            if c["text"] in rerank_scores:
-                c["score"] = rerank_scores[c["text"]]
-                matched += 1
-            else:
-                c["score"] = c["vector_score"]
-        logger.info("Reranker matched %d/%d candidates", matched, len(candidates))
+        scores = _rerank(query, texts)
+        for c, rerank_score in zip(candidates, scores):
+            c["score"] = rerank_score
         candidates.sort(key=lambda x: x["score"], reverse=True)
     except Exception:
         logger.warning("Jina reranker failed, falling back to vector scores", exc_info=True)
