@@ -108,48 +108,12 @@ Any AI assistant that speaks MCP can query your vault:
 
 ## Architecture
 
-```
-api/
-├── main.py                  # FastAPI app, lifespan, route mounting
-├── config.py                # All env var configuration
-├── auth.py                  # JWT sessions + API key Bearer auth
-├── db.py                    # PostgreSQL auth tables (users, api_keys)
-├── note_store.py            # PostgreSQL CRUD for notes
-├── attachment_store.py      # PostgreSQL CRUD for binary files (images, PDFs)
-├── indexing.py              # parse → embed → upsert orchestrator
-├── search.py                # Two-stage search (Qdrant + Jina rerank)
-├── mcp_tools.py             # MCP server (6 tools)
-├── events.py                # PostgreSQL LISTEN/NOTIFY EventBus
-├── pool.py                  # PostgreSQL connection pool (psycopg)
-├── redis_client.py          # Optional Redis (lazy init)
-├── rate_limit.py            # Per-user sliding window rate limiter
-├── task_queue.py            # Async background indexing queue
-├── parsers/
-│   └── markdown.py          # Heading-aware chunking, frontmatter, wikilinks
-├── embedders/
-│   ├── __init__.py          # Factory (ollama or openai)
-│   ├── ollama.py            # Ollama adapter with batch support
-│   └── openai.py            # OpenAI adapter with batch support
-├── stores/
-│   └── qdrant_store.py      # Qdrant vector upsert/delete/search
-├── routes/
-│   ├── web.py               # Jinja2 + htmx web UI (login, search, settings)
-│   └── stream.py            # SSE endpoint for live sync
-├── templates/               # HTML templates for web UI
-├── alembic/                 # Database migrations
-│   └── versions/
-│       └── 001_initial_schema.py
-├── Dockerfile
-└── requirements.txt
-```
-
-### Key Design Decisions
-
-- **Single service** — no separate indexer process. Notes are indexed inline on upsert (or optionally via background queue with `ASYNC_INDEXING=true`).
+- **Single service** — search, indexing, MCP, sync, and auth all in one FastAPI app. No separate processes.
 - **Multi-tenant** — all data scoped by `user_id`. Users cannot see each other's notes, searches, or attachments.
 - **Adapter pattern** — swap embedding backends (Ollama/OpenAI) or vector stores without touching search logic.
 - **Graceful degradation** — Jina reranker is optional. Redis is optional. The system works with just PostgreSQL, Qdrant, and an embedder.
 - **Real-time sync** — PostgreSQL `LISTEN/NOTIFY` fans out change events to per-user SSE streams. No polling.
+- **Background indexing** — optional async task queue (`ASYNC_INDEXING=true`) with Redis persistence and retry logic.
 
 ## Quick Start
 
