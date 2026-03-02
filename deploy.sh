@@ -53,7 +53,7 @@ ssh "${SERVER}" "docker run -d \
   -e TZ=America/Los_Angeles \
   -e EMBED_MODEL=nomic-embed-text \
   -e EMBED_BACKEND=ollama \
-  -e DATABASE_URL=postgresql://brain:brain@postgresql:5432/brain \
+  -e DATABASE_URL=postgresql://brain:brain@brain-postgres:5432/brain \
   -e JWT_SECRET=\${JWT_SECRET:-$(openssl rand -base64 32)} \
   -e DB_PATH=/data/brain.db \
   -e REGISTRATION_ENABLED=true \
@@ -61,8 +61,8 @@ ssh "${SERVER}" "docker run -d \
   -e HOST_HOSTNAME=unraid-fast \
   -e HOST_CONTAINERNAME=${CONTAINER} \
   -e OLLAMA_URL=http://ollama:11434 \
-  -e QDRANT_URL=http://qdrant:6333 \
-  -e JINA_URL=http://jinareranker:8082 \
+  -e QDRANT_URL=http://Qdrant:6333 \
+  -e JINA_URL=http://JinaReranker:8082 \
   -e COLLECTION=obsidian_notes \
   -e LOG_LEVEL=INFO \
   --log-opt max-size=50m \
