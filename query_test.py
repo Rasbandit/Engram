@@ -6,15 +6,16 @@ Usage (run from host or inside a container with access to Qdrant + Ollama):
     python query_test.py "what do I know about health"
 """
 
+import os
 import sys
 
 import httpx
 from qdrant_client import QdrantClient
 
-QDRANT_URL = "http://localhost:6333"
-OLLAMA_URL = "http://UNRAID_IP:11434"  # Update this
-EMBED_MODEL = "nomic-embed-text"
-COLLECTION = "obsidian_notes"
+QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
+COLLECTION = os.environ.get("COLLECTION", "obsidian_notes")
 
 
 def embed(text: str) -> list[float]:

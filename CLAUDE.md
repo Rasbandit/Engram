@@ -16,6 +16,12 @@ brain-api is the single service — search, MCP server, note storage, indexing, 
 - **Embedders** (`embedders/`) — Ollama (default) and OpenAI adapters with batch support
 - **Search** (`search.py`) — two-stage pipeline: Qdrant vector search + Jina reranking, 40/60 blend
 - **MCP tools** (`mcp_tools.py`) — `search_notes`, `get_note`, `list_tags`, `list_folders`, `write_note`, `create_note`
+- **Attachment store** (`attachment_store.py`) — PostgreSQL CRUD for binary attachments (images, PDFs, etc.)
+- **Events** (`events.py`) — PostgreSQL LISTEN/NOTIFY EventBus for SSE live sync
+- **SSE streaming** (`routes/stream.py`) — per-user real-time change notifications
+- **Rate limiting** (`rate_limit.py`) — per-user RPM limiting, Redis or in-memory
+- **Redis** (`redis_client.py`) — optional shared state for multi-instance deployments
+- **Task queue** (`task_queue.py`) — async background indexing queue
 - **Auth** (`auth.py`, `db.py`) — API keys (Bearer), JWT sessions, multi-tenant user isolation
 
 ### Key Patterns
@@ -65,6 +71,14 @@ curl -X POST http://localhost:8000/notes \
 | `DB_PATH` | `/data/brain.db` | SQLite auth database |
 | `REGISTRATION_ENABLED` | `true` | Allow new users |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
+| `PG_POOL_MAX` | `15` | PostgreSQL pool size per worker |
+| `MAX_ATTACHMENT_SIZE` | 5MB | Per-file attachment size limit |
+| `MAX_STORAGE_PER_USER` | 1GB | Total user storage quota |
+| `MAX_NOTE_SIZE` | 10MB | Max single note size |
+| `CORS_ORIGINS` | `*` | CORS allowed origins |
+| `ASYNC_INDEXING` | `false` | Background indexing (opt-in) |
+| `RATE_LIMIT_RPM` | `120` | Requests per minute per user |
+| `REDIS_URL` | — | Optional Redis for multi-instance caching |
 
 ## Testing
 
@@ -78,100 +92,98 @@ docker compose up --build -d
 bash test_plan.sh
 ```
 
-`test_plan.sh` covers 75 assertions across 16 sections:
-- Health check
-- Auth (registration, login, API keys, Bearer validation)
-- Note CRUD lifecycle (create, read, upsert/update, delete)
-- Frontmatter extraction (title, tags, folder)
+`test_plan.sh` covers ~97 assertions across 40 sections:
+- Health check + deep health (PostgreSQL, Qdrant, Ollama, Redis)
+- Auth (registration, login, API key management, API key deletion + cache invalidation, Bearer validation)
+- Note CRUD lifecycle (create, read, upsert/update, delete, double-delete)
+- Frontmatter extraction (title, tags, folder, comma-separated tags)
+- Root-level notes + title fallback
 - Legacy endpoints (`GET /note?source_path=`)
 - Folders and tags from PostgreSQL
-- Search (vector + rerank, tag filtering, limit validation)
-- Sync (`GET /notes/changes` with timestamps)
-- Edge cases (empty content, unicode, special chars, long content, invalid input)
-- Multi-tenant isolation (users cannot see each other's data)
-- Web UI session routes
+- Search (vector + rerank, tag filtering, multi-tag filter, limit validation, result fields)
+- Sync (`GET /notes/changes` with timestamps, changes response shape)
+- SSE live sync + SSE user isolation
+- CORS
+- Attachments (CRUD, upsert, changes, edge cases, double-delete)
+- Note size limit (413)
+- Rate limiting
+- MCP auth
+- Multi-tenant isolation (users cannot see each other's data, multi-tenant search)
+- Web UI session routes + logout
 - Cleanup
+
+Supports `--both` flag to run tests twice: without Redis (in-memory) then with Redis.
 
 Requires: brain-api + postgres running locally (docker compose), plus Ollama and Qdrant reachable for indexing/search tests.
 
-## Production Deployment — FastRaid (Unraid)
+## Production Deployment
 
-The brain-api runs on FastRaid (10.0.20.214), an Unraid server managed via Unraid's Docker UI (dockerman).
-
-### Server Access
-
-```bash
-ssh root@10.0.20.214   # always root — no other user on Unraid
-```
-
-### Container Registry
-
-Images are pushed to GHCR: `ghcr.io/rasbandit/brain-api:<version>`
+`deploy.sh` handles the full deploy cycle: build → tag → push to registry → deploy via `docker run` on a remote server → auto-build/release plugin if changed → update docs.
 
 ### Deploy Process
 
-Use `./deploy.sh <version>` which handles: build → tag → push to GHCR → pull on FastRaid → replace container → update Unraid template → update docs.
-
-Manual deploy if needed:
+Configure via environment variables, then run:
 
 ```bash
-# 1. Build locally
-docker compose build brain-api
+export BRAIN_REGISTRY="ghcr.io/youruser/brain-api"
+export DEPLOY_SERVER="user@your-server"
+export DEPLOY_DIR="/opt/brain"          # optional, default: /opt/brain
+export DOCKER_NETWORK="ai"             # optional, default: ai
 
-# 2. Tag and push to GHCR
-docker tag edi-brain-brain-api:latest ghcr.io/rasbandit/brain-api:<version>
-docker tag edi-brain-brain-api:latest ghcr.io/rasbandit/brain-api:latest
-docker push ghcr.io/rasbandit/brain-api:<version>
-docker push ghcr.io/rasbandit/brain-api:latest
-
-# 3. Pull and replace on FastRaid
-ssh root@10.0.20.214 "docker pull ghcr.io/rasbandit/brain-api:<version>"
-ssh root@10.0.20.214 "docker stop brain-api && docker rm brain-api"
-ssh root@10.0.20.214 "docker run -d \
-  --name brain-api \
-  --network ai \
-  -p 8000:8000 \
-  -v brain_data:/data \
-  -e TZ=America/Los_Angeles \
-  -e EMBED_MODEL=nomic-embed-text \
-  -e EMBED_BACKEND=ollama \
-  -e DATABASE_URL=postgresql://brain:password@postgresql:5432/brain \
-  -e JWT_SECRET=\${JWT_SECRET:-$(openssl rand -base64 32)} \
-  -e DB_PATH=/data/brain.db \
-  -e REGISTRATION_ENABLED=true \
-  -e HOST_OS=Unraid \
-  -e HOST_HOSTNAME=unraid-fast \
-  -e HOST_CONTAINERNAME=brain-api \
-  -e OLLAMA_URL=http://ollama:11434 \
-  -e QDRANT_URL=http://qdrant:6333 \
-  -e JINA_URL=http://jinareranker:8082 \
-  -e COLLECTION=obsidian_notes \
-  -e LOG_LEVEL=INFO \
-  --log-opt max-size=50m \
-  --log-opt max-file=1 \
-  -l net.unraid.docker.managed=dockerman \
-  ghcr.io/rasbandit/brain-api:<version>"
-
-# 4. Update the Unraid Docker template
-ssh root@10.0.20.214 "sed -i 's|brain-api:[0-9.]*|brain-api:<version>|' /boot/config/plugins/dockerMan/templates-user/my-brain-api.xml"
+./deploy.sh 1.4.2
 ```
 
-### Production Container Config
+Or set these in a `.env.deploy` and source it before running.
+
+### Manual Operations
+
+```bash
+# Check status
+ssh user@your-server "docker ps --filter name=brain"
+
+# View logs
+ssh user@your-server "docker logs brain-api --tail 50"
+
+# Restart
+ssh user@your-server "docker restart brain-api"
+```
+
+### Production Config
+
+The deploy script creates two files on the remote server at `$DEPLOY_DIR`:
+- `docker-compose.yml` — service definitions (synced from `docker-compose.prod.yml` in this repo)
+- `.env` — `VERSION`, `BRAIN_IMAGE`, and `JWT_SECRET` (generated once, persists across deploys)
 
 | Setting | Value |
 |---------|-------|
-| Network | `ai` (shared with ollama, qdrant, jinareranker, postgresql) |
+| Network | `ai` (external, shared with ollama, qdrant, jina-reranker) |
+| Containers | `brain-api`, `brain-postgres`, `brain-redis` |
 | Port | 8000:8000 |
-| Volumes | `brain_data:/data` (SQLite auth DB) |
+| Volumes | `brain_pg_data` (PostgreSQL data) |
 | Log limits | max-size=50m, max-file=1 |
-| Label | `net.unraid.docker.managed=dockerman` |
-| Current version | 1.3.0 |
+| Current version | 1.4.1 |
 
-### Infrastructure on FastRaid
+### First-Time Setup
 
-The `ai` Docker network connects these containers:
+```bash
+# On the remote server:
+
+# Ensure volumes exist
+docker volume create brain_pg_data
+
+# Create .env with JWT_SECRET
+mkdir -p /opt/brain
+echo "JWT_SECRET=$(openssl rand -base64 32)" > /opt/brain/.env
+echo "VERSION=1.4.1" >> /opt/brain/.env
+echo "BRAIN_IMAGE=ghcr.io/youruser/brain-api" >> /opt/brain/.env
+```
+
+### Infrastructure
+
+The Docker network (default `ai`) connects these containers:
 - **brain-api** — this service (search, MCP, sync, indexing)
+- **brain-postgres** — PostgreSQL note + attachment content storage
+- **brain-redis** — API key caching, rate limiting (LRU, 128MB max)
 - **ollama** (port 11434) — embedding model inference, GPU-accelerated
 - **qdrant** (port 6333) — vector database
-- **jinareranker** (port 8082) — Jina reranker for search quality
-- **postgresql** (port 5432) — note content storage
+- **jina-reranker** (port 8082) — Jina reranker for search quality

@@ -1,0 +1,18 @@
+# Jina reranker override — adds CPU-based reranking to search.
+#
+# Usage (CPU-only, improves search quality at cost of ~2-5x slower reranking):
+#   docker compose -f docker-compose.full.yml -f docker-compose.jina.yml up -d
+#
+# For GPU-accelerated reranking, use docker-compose.gpu.yml instead.
+
+services:
+  jina-reranker:
+    image: ${JINA_IMAGE:?Set JINA_IMAGE (e.g. ghcr.io/youruser/jina-reranker)}:cpu
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8082/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
