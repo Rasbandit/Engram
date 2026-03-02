@@ -1,0 +1,25 @@
+{% if note %}
+<article>
+    <header>
+        <h3>{{ note.title or 'Untitled' }}</h3>
+        {% if note.tags %}
+        <p>
+            {% for tag in note.tags %}
+            <mark>{{ tag }}</mark>
+            {% endfor %}
+        </p>
+        {% endif %}
+        <small>{{ note.source_path }}</small>
+        <br>
+        <a href="#" hx-get="/note/close" hx-target="#note-viewer">Close</a>
+    </header>
+    {% for chunk in note.chunks %}
+    {% if chunk.heading_path %}
+    <p><em>{{ chunk.heading_path }}</em></p>
+    {% endif %}
+    <p>{{ chunk.text }}</p>
+    {% endfor %}
+</article>
+{% else %}
+<p>Note not found.</p>
+{% endif %}

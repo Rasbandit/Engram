@@ -49,8 +49,14 @@ ssh "${SERVER}" "docker run -d \
   --name ${CONTAINER} \
   --network ai \
   -p 8000:8000 \
+  -v brain_data:/data \
   -e TZ=America/Los_Angeles \
   -e EMBED_MODEL=nomic-embed-text \
+  -e EMBED_BACKEND=ollama \
+  -e DATABASE_URL=postgresql://brain:brain@postgresql:5432/brain \
+  -e JWT_SECRET=\${JWT_SECRET:-$(openssl rand -base64 32)} \
+  -e DB_PATH=/data/brain.db \
+  -e REGISTRATION_ENABLED=true \
   -e HOST_OS=Unraid \
   -e HOST_HOSTNAME=unraid-fast \
   -e HOST_CONTAINERNAME=${CONTAINER} \

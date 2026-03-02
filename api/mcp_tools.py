@@ -1,16 +1,67 @@
-"""MCP tool definitions for EDI-Brain, calling search/notes in-process."""
+"""MCP tool definitions for Brain, with Bearer token auth via ASGI middleware."""
 
+import contextvars
 import logging
+import time
 from typing import Optional
 
 from fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
+import db
+import note_store
 from search import search
-from notes import get_all_tags, get_note_by_path
+from indexing import index_note
 
 logger = logging.getLogger("brain-mcp")
 
-mcp = FastMCP("EDI-Brain")
+# Context variable to thread user_id into MCP tool functions
+_current_user_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_current_user_id", default=None
+)
+
+
+class MCPAuthMiddleware:
+    """ASGI middleware that validates Bearer token and sets user_id in contextvars."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        # Extract Bearer token from headers
+        headers = dict(scope.get("headers", []))
+        auth_header = headers.get(b"authorization", b"").decode()
+
+        if not auth_header.startswith("Bearer "):
+            response = JSONResponse(
+                {"detail": "Missing or invalid Authorization header"},
+                status_code=401,
+            )
+            await response(scope, receive, send)
+            return
+
+        token = auth_header[7:]  # Strip "Bearer "
+        user = db.validate_api_key(token)
+        if user is None:
+            response = JSONResponse({"detail": "Invalid API key"}, status_code=401)
+            await response(scope, receive, send)
+            return
+
+        # Set user_id in contextvars for MCP tools to read
+        token = _current_user_id.set(str(user["id"]))
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _current_user_id.reset(token)
+
+
+mcp = FastMCP("Brain")
 
 
 @mcp.tool()
@@ -22,7 +73,8 @@ def search_notes(query: str, limit: int = 5, tags: Optional[list[str]] = None) -
         limit: Maximum number of results (1-20, default 5)
         tags: Optional list of tags to filter by (e.g. ["health", "supplements"])
     """
-    results = search(query, limit=min(limit, 20), tags=tags)
+    user_id = _current_user_id.get()
+    results = search(query, limit=min(limit, 20), tags=tags, user_id=user_id)
 
     lines = []
     for i, r in enumerate(results, 1):
@@ -45,27 +97,26 @@ def get_note(source_path: str) -> str:
     """Get the full content of a specific note from the knowledge base.
 
     Args:
-        source_path: The source path of the note (e.g. /vault/2. Knowledge Vault/Health/Omega Oils.md)
+        source_path: The path of the note (e.g. "2. Knowledge Vault/Health/Omega Oils.md")
     """
-    # Normalize: ensure /vault/ prefix for Qdrant lookup
-    if not source_path.startswith("/vault/"):
-        source_path = "/vault/" + source_path.lstrip("/")
+    user_id = _current_user_id.get()
 
-    data = get_note_by_path(source_path)
+    # Try exact path first, then with/without /vault/ prefix
+    note = note_store.get_note(user_id, source_path)
+    if note is None and source_path.startswith("/vault/"):
+        note = note_store.get_note(user_id, source_path[7:])
+    if note is None and not source_path.startswith("/vault/"):
+        note = note_store.get_note(user_id, "/vault/" + source_path.lstrip("/"))
 
-    if data is None:
+    if note is None:
         return f"Note not found: {source_path}"
 
-    lines = [f"# {data.get('title', 'Untitled')}"]
-    if data.get("tags"):
-        lines.append(f"**Tags:** {', '.join(data['tags'])}")
-    lines.append(f"**Source:** {data['source_path']}\n")
-
-    for chunk in data.get("chunks", []):
-        if chunk.get("heading_path"):
-            lines.append(f"*{chunk['heading_path']}*")
-        lines.append(chunk["text"])
-        lines.append("")
+    lines = [f"# {note['title']}"]
+    if note.get("tags"):
+        lines.append(f"**Tags:** {', '.join(note['tags'])}")
+    lines.append(f"**Path:** {note['path']}")
+    lines.append(f"**Folder:** {note.get('folder', '')}\n")
+    lines.append(note["content"])
 
     return "\n".join(lines)
 
@@ -73,7 +124,8 @@ def get_note(source_path: str) -> str:
 @mcp.tool()
 def list_tags() -> str:
     """List all tags in the knowledge base with document counts."""
-    tags = get_all_tags()
+    user_id = _current_user_id.get()
+    tags = note_store.get_all_tags_pg(user_id)
 
     if not tags:
         return "No tags found."
@@ -83,3 +135,114 @@ def list_tags() -> str:
         lines.append(f"| {t['name']} | {t['count']} |")
 
     return "\n".join(lines)
+
+
+@mcp.tool()
+def list_folders() -> str:
+    """List all folders in the knowledge base with note counts."""
+    user_id = _current_user_id.get()
+    folders = note_store.get_folders(user_id)
+
+    if not folders:
+        return "No folders found."
+
+    lines = ["| Folder | Notes |", "|--------|-------|"]
+    for f in folders:
+        folder_name = f["folder"] or "(root)"
+        lines.append(f"| {folder_name} | {f['count']} |")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def write_note(path: str, content: str) -> str:
+    """Write or update a note at a specific path. Saves to storage and indexes for search.
+
+    Args:
+        path: Full path for the note (e.g. "2. Knowledge Vault/Health/New Note.md")
+        content: Full markdown content of the note
+    """
+    user_id = _current_user_id.get()
+    mtime = time.time()
+
+    note = note_store.upsert_note(user_id, path, content, mtime)
+    try:
+        chunk_count = index_note(path, content, mtime, user_id)
+    except Exception as e:
+        logger.warning("Indexing failed for %s: %s", path, e)
+        chunk_count = 0
+
+    return f"Note saved: {path} ({chunk_count} chunks indexed)"
+
+
+@mcp.tool()
+def create_note(title: str, content: str, suggested_folder: Optional[str] = None) -> str:
+    """Create a new note with automatic folder placement if no folder is specified.
+
+    If no folder is given, searches for similar content and places the note in the
+    most common folder among top results.
+
+    Args:
+        title: Title for the new note
+        content: Markdown content of the note
+        suggested_folder: Optional folder path (e.g. "2. Knowledge Vault/Health"). If not given, auto-places based on similar content.
+    """
+    user_id = _current_user_id.get()
+
+    if suggested_folder:
+        folder = suggested_folder.rstrip("/")
+    else:
+        # Auto-place: search for similar content, find most common folder
+        folder = _auto_place_folder(content, user_id)
+
+    # Build full path
+    filename = title.replace("/", "-") + ".md"
+    path = f"{folder}/{filename}" if folder else filename
+
+    # Add title as H1 if content doesn't start with one
+    if not content.strip().startswith("# "):
+        content = f"# {title}\n\n{content}"
+
+    mtime = time.time()
+    note = note_store.upsert_note(user_id, path, content, mtime)
+    try:
+        chunk_count = index_note(path, content, mtime, user_id)
+    except Exception as e:
+        logger.warning("Indexing failed for %s: %s", path, e)
+        chunk_count = 0
+
+    return f"Note created: {path} ({chunk_count} chunks indexed)"
+
+
+def _auto_place_folder(content: str, user_id: str) -> str:
+    """Find the best folder for content by searching similar notes."""
+    from collections import Counter
+
+    # Search for similar content using first ~200 chars as query
+    query = content[:200].replace("\n", " ").strip()
+    if not query:
+        return ""
+
+    try:
+        results = search(query, limit=10, user_id=user_id)
+    except Exception:
+        return ""
+
+    if not results:
+        return ""
+
+    # Count folders from source_path
+    folder_counts: Counter = Counter()
+    for r in results:
+        sp = r.get("source_path", "")
+        if "/" in sp:
+            folder = sp.rsplit("/", 1)[0]
+            # Strip /vault/ prefix if present
+            if folder.startswith("/vault/"):
+                folder = folder[7:]
+            folder_counts[folder] += 1
+
+    if not folder_counts:
+        return ""
+
+    return folder_counts.most_common(1)[0][0]

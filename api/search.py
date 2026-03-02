@@ -4,23 +4,16 @@ import logging
 
 import httpx
 from qdrant_client import QdrantClient
-from qdrant_client.models import FieldCondition, Filter, MatchAny
+from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 
-from config import COLLECTION, EMBED_MODEL, JINA_URL, OLLAMA_URL, QDRANT_URL
+from config import COLLECTION, JINA_URL, QDRANT_URL
+from embedders import get_embedder
 
 logger = logging.getLogger("brain-api")
 
 _http = httpx.Client(timeout=120.0)
 _qdrant = QdrantClient(url=QDRANT_URL)
-
-
-def _embed(text: str) -> list[float]:
-    resp = _http.post(
-        f"{OLLAMA_URL}/api/embed",
-        json={"model": EMBED_MODEL, "input": [text]},
-    )
-    resp.raise_for_status()
-    return resp.json()["embeddings"][0]
+_embed = get_embedder()
 
 
 def _rerank(query: str, texts: list[str]) -> list[float]:
@@ -50,18 +43,19 @@ def _rerank(query: str, texts: list[str]) -> list[float]:
     return scores
 
 
-def search(query: str, limit: int = 5, tags: list[str] | None = None) -> list[dict]:
+def search(query: str, limit: int = 5, tags: list[str] | None = None, user_id: str | None = None) -> list[dict]:
     """Run two-stage search: vector retrieval → reranking."""
     vector = _embed(query)
 
     # Stage 1: Qdrant vector search — fetch more candidates than needed
     candidate_count = max(limit * 4, 20)
 
-    query_filter = None
+    must_conditions = []
+    if user_id:
+        must_conditions.append(FieldCondition(key="user_id", match=MatchValue(value=user_id)))
     if tags:
-        query_filter = Filter(
-            must=[FieldCondition(key="tags", match=MatchAny(any=tags))]
-        )
+        must_conditions.append(FieldCondition(key="tags", match=MatchAny(any=tags)))
+    query_filter = Filter(must=must_conditions) if must_conditions else None
 
     results = _qdrant.query_points(
         collection_name=COLLECTION,

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Register - Brain{% endblock %}
+{% block content %}
+<article>
+    <h2>Register</h2>
+    {% if error %}
+    <p role="alert">{{ error }}</p>
+    {% endif %}
+    <form method="post" action="/register">
+        <label for="display_name">Display Name</label>
+        <input type="text" id="display_name" name="display_name" required autofocus>
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required>
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required minlength="8">
+        <button type="submit">Register</button>
+    </form>
+    <p>Already have an account? <a href="/login">Login</a></p>
+</article>
+{% endblock %}

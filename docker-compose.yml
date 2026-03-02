@@ -1,18 +1,35 @@
 services:
-  brain-indexer:
-    build: ./indexer
-    env_file: .env
-    volumes:
-      - "/home/open-claw/Obsidian Vault:/vault:ro"
-      - indexer_state:/state
-    restart: unless-stopped
-
   brain-api:
     build: ./api
     env_file: .env
+    environment:
+      DATABASE_URL: postgresql://brain:brain@postgres:5432/brain
     ports:
       - "8000:8000"
+    volumes:
+      - brain_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: brain
+      POSTGRES_PASSWORD: brain
+      POSTGRES_DB: brain
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brain"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
 volumes:
-  indexer_state:
+  brain_data:
+  pg_data:

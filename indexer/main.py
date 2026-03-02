@@ -27,6 +27,7 @@ logger = logging.getLogger("brain-indexer")
 
 VAULT_PATH = Path(os.environ.get("VAULT_PATH", "/vault"))
 STATE_DIR = Path(os.environ.get("STATE_DIR", "/state"))
+USER_ID = os.environ.get("USER_ID")
 COLLECTION = "obsidian_notes"
 EMBED_BATCH_SIZE = 32
 
@@ -96,7 +97,7 @@ def index_file(client, conn: sqlite3.Connection, file_path: Path) -> None:
     logger.info("Indexing: %s", source_path)
 
     try:
-        chunks = parse_markdown(file_path, collection=COLLECTION)
+        chunks = parse_markdown(file_path, collection=COLLECTION, user_id=USER_ID)
     except Exception:
         logger.exception("Failed to parse: %s", source_path)
         return
@@ -106,7 +107,7 @@ def index_file(client, conn: sqlite3.Connection, file_path: Path) -> None:
         return
 
     # Delete old chunks for this file
-    delete_by_source(client, COLLECTION, source_path)
+    delete_by_source(client, COLLECTION, source_path, user_id=USER_ID)
 
     # Embed in batches
     all_texts = [c.text for c in chunks]
@@ -153,7 +154,7 @@ def full_scan(client, conn: sqlite3.Connection) -> None:
     for (path,) in rows:
         if path not in all_paths:
             logger.info("Removing deleted file from index: %s", path)
-            delete_by_source(client, COLLECTION, path)
+            delete_by_source(client, COLLECTION, path, user_id=USER_ID)
             remove_indexed(conn, path)
 
 
@@ -180,7 +181,7 @@ class VaultHandler(FileSystemEventHandler):
         logger.info("File deleted: %s", path)
         conn = get_state_db()
         try:
-            delete_by_source(self.client, COLLECTION, path)
+            delete_by_source(self.client, COLLECTION, path, user_id=USER_ID)
             remove_indexed(conn, path)
         finally:
             conn.close()
@@ -196,7 +197,7 @@ class VaultHandler(FileSystemEventHandler):
             logger.info("File moved to skipped location: %s -> %s", src, dest)
             conn = get_state_db()
             try:
-                delete_by_source(self.client, COLLECTION, str(src))
+                delete_by_source(self.client, COLLECTION, str(src), user_id=USER_ID)
                 remove_indexed(conn, str(src))
             finally:
                 conn.close()
@@ -205,7 +206,7 @@ class VaultHandler(FileSystemEventHandler):
             logger.info("File moved: %s -> %s", src, dest)
             conn = get_state_db()
             try:
-                delete_by_source(self.client, COLLECTION, str(src))
+                delete_by_source(self.client, COLLECTION, str(src), user_id=USER_ID)
                 remove_indexed(conn, str(src))
                 if dest.suffix.lower() == ".md" and not should_skip(dest):
                     index_file(self.client, conn, dest)
@@ -274,6 +275,7 @@ def main():
     logger.info("brain-indexer starting")
     logger.info("Vault path: %s", VAULT_PATH)
     logger.info("State dir: %s", STATE_DIR)
+    logger.info("User ID: %s", USER_ID or "(not set — single-user mode)")
 
     if not VAULT_PATH.exists():
         logger.error("Vault path does not exist: %s", VAULT_PATH)

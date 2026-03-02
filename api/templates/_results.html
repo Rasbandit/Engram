@@ -1,0 +1,31 @@
+{% if results %}
+<h3>{{ results|length }} result{{ 's' if results|length != 1 }}</h3>
+{% for r in results %}
+<article>
+    <header>
+        <strong>{{ r.title or 'Untitled' }}</strong>
+        {% if r.heading_path %}
+        <small> &mdash; {{ r.heading_path }}</small>
+        {% endif %}
+        <br>
+        <small>Score: {{ "%.3f"|format(r.score) }}</small>
+        {% if r.tags %}
+        &nbsp;
+        {% for tag in r.tags %}
+        <mark>{{ tag }}</mark>
+        {% endfor %}
+        {% endif %}
+    </header>
+    <p>{{ r.text[:300] }}{% if r.text|length > 300 %}...{% endif %}</p>
+    {% if r.source_path %}
+    <footer>
+        <a href="#" hx-get="/note/view?source_path={{ r.source_path|urlencode }}" hx-target="#note-viewer">
+            View full note
+        </a>
+    </footer>
+    {% endif %}
+</article>
+{% endfor %}
+{% else %}
+<p>No results found.</p>
+{% endif %}

@@ -1,0 +1,25 @@
+/* Brain — minimal overrides on Pico CSS */
+
+#tag-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+#tag-chips label {
+    cursor: pointer;
+    font-size: 0.875rem;
+}
+
+.htmx-indicator {
+    display: none;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+    display: block;
+}
+
+#note-viewer article {
+    white-space: pre-wrap;
+}

@@ -1,7 +1,6 @@
 """Qdrant vector store adapter."""
 
 import logging
-import os
 import uuid
 
 from qdrant_client import QdrantClient
@@ -15,10 +14,9 @@ from qdrant_client.models import (
     VectorParams,
 )
 
-logger = logging.getLogger(__name__)
+from config import EMBED_DIMS, QDRANT_URL
 
-QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
-EMBED_DIMS = int(os.environ.get("EMBED_DIMS", "768"))
+logger = logging.getLogger(__name__)
 
 
 def get_client() -> QdrantClient:
@@ -34,19 +32,17 @@ def ensure_collection(client: QdrantClient, name: str) -> None:
             vectors_config=VectorParams(size=EMBED_DIMS, distance=Distance.COSINE),
         )
         logger.info("Created collection: %s", name)
-    else:
-        logger.info("Collection already exists: %s", name)
 
-    # Ensure payload index on user_id for efficient filtered search
-    try:
-        client.create_payload_index(
-            collection_name=name,
-            field_name="user_id",
-            field_schema=PayloadSchemaType.KEYWORD,
-        )
-        logger.info("Created payload index on user_id for: %s", name)
-    except Exception:
-        logger.debug("Payload index on user_id already exists for: %s", name)
+    # Ensure payload indexes
+    for field_name in ("user_id", "source_path"):
+        try:
+            client.create_payload_index(
+                collection_name=name,
+                field_name=field_name,
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
+        except Exception:
+            pass
 
 
 def delete_by_source(client: QdrantClient, collection: str, source_path: str, user_id: str | None = None) -> None:
@@ -58,7 +54,6 @@ def delete_by_source(client: QdrantClient, collection: str, source_path: str, us
         collection_name=collection,
         points_selector=Filter(must=must_conditions),
     )
-    logger.debug("Deleted existing chunks for: %s", source_path)
 
 
 def upsert_chunks(

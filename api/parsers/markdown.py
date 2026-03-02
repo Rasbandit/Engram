@@ -2,7 +2,6 @@
 
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import frontmatter
 import tiktoken
@@ -89,13 +88,22 @@ def extract_wikilinks(text: str) -> list[str]:
     return WIKILINK_RE.findall(text)
 
 
-def parse_markdown(file_path: Path, collection: str = "obsidian", user_id: str | None = None) -> list[Chunk]:
-    """Parse a markdown file into chunks with metadata."""
-    raw = file_path.read_text(encoding="utf-8", errors="replace")
-    post = frontmatter.loads(raw)
+def parse_markdown_content(
+    content: str,
+    source_path: str,
+    mtime: float,
+    user_id: str,
+    collection: str = "obsidian_notes",
+) -> list[Chunk]:
+    """Parse raw markdown content into chunks with metadata.
+
+    Unlike parse_markdown() which reads from a file path, this works with
+    raw text content — suitable for notes received via API.
+    """
+    post = frontmatter.loads(content)
 
     fm = post.metadata or {}
-    title = fm.get("title") or file_path.stem
+    title = fm.get("title") or source_path.rsplit("/", 1)[-1].removesuffix(".md")
     tags = fm.get("tags", [])
     if isinstance(tags, str):
         tags = [t.strip() for t in tags.split(",")]
@@ -107,7 +115,6 @@ def parse_markdown(file_path: Path, collection: str = "obsidian", user_id: str |
     sections = _split_by_headings(body)
 
     if not sections:
-        # File has no headings — treat entire body as one section
         sections = [([], body)]
 
     chunks: list[Chunk] = []
@@ -120,19 +127,18 @@ def parse_markdown(file_path: Path, collection: str = "obsidian", user_id: str |
         sub_chunks = _chunk_text(section_text)
         for sub in sub_chunks:
             meta = {
-                    "source_path": str(file_path),
-                    "title": title,
-                    "heading_path": heading_str,
-                    "tags": tags,
-                    "aliases": aliases,
-                    "wikilinks": wikilinks,
-                    "last_modified": file_path.stat().st_mtime,
-                    "doc_type": "markdown",
-                    "collection": collection,
-                    "chunk_index": chunk_index,
+                "source_path": source_path,
+                "title": title,
+                "heading_path": heading_str,
+                "tags": tags,
+                "aliases": aliases,
+                "wikilinks": wikilinks,
+                "last_modified": mtime,
+                "doc_type": "markdown",
+                "collection": collection,
+                "chunk_index": chunk_index,
+                "user_id": user_id,
             }
-            if user_id:
-                meta["user_id"] = user_id
             chunks.append(Chunk(text=sub, metadata=meta))
             chunk_index += 1
 

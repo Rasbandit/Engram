@@ -5,7 +5,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Warm up tiktoken encoding cache
+RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
+
 COPY . .
+
+RUN mkdir -p /data
 
 EXPOSE 8000
 
