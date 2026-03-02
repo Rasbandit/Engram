@@ -4,25 +4,15 @@ import logging
 from datetime import datetime, timezone
 
 import psycopg
-from psycopg_pool import ConnectionPool
 
-from config import DATABASE_URL
+from pool import get_pool
 
 logger = logging.getLogger("brain-api")
-
-_pool: ConnectionPool | None = None
-
-
-def _get_pool() -> ConnectionPool:
-    global _pool
-    if _pool is None:
-        _pool = ConnectionPool(DATABASE_URL, min_size=2, max_size=10, open=True)
-    return _pool
 
 
 def init_note_db():
     """Create notes table and indexes if they don't exist."""
-    pool = _get_pool()
+    pool = get_pool()
     with pool.connection() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS notes (
@@ -100,7 +90,7 @@ def upsert_note(user_id: str, path: str, content: str, mtime: float) -> dict:
     folder = _extract_folder(path)
     now = datetime.now(timezone.utc)
 
-    pool = _get_pool()
+    pool = get_pool()
     with pool.connection() as conn:
         row = conn.execute("""
             INSERT INTO notes (user_id, path, title, content, folder, tags, mtime, updated_at, deleted_at)
@@ -126,7 +116,7 @@ def upsert_note(user_id: str, path: str, content: str, mtime: float) -> dict:
 
 def get_note(user_id: str, path: str) -> dict | None:
     """Get full note content from PostgreSQL."""
-    pool = _get_pool()
+    pool = get_pool()
     with pool.connection() as conn:
         row = conn.execute("""
             SELECT id, path, title, content, folder, tags, mtime, created_at, updated_at
@@ -145,7 +135,7 @@ def get_note(user_id: str, path: str) -> dict | None:
 
 def get_changes_since(user_id: str, since: datetime) -> list[dict]:
     """Get notes changed since a given timestamp (for sync)."""
-    pool = _get_pool()
+    pool = get_pool()
     with pool.connection() as conn:
         rows = conn.execute("""
             SELECT path, title, content, folder, tags, mtime, updated_at, deleted_at
@@ -166,7 +156,7 @@ def get_changes_since(user_id: str, since: datetime) -> list[dict]:
 def delete_note(user_id: str, path: str) -> bool:
     """Soft-delete a note. Returns True if a note was deleted."""
     now = datetime.now(timezone.utc)
-    pool = _get_pool()
+    pool = get_pool()
     with pool.connection() as conn:
         cursor = conn.execute("""
             UPDATE notes SET deleted_at = %s, updated_at = %s
@@ -178,7 +168,7 @@ def delete_note(user_id: str, path: str) -> bool:
 
 def get_folders(user_id: str) -> list[dict]:
     """Get folder tree with note counts."""
-    pool = _get_pool()
+    pool = get_pool()
     with pool.connection() as conn:
         rows = conn.execute("""
             SELECT folder, COUNT(*) as count
@@ -191,7 +181,7 @@ def get_folders(user_id: str) -> list[dict]:
 
 def get_all_tags_pg(user_id: str) -> list[dict]:
     """Get all unique tags with counts from PostgreSQL."""
-    pool = _get_pool()
+    pool = get_pool()
     with pool.connection() as conn:
         rows = conn.execute("""
             SELECT tag, COUNT(*) as count

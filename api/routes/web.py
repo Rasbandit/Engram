@@ -1,10 +1,9 @@
 """Web UI routes — login, register, search, settings."""
 
-import sqlite3
-
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from psycopg.errors import UniqueViolation
 
 import db
 from auth import create_jwt, get_current_user_session, SESSION_COOKIE
@@ -63,7 +62,7 @@ def register_submit(
         return RedirectResponse("/login", status_code=303)
     try:
         user = db.create_user(email, password, display_name)
-    except sqlite3.IntegrityError:
+    except UniqueViolation:
         ctx = _flash_context(request, error="Email already registered")
         return templates.TemplateResponse("register.html", ctx, status_code=400)
     token = create_jwt(user["id"])

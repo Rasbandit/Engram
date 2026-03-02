@@ -1,0 +1,106 @@
+# Full self-hosted Brain deployment — all services included.
+#
+# CPU-only (default — no GPU required):
+#   docker compose -f docker-compose.full.yml up -d
+#
+# CPU + Jina reranker (better search quality, slower reranking):
+#   docker compose -f docker-compose.full.yml -f docker-compose.jina.yml up -d
+#
+# With NVIDIA GPU (faster embeddings + GPU-accelerated Jina reranker):
+#   docker compose -f docker-compose.full.yml -f docker-compose.gpu.yml up -d
+#
+# With cloud embeddings (no GPU, no local Ollama needed for embeddings):
+#   Set EMBED_BACKEND=openai, OPENAI_API_KEY, and EMBED_DIMS=768 in .env
+#   Ollama still starts but won't be used for embeddings.
+#
+# Search works without Jina reranker — falls back to vector-only scoring.
+
+services:
+  brain-api:
+    build: ./api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://brain:brain@postgres:5432/brain
+      OLLAMA_URL: http://ollama:11434
+      QDRANT_URL: http://qdrant:6333
+      JINA_URL: http://jina-reranker:8082
+      EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
+      EMBED_DIMS: ${EMBED_DIMS:-768}
+      EMBED_BACKEND: ${EMBED_BACKEND:-ollama}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      COLLECTION: ${COLLECTION:-obsidian_notes}
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-random-string}
+      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    logging:
+      options:
+        max-size: "50m"
+        max-file: "1"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: brain
+      POSTGRES_PASSWORD: brain
+      POSTGRES_DB: brain
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brain"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot container that pulls the embedding model into Ollama on first start
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "ollama pull ${EMBED_MODEL:-nomic-embed-text}"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    restart: "no"
+
+volumes:
+  pg_data:
+  qdrant_data:
+  ollama_data:

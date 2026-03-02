@@ -14,6 +14,7 @@ import db
 import note_store
 from search import search
 from indexing import index_note
+from events import event_bus, NoteEvent, EventType
 
 logger = logging.getLogger("brain-mcp")
 
@@ -172,6 +173,7 @@ def write_note(path: str, content: str) -> str:
         logger.warning("Indexing failed for %s: %s", path, e)
         chunk_count = 0
 
+    event_bus.publish(NoteEvent(EventType.upsert, user_id, path))
     return f"Note saved: {path} ({chunk_count} chunks indexed)"
 
 
@@ -211,6 +213,7 @@ def create_note(title: str, content: str, suggested_folder: Optional[str] = None
         logger.warning("Indexing failed for %s: %s", path, e)
         chunk_count = 0
 
+    event_bus.publish(NoteEvent(EventType.upsert, user_id, path))
     return f"Note created: {path} ({chunk_count} chunks indexed)"
 
 

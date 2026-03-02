@@ -4,12 +4,14 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://brain:brain@postgres:5432/brain
+      JWT_SECRET: dev-secret-not-for-production
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     ports:
       - "8000:8000"
-    volumes:
-      - brain_data:/data
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
@@ -30,6 +32,16 @@ services:
       retries: 5
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
-  brain_data:
   pg_data:

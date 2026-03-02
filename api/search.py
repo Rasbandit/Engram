@@ -19,8 +19,8 @@ _embed = get_embedder()
 def _rerank(query: str, texts: list[str]) -> list[float]:
     """Rerank texts and return scores aligned to input order.
 
-    Jina returns results sorted by score and may truncate long texts.
-    We match results back using the first 50 chars of each text as a key.
+    Uses index-based matching — Jina results include an index field
+    corresponding to the input position.
     """
     resp = _http.post(
         f"{JINA_URL}/rerank",
@@ -29,17 +29,11 @@ def _rerank(query: str, texts: list[str]) -> list[float]:
     resp.raise_for_status()
     results = resp.json()
 
-    # Build lookup: first 50 chars of returned text → score
-    returned_scores = {}
+    scores = [0.0] * len(texts)
     for item in results:
-        key = item["text"][:50]
-        returned_scores[key] = item["score"]
-
-    # Match back to input texts using same prefix key
-    scores = []
-    for t in texts:
-        key = t[:50]
-        scores.append(returned_scores.get(key, 0.0))
+        idx = item.get("index")
+        if idx is not None and 0 <= idx < len(texts):
+            scores[idx] = item["score"]
     return scores
 
 

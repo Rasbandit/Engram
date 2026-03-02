@@ -19,8 +19,14 @@ from config import EMBED_DIMS, QDRANT_URL
 logger = logging.getLogger(__name__)
 
 
+_client: QdrantClient | None = None
+
+
 def get_client() -> QdrantClient:
-    return QdrantClient(url=QDRANT_URL)
+    global _client
+    if _client is None:
+        _client = QdrantClient(url=QDRANT_URL)
+    return _client
 
 
 def ensure_collection(client: QdrantClient, name: str) -> None:
