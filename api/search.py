@@ -9,7 +9,7 @@ from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 from config import COLLECTION, JINA_URL, QDRANT_URL
 from embedders import get_embedder
 
-logger = logging.getLogger("brain-api")
+logger = logging.getLogger("engram")
 
 _http = httpx.Client(timeout=120.0)
 _qdrant = QdrantClient(url=QDRANT_URL)

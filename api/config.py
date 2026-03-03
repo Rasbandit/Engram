@@ -1,4 +1,4 @@
-"""Configuration for brain-api."""
+"""Configuration for Engram."""
 
 import os
 import secrets
@@ -11,7 +11,7 @@ EMBED_DIMS = int(os.environ.get("EMBED_DIMS", "768"))
 COLLECTION = os.environ.get("COLLECTION", "obsidian_notes")
 
 # PostgreSQL
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://brain:brain@localhost:5432/brain")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://engram:engram@localhost:5432/engram")
 
 # Auth
 JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_urlsafe(32))

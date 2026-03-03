@@ -15,7 +15,7 @@ import psycopg
 
 from config import DATABASE_URL
 
-logger = logging.getLogger("brain-events")
+logger = logging.getLogger("engram-events")
 
 CHANNEL = "note_events"
 

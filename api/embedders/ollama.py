@@ -1,4 +1,4 @@
-"""Ollama embedding adapter for brain-api."""
+"""Ollama embedding adapter for Engram."""
 
 import httpx
 

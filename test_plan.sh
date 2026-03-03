@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ============================================================================
-# brain-api Comprehensive Test Plan
+# Engram Comprehensive Test Plan
 # ============================================================================
 # Tests all REST endpoints, auth, note lifecycle, search, sync, and edge cases.
-# Requires: brain-api + postgres + redis running (docker compose up)
+# Requires: engram + postgres + redis running (docker compose up)
 #
 # Usage:
 #   bash test_plan.sh          # run once against current config
@@ -29,7 +29,7 @@ if [[ "${1:-}" == "--both" ]]; then
             sleep 1
             i=$((i + 1))
         done
-        echo "ERROR: brain-api did not become healthy within ${max_wait}s"
+        echo "ERROR: engram did not become healthy within ${max_wait}s"
         return 1
     }
 
@@ -38,7 +38,7 @@ if [[ "${1:-}" == "--both" ]]; then
     echo "║  PHASE 1: Tests WITHOUT Redis (in-memory mode)  ║"
     echo "╚══════════════════════════════════════════════════╝"
     echo ""
-    REDIS_URL="" docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d brain-api --wait 2>&1 | tail -3
+    REDIS_URL="" docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d engram --wait 2>&1 | tail -3
     wait_healthy
     echo ""
 
@@ -54,7 +54,7 @@ if [[ "${1:-}" == "--both" ]]; then
     echo "║  PHASE 2: Tests WITH Redis (shared state mode)  ║"
     echo "╚══════════════════════════════════════════════════╝"
     echo ""
-    docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d brain-api --wait 2>&1 | tail -3
+    docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d engram --wait 2>&1 | tail -3
     wait_healthy
     echo ""
 
@@ -166,7 +166,7 @@ TEST_NAME="Test User ${TIMESTAMP}"
 RESP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/register" \
     -d "email=${TEST_EMAIL}&password=${TEST_PASS}&display_name=${TEST_NAME}" \
     -H "Content-Type: application/x-www-form-urlencoded" \
-    -c /tmp/brain_cookies)
+    -c /tmp/engram_cookies)
 STATUS="$RESP"
 assert_status "POST /register (new user → 303 redirect)" 303 "$STATUS"
 
@@ -184,7 +184,7 @@ echo "=== 2b. Auth — Login ==="
 RESP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/login" \
     -d "email=${TEST_EMAIL}&password=${TEST_PASS}" \
     -H "Content-Type: application/x-www-form-urlencoded" \
-    -c /tmp/brain_cookies)
+    -c /tmp/engram_cookies)
 STATUS="$RESP"
 assert_status "POST /login (valid → 303 redirect)" 303 "$STATUS"
 
@@ -202,13 +202,13 @@ echo "=== 2c. Auth — API Key Management ==="
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/settings/keys" \
     -d "name=test-key" \
     -H "Content-Type: application/x-www-form-urlencoded" \
-    -b /tmp/brain_cookies -L)
+    -b /tmp/engram_cookies -L)
 STATUS=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | head -1)
 assert_status "POST /settings/keys (create)" 200 "$STATUS"
 
 # Extract the API key from the response HTML
-API_KEY=$(echo "$RESP" | grep -oP 'brain_[A-Za-z0-9_-]+' | head -1 || true)
+API_KEY=$(echo "$RESP" | grep -oP 'engram_[A-Za-z0-9_-]+' | head -1 || true)
 if [[ -z "$API_KEY" ]]; then
     fail "Could not extract API key from settings response"
     echo "FATAL: Cannot continue without API key"
@@ -229,7 +229,7 @@ assert_status "GET /tags (no auth → 401)" 401 "$STATUS"
 
 # Invalid API key
 RESP=$(curl -s -w "\n%{http_code}" "$BASE/tags" \
-    -H "Authorization: Bearer brain_invalidkey123")
+    -H "Authorization: Bearer engram_invalidkey123")
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /tags (invalid key)" 401 "$STATUS"
 
@@ -622,14 +622,14 @@ TEST_EMAIL2="other_${TIMESTAMP2}@example.com"
 curl -s -X POST "$BASE/register" \
     -d "email=${TEST_EMAIL2}&password=otherpass&display_name=Other+User" \
     -H "Content-Type: application/x-www-form-urlencoded" \
-    -c /tmp/brain_cookies2 -L -o /dev/null
+    -c /tmp/engram_cookies2 -L -o /dev/null
 
 # Create API key for second user
 RESP2=$(curl -s -X POST "$BASE/settings/keys" \
     -d "name=other-key" \
     -H "Content-Type: application/x-www-form-urlencoded" \
-    -b /tmp/brain_cookies2 -L)
-API_KEY2=$(echo "$RESP2" | grep -oP 'brain_[A-Za-z0-9_-]+' | head -1 || true)
+    -b /tmp/engram_cookies2 -L)
+API_KEY2=$(echo "$RESP2" | grep -oP 'engram_[A-Za-z0-9_-]+' | head -1 || true)
 
 if [[ -n "$API_KEY2" ]]; then
     pass "Second user created with API key"
@@ -692,12 +692,12 @@ else
 fi
 
 # Search page with session cookie
-RESP=$(curl -s -w "\n%{http_code}" "$BASE/search" -b /tmp/brain_cookies -L)
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/search" -b /tmp/engram_cookies -L)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /search (with session)" 200 "$STATUS"
 
 # Settings page with session
-RESP=$(curl -s -w "\n%{http_code}" "$BASE/settings" -b /tmp/brain_cookies -L)
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/settings" -b /tmp/engram_cookies -L)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /settings (with session)" 200 "$STATUS"
 
@@ -993,8 +993,8 @@ echo "=== 20. API Key Deletion + Cache Invalidation ==="
 RESP=$(curl -s -X POST "$BASE/settings/keys" \
     -d "name=temp-delete-key" \
     -H "Content-Type: application/x-www-form-urlencoded" \
-    -b /tmp/brain_cookies -L)
-TEMP_KEY=$(echo "$RESP" | grep -oP 'brain_[A-Za-z0-9_-]+' | head -1 || true)
+    -b /tmp/engram_cookies -L)
+TEMP_KEY=$(echo "$RESP" | grep -oP 'engram_[A-Za-z0-9_-]+' | head -1 || true)
 
 if [[ -n "$TEMP_KEY" ]]; then
     # Verify the key works
@@ -1007,7 +1007,7 @@ if [[ -n "$TEMP_KEY" ]]; then
     curl -s "$BASE/tags" -H "Authorization: Bearer $TEMP_KEY" -o /dev/null
 
     # Get the key ID for temp-delete-key from settings page
-    SETTINGS_HTML=$(curl -s "$BASE/settings" -b /tmp/brain_cookies -L)
+    SETTINGS_HTML=$(curl -s "$BASE/settings" -b /tmp/engram_cookies -L)
     # Extract key_id for the temp-delete-key specifically (not the main test key)
     KEY_ID=$(python3 -c "
 import re, sys
@@ -1023,7 +1023,7 @@ for name, kid in rows:
     if [[ -n "$KEY_ID" ]]; then
         # Delete via settings endpoint
         curl -s -X POST "$BASE/settings/keys/$KEY_ID/delete" \
-            -b /tmp/brain_cookies -L -o /dev/null
+            -b /tmp/engram_cookies -L -o /dev/null
 
         # Key should be immediately invalid (cache invalidated)
         RESP=$(curl -s -w "\n%{http_code}" "$BASE/tags" \
@@ -1047,24 +1047,24 @@ echo "=== 21. Logout ==="
 curl -s -o /dev/null -X POST "$BASE/login" \
     -d "email=${TEST_EMAIL}&password=${TEST_PASS}" \
     -H "Content-Type: application/x-www-form-urlencoded" \
-    -c /tmp/brain_cookies_logout
+    -c /tmp/engram_cookies_logout
 
 # Verify session works
 RESP=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/search" \
-    -b /tmp/brain_cookies_logout -L)
+    -b /tmp/engram_cookies_logout -L)
 assert_status "GET /search (before logout)" 200 "$RESP"
 
 # Logout
 RESP=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/logout" \
-    -b /tmp/brain_cookies_logout -c /tmp/brain_cookies_logout)
+    -b /tmp/engram_cookies_logout -c /tmp/engram_cookies_logout)
 assert_status "GET /logout → 303 redirect" 303 "$RESP"
 
 # After logout, search should redirect to login
 RESP=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/search" \
-    -b /tmp/brain_cookies_logout)
+    -b /tmp/engram_cookies_logout)
 assert_status "GET /search (after logout) → 303 redirect" 303 "$RESP"
 
-rm -f /tmp/brain_cookies_logout
+rm -f /tmp/engram_cookies_logout
 
 # ============================================================================
 # SECTION 22: Note Size Limit (413)
@@ -1402,7 +1402,7 @@ assert_status "POST /mcp/ (no auth → 401)" 401 "$STATUS"
 
 # Invalid key → 401
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/mcp/" \
-    -H "Authorization: Bearer brain_invalidkey123" \
+    -H "Authorization: Bearer engram_invalidkey123" \
     -H "Content-Type: application/json" \
     -d '{}')
 STATUS=$(echo "$RESP" | tail -1)
@@ -1457,9 +1457,9 @@ HAS_REDIS_RL=$(echo "$DEEP_HEALTH" | jq 'has("checks") and (.checks | has("redis
 if [[ "$HAS_REDIS_RL" == "true" ]]; then
     # Redis is configured — rate limit is global, so we can test it
     RATE_KEY=$(curl -s -X POST "$BASE/settings/keys" \
-        -b /tmp/brain_cookies \
+        -b /tmp/engram_cookies \
         -H "Content-Type: application/x-www-form-urlencoded" \
-        -d "name=rate-test-key" -L | grep -oP 'brain_[A-Za-z0-9_-]+' || echo "")
+        -d "name=rate-test-key" -L | grep -oP 'engram_[A-Za-z0-9_-]+' || echo "")
 
     if [[ -n "$RATE_KEY" ]]; then
         GOT_429=false

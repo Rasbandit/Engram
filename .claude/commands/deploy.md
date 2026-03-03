@@ -1,9 +1,9 @@
 ---
-description: Deploy brain-api with auto-determined semver version
+description: Deploy engram with auto-determined semver version
 allowed-tools: Bash, Read, Grep, Glob
 ---
 
-# Deploy brain-api
+# Deploy Engram
 
 ## Current state
 

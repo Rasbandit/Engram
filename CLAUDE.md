@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-AI-powered personal knowledge base built on an Obsidian vault. Makes your notes queryable by any AI assistant via MCP.
+Engram — AI-powered personal knowledge base built on an Obsidian vault. Your vault remembers everything. Makes your notes queryable by any AI assistant via MCP.
 
 ## Architecture
 
-brain-api is the single service — search, MCP server, note storage, indexing, and sync hub. No separate indexer process. Notes come in from the Obsidian plugin (or REST API) and are stored in PostgreSQL, parsed, embedded, and indexed into Qdrant.
+Engram is the single service — search, MCP server, note storage, indexing, and sync hub. No separate indexer process. Notes come in from the Obsidian plugin (or REST API) and are stored in PostgreSQL, parsed, embedded, and indexed into Qdrant.
 
 ### Components (all in `api/`)
 
@@ -42,15 +42,15 @@ MCP write_note → PostgreSQL + index → plugin pulls on next sync → appears 
 ## Local Development
 
 ```bash
-# Build and run locally (Docker Compose — starts brain-api + PostgreSQL)
+# Build and run locally (Docker Compose — starts engram + PostgreSQL)
 docker compose up --build
 
-# Run brain-api individually (requires Ollama, Qdrant, Jina, PostgreSQL running)
+# Run engram individually (requires Ollama, Qdrant, Jina, PostgreSQL running)
 cd api && uvicorn main:app --host 0.0.0.0 --port 8000
 
 # Push a test note
 curl -X POST http://localhost:8000/notes \
-  -H "Authorization: Bearer brain_..." \
+  -H "Authorization: Bearer engram_..." \
   -H "Content-Type: application/json" \
   -d '{"path": "Test/Hello.md", "content": "# Hello\nTest note", "mtime": 1709234567.0}'
 ```
@@ -68,7 +68,6 @@ curl -X POST http://localhost:8000/notes \
 | `EMBED_BACKEND` | `ollama` | `ollama` or `openai` |
 | `COLLECTION` | `obsidian_notes` | Qdrant collection name |
 | `JWT_SECRET` | random | JWT signing key |
-| `DB_PATH` | `/data/brain.db` | SQLite auth database |
 | `REGISTRATION_ENABLED` | `true` | Allow new users |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 | `PG_POOL_MAX` | `15` | PostgreSQL pool size per worker |
@@ -114,7 +113,7 @@ bash test_plan.sh
 
 Supports `--both` flag to run tests twice: without Redis (in-memory) then with Redis.
 
-Requires: brain-api + postgres running locally (docker compose), plus Ollama and Qdrant reachable for indexing/search tests.
+Requires: engram + postgres running locally (docker compose), plus Ollama and Qdrant reachable for indexing/search tests.
 
 ## Production Deployment
 
@@ -125,12 +124,12 @@ Requires: brain-api + postgres running locally (docker compose), plus Ollama and
 Configure via environment variables, then run:
 
 ```bash
-export BRAIN_REGISTRY="ghcr.io/youruser/brain-api"
+export ENGRAM_REGISTRY="ghcr.io/youruser/engram"
 export DEPLOY_SERVER="user@your-server"
-export DEPLOY_DIR="/opt/brain"          # optional, default: /opt/brain
+export DEPLOY_DIR="/opt/engram"          # optional, default: /opt/engram
 export DOCKER_NETWORK="ai"             # optional, default: ai
 
-./deploy.sh 1.4.2
+./deploy.sh 2.0.0
 ```
 
 Or set these in a `.env.deploy` and source it before running.
@@ -139,27 +138,27 @@ Or set these in a `.env.deploy` and source it before running.
 
 ```bash
 # Check status
-ssh user@your-server "docker ps --filter name=brain"
+ssh user@your-server "docker ps --filter name=engram"
 
 # View logs
-ssh user@your-server "docker logs brain-api --tail 50"
+ssh user@your-server "docker logs engram --tail 50"
 
 # Restart
-ssh user@your-server "docker restart brain-api"
+ssh user@your-server "docker restart engram"
 ```
 
 ### Production Config
 
 The deploy script creates two files on the remote server at `$DEPLOY_DIR`:
 - `docker-compose.yml` — service definitions (synced from `docker-compose.prod.yml` in this repo)
-- `.env` — `VERSION`, `BRAIN_IMAGE`, and `JWT_SECRET` (generated once, persists across deploys)
+- `.env` — `VERSION`, `ENGRAM_IMAGE`, and `JWT_SECRET` (generated once, persists across deploys)
 
 | Setting | Value |
 |---------|-------|
 | Network | `ai` (external, shared with ollama, qdrant, jina-reranker) |
-| Containers | `brain-api`, `brain-postgres`, `brain-redis` |
+| Containers | `engram`, `engram-postgres`, `engram-redis` |
 | Port | 8000:8000 |
-| Volumes | `brain_pg_data` (PostgreSQL data) |
+| Volumes | `engram_pg_data` (PostgreSQL data) |
 | Log limits | max-size=50m, max-file=1 |
 | Current version | 1.4.1 |
 
@@ -169,21 +168,21 @@ The deploy script creates two files on the remote server at `$DEPLOY_DIR`:
 # On the remote server:
 
 # Ensure volumes exist
-docker volume create brain_pg_data
+docker volume create engram_pg_data
 
 # Create .env with JWT_SECRET
-mkdir -p /opt/brain
-echo "JWT_SECRET=$(openssl rand -base64 32)" > /opt/brain/.env
-echo "VERSION=1.4.1" >> /opt/brain/.env
-echo "BRAIN_IMAGE=ghcr.io/youruser/brain-api" >> /opt/brain/.env
+mkdir -p /opt/engram
+echo "JWT_SECRET=$(openssl rand -base64 32)" > /opt/engram/.env
+echo "VERSION=2.0.0" >> /opt/engram/.env
+echo "ENGRAM_IMAGE=ghcr.io/youruser/engram" >> /opt/engram/.env
 ```
 
 ### Infrastructure
 
 The Docker network (default `ai`) connects these containers:
-- **brain-api** — this service (search, MCP, sync, indexing)
-- **brain-postgres** — PostgreSQL note + attachment content storage
-- **brain-redis** — API key caching, rate limiting (LRU, 128MB max)
+- **engram** — this service (search, MCP, sync, indexing)
+- **engram-postgres** — PostgreSQL note + attachment content storage
+- **engram-redis** — API key caching, rate limiting (LRU, 128MB max)
 - **ollama** (port 11434) — embedding model inference, GPU-accelerated
 - **qdrant** (port 6333) — vector database
 - **jina-reranker** (port 8082) — Jina reranker for search quality

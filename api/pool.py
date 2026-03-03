@@ -6,7 +6,7 @@ from psycopg_pool import ConnectionPool
 
 from config import DATABASE_URL, PG_POOL_MAX
 
-logger = logging.getLogger("brain-api")
+logger = logging.getLogger("engram")
 
 _pool: ConnectionPool | None = None
 

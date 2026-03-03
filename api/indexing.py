@@ -7,7 +7,7 @@ from embedders import get_batch_embedder
 from parsers.markdown import parse_markdown_content
 from stores.qdrant_store import delete_by_source, ensure_collection, get_client, upsert_chunks
 
-logger = logging.getLogger("brain-api")
+logger = logging.getLogger("engram")
 
 _embed_batch = get_batch_embedder()
 

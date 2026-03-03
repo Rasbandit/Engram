@@ -8,7 +8,7 @@ from typing import Callable
 
 import redis_client
 
-logger = logging.getLogger("brain-api")
+logger = logging.getLogger("engram")
 
 _REDIS_QUEUE_KEY = "taskqueue:index"
 _MAX_RETRIES = 3

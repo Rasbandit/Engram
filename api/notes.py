@@ -4,7 +4,7 @@ import logging
 
 import note_store
 
-logger = logging.getLogger("brain-api")
+logger = logging.getLogger("engram")
 
 
 def get_all_tags(user_id: str | None = None) -> list[dict]:

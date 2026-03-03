@@ -1,4 +1,4 @@
-"""brain-api: FastAPI search service for Brain."""
+"""engram: FastAPI search service for Engram."""
 
 import logging
 import os
@@ -58,9 +58,9 @@ async def lifespan(app: FastAPI):
     close_pool()
 
 
-app = FastAPI(title="Brain API", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Engram", version="0.3.0", lifespan=lifespan)
 
-_req_logger = logging.getLogger("brain-api.requests")
+_req_logger = logging.getLogger("engram.requests")
 
 
 class RequestLoggingMiddleware:
@@ -226,7 +226,7 @@ def upsert_note_endpoint(req: NoteUpsertRequest, user: dict = Depends(rate_limit
         try:
             chunk_count = index_note(req.path, req.content, req.mtime, user_id)
         except Exception as e:
-            logging.getLogger("brain-api").warning("Indexing failed for %s: %s", req.path, e)
+            logging.getLogger("engram").warning("Indexing failed for %s: %s", req.path, e)
             chunk_count = 0
     event_bus.publish(NoteEvent(EventType.upsert, user_id, req.path))
     return {"note": note, "chunks_indexed": chunk_count}
@@ -275,7 +275,7 @@ def delete_note_endpoint(path: str, user: dict = Depends(get_current_user_api_ke
     try:
         delete_note_index(path, user_id)
     except Exception as e:
-        logging.getLogger("brain-api").warning("Failed to delete index for %s: %s", path, e)
+        logging.getLogger("engram").warning("Failed to delete index for %s: %s", path, e)
     event_bus.publish(NoteEvent(EventType.delete, user_id, path))
     return {"deleted": True, "path": path}
 

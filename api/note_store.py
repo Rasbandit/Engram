@@ -7,7 +7,7 @@ import psycopg
 
 from pool import get_pool
 
-logger = logging.getLogger("brain-api")
+logger = logging.getLogger("engram")
 
 
 def init_note_db():

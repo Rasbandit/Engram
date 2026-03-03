@@ -13,7 +13,7 @@ from psycopg.errors import UniqueViolation
 from pool import get_pool
 import redis_client
 
-logger = logging.getLogger("brain-api")
+logger = logging.getLogger("engram")
 
 # API key validation cache: key_hash -> (user_dict, cached_at)
 _key_cache: dict[str, tuple[dict, float]] = {}
@@ -94,7 +94,7 @@ def get_user_by_id(user_id: int) -> dict | None:
 
 def create_api_key(user_id: int, name: str) -> str:
     """Create an API key. Returns the raw key (only shown once)."""
-    raw_key = "brain_" + secrets.token_urlsafe(32)
+    raw_key = "engram_" + secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
     pool = get_pool()
     with pool.connection() as conn:

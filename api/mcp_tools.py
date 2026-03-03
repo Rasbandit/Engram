@@ -1,4 +1,4 @@
-"""MCP tool definitions for Brain, with Bearer token auth via ASGI middleware."""
+"""MCP tool definitions for Engram, with Bearer token auth via ASGI middleware."""
 
 import contextvars
 import logging
@@ -16,7 +16,7 @@ from search import search
 from indexing import index_note
 from events import event_bus, NoteEvent, EventType
 
-logger = logging.getLogger("brain-mcp")
+logger = logging.getLogger("engram-mcp")
 
 # Context variable to thread user_id into MCP tool functions
 _current_user_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
@@ -62,12 +62,16 @@ class MCPAuthMiddleware:
             _current_user_id.reset(token)
 
 
-mcp = FastMCP("Brain")
+mcp = FastMCP("Engram")
 
 
 @mcp.tool()
 def search_notes(query: str, limit: int = 5, tags: Optional[list[str]] = None) -> str:
-    """Search the Obsidian vault knowledge base. Returns relevant notes ranked by relevance.
+    """Search your personal knowledge base. Finds relevant notes from your
+    Obsidian vault using semantic search with neural reranking.
+
+    Use when the user asks about their notes, vault, knowledge, or memory.
+    Handles natural queries like "what do I know about X" or "find my notes on Y".
 
     Args:
         query: Natural language search query
@@ -95,7 +99,9 @@ def search_notes(query: str, limit: int = 5, tags: Optional[list[str]] = None) -
 
 @mcp.tool()
 def get_note(source_path: str) -> str:
-    """Get the full content of a specific note from the knowledge base.
+    """Retrieve the full content of a specific note from the knowledge base.
+    Use after searching to read a complete note, or when the user references
+    a specific note by name or path.
 
     Args:
         source_path: The path of the note (e.g. "2. Knowledge Vault/Health/Omega Oils.md")
@@ -124,7 +130,8 @@ def get_note(source_path: str) -> str:
 
 @mcp.tool()
 def list_tags() -> str:
-    """List all tags in the knowledge base with document counts."""
+    """List all tags in the personal knowledge base with document counts.
+    Use to explore what topics exist in the vault or help the user find notes by category."""
     user_id = _current_user_id.get()
     tags = note_store.get_all_tags_pg(user_id)
 
@@ -140,7 +147,8 @@ def list_tags() -> str:
 
 @mcp.tool()
 def list_folders() -> str:
-    """List all folders in the knowledge base with note counts."""
+    """List all folders in the personal knowledge base with note counts.
+    Use to understand the vault's organization or help place new notes."""
     user_id = _current_user_id.get()
     folders = note_store.get_folders(user_id)
 
@@ -157,7 +165,8 @@ def list_folders() -> str:
 
 @mcp.tool()
 def write_note(path: str, content: str) -> str:
-    """Write or update a note at a specific path. Saves to storage and indexes for search.
+    """Write or update a note in the knowledge base. Saves to storage and
+    indexes for search. The note will sync to all connected Obsidian devices.
 
     Args:
         path: Full path for the note (e.g. "2. Knowledge Vault/Health/New Note.md")
@@ -179,15 +188,16 @@ def write_note(path: str, content: str) -> str:
 
 @mcp.tool()
 def create_note(title: str, content: str, suggested_folder: Optional[str] = None) -> str:
-    """Create a new note with automatic folder placement if no folder is specified.
+    """Create a new note in the knowledge base with automatic folder placement.
+    The note will be indexed for search and sync to all connected Obsidian devices.
 
-    If no folder is given, searches for similar content and places the note in the
-    most common folder among top results.
+    If no folder is given, searches for similar content and places the note
+    in the most relevant folder automatically.
 
     Args:
         title: Title for the new note
         content: Markdown content of the note
-        suggested_folder: Optional folder path (e.g. "2. Knowledge Vault/Health"). If not given, auto-places based on similar content.
+        suggested_folder: Optional folder path. If not given, auto-places based on similar content.
     """
     user_id = _current_user_id.get()
 

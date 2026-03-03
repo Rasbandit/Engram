@@ -13,7 +13,7 @@ _bearer_scheme = HTTPBearer()
 
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_DAYS = 7
-SESSION_COOKIE = "brain_session"
+SESSION_COOKIE = "engram_session"
 
 
 def create_jwt(user_id: int) -> str:

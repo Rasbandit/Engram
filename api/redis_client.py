@@ -5,7 +5,7 @@ from typing import Optional
 
 from config import REDIS_URL
 
-logger = logging.getLogger("brain-api")
+logger = logging.getLogger("engram")
 
 _sync_client = None
 _async_client = None

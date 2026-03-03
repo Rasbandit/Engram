@@ -1,4 +1,4 @@
-# Full self-hosted Brain deployment — all services included.
+# Full self-hosted Engram deployment — all services included.
 #
 # CPU-only (default — no GPU required):
 #   docker compose -f docker-compose.full.yml up -d
@@ -16,12 +16,12 @@
 # Search works without Jina reranker — falls back to vector-only scoring.
 
 services:
-  brain-api:
+  engram:
     build: ./api
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://brain:brain@postgres:5432/brain
+      DATABASE_URL: postgresql://engram:engram@postgres:5432/engram
       OLLAMA_URL: http://ollama:11434
       QDRANT_URL: http://qdrant:6333
       JINA_URL: http://jina-reranker:8082
@@ -49,15 +49,15 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: brain
-      POSTGRES_PASSWORD: brain
-      POSTGRES_DB: brain
+      POSTGRES_USER: engram
+      POSTGRES_PASSWORD: engram
+      POSTGRES_DB: engram
     ports:
       - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U brain"]
+      test: ["CMD-SHELL", "pg_isready -U engram"]
       interval: 5s
       timeout: 5s
       retries: 5

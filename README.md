@@ -1,4 +1,6 @@
-# brain
+# Engram
+
+Your vault remembers everything.
 
 AI-powered personal knowledge base that makes your Obsidian vault queryable by any AI assistant via [MCP](https://modelcontextprotocol.io). Notes are stored in PostgreSQL, embedded into vectors, and searched with a two-stage pipeline (vector retrieval + semantic reranking) that actually understands what you wrote.
 
@@ -16,7 +18,7 @@ Pairs with the [brain-obsidian-sync](https://github.com/Rasbandit/brain-obsidian
                     SSE (live change stream)
                                   |
                          +--------v--------+
-                         |    brain-api    |
+                         |     Engram      |
                          |   (FastAPI)     |
                          +--+---------+--+-+
                             |         |  |
@@ -158,7 +160,7 @@ docker compose up --build
 ```
 
 This starts:
-- **brain-api** on port 8000
+- **Engram** on port 8000
 - **PostgreSQL** on port 5432
 - **Redis** on port 6379
 
@@ -186,13 +188,13 @@ curl -X POST http://localhost:8000/api-keys \
   -d '{"name": "my-key"}'
 ```
 
-Save the returned API key — it starts with `brain_` and is only shown once.
+Save the returned API key — it starts with `engram_` and is only shown once.
 
 ### 5. Push a Note
 
 ```bash
 curl -X POST http://localhost:8000/notes \
-  -H "Authorization: Bearer brain_your_key_here" \
+  -H "Authorization: Bearer engram_your_key_here" \
   -H "Content-Type: application/json" \
   -d '{
     "path": "Notes/Hello World.md",
@@ -205,7 +207,7 @@ curl -X POST http://localhost:8000/notes \
 
 ```bash
 curl -X POST http://localhost:8000/search \
-  -H "Authorization: Bearer brain_your_key_here" \
+  -H "Authorization: Bearer engram_your_key_here" \
   -H "Content-Type: application/json" \
   -d '{"query": "hello", "limit": 5}'
 ```
@@ -215,7 +217,7 @@ curl -X POST http://localhost:8000/search \
 Install [brain-obsidian-sync](https://github.com/Rasbandit/brain-obsidian-sync) via BRAT, then configure:
 
 - **Server URL**: `http://your-server:8000`
-- **API Key**: your `brain_` key
+- **API Key**: your `engram_` key
 
 The plugin handles full vault sync, live SSE updates, offline queueing, and conflict resolution.
 
@@ -228,11 +230,11 @@ Add to your Claude Code MCP settings:
 ```json
 {
   "mcpServers": {
-    "brain": {
+    "engram": {
       "type": "sse",
       "url": "http://your-server:8000/mcp",
       "headers": {
-        "Authorization": "Bearer brain_your_key_here"
+        "Authorization": "Bearer engram_your_key_here"
       }
     }
   }
@@ -246,11 +248,11 @@ Add to `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "brain": {
+    "engram": {
       "url": "http://your-server:8000/mcp",
       "transport": "sse",
       "headers": {
-        "Authorization": "Bearer brain_your_key_here"
+        "Authorization": "Bearer engram_your_key_here"
       }
     }
   }
@@ -387,13 +389,13 @@ The included `deploy.sh` handles: build, tag, push to registry, deploy via SSH, 
 
 ```bash
 # Configure (or put these in .env.deploy)
-export BRAIN_REGISTRY="ghcr.io/youruser/brain-api"
+export ENGRAM_REGISTRY="ghcr.io/youruser/engram"
 export DEPLOY_SERVER="user@your-server"
-export DEPLOY_DIR="/opt/brain"        # default: /opt/brain
+export DEPLOY_DIR="/opt/engram"        # default: /opt/engram
 export DOCKER_NETWORK="ai"            # default: ai
 
 # Deploy
-./deploy.sh 1.4.2
+./deploy.sh 2.0.0
 ```
 
 ### Production Architecture
@@ -401,9 +403,9 @@ export DOCKER_NETWORK="ai"            # default: ai
 ```
 your-server
 ├── Docker network: "ai"
-│   ├── brain-api        :8000  ← this project
-│   ├── brain-postgres   :5432  ← note + auth storage
-│   ├── brain-redis      :6379  ← caching, rate limiting
+│   ├── engram           :8000  ← this project
+│   ├── engram-postgres  :5432  ← note + auth storage
+│   ├── engram-redis     :6379  ← caching, rate limiting
 │   ├── ollama           :11434 ← embedding inference (GPU)
 │   ├── qdrant           :6333  ← vector database
 │   └── jina-reranker    :8082  ← search quality boost (GPU)
@@ -418,33 +420,33 @@ your-server
 docker network create ai
 
 # Create persistent volume for PostgreSQL
-docker volume create brain_pg_data
+docker volume create engram_pg_data
 
 # Create config directory
-mkdir -p /opt/brain
+mkdir -p /opt/engram
 
 # Generate JWT secret (persists across deploys)
-echo "JWT_SECRET=$(openssl rand -base64 32)" > /opt/brain/.env
-echo "VERSION=1.4.1" >> /opt/brain/.env
-echo "BRAIN_IMAGE=ghcr.io/youruser/brain-api" >> /opt/brain/.env
+echo "JWT_SECRET=$(openssl rand -base64 32)" > /opt/engram/.env
+echo "VERSION=2.0.0" >> /opt/engram/.env
+echo "ENGRAM_IMAGE=ghcr.io/youruser/engram" >> /opt/engram/.env
 ```
 
 ### Manual Operations
 
 ```bash
 # Check status
-ssh user@your-server "docker ps --filter name=brain"
+ssh user@your-server "docker ps --filter name=engram"
 
 # View logs
-ssh user@your-server "docker logs brain-api --tail 50"
+ssh user@your-server "docker logs engram --tail 50"
 
 # Restart
-ssh user@your-server "docker restart brain-api"
+ssh user@your-server "docker restart engram"
 ```
 
 ## Web UI
 
-brain-api includes a built-in web interface at the root URL (`http://your-server:8000/`). Features:
+Engram includes a built-in web interface at the root URL (`http://your-server:8000/`). Features:
 
 - Login / registration
 - Full-text semantic search with tag filtering

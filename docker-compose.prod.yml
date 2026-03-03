@@ -1,14 +1,14 @@
 services:
-  brain-api:
-    image: ${BRAIN_IMAGE:-brain-api}:${VERSION:-latest}
-    container_name: brain-api
+  engram:
+    image: ${ENGRAM_IMAGE:-engram}:${VERSION:-latest}
+    container_name: engram
     ports:
       - "8000:8000"
     environment:
       TZ: ${TZ:-UTC}
       EMBED_MODEL: nomic-embed-text
       EMBED_BACKEND: ollama
-      DATABASE_URL: postgresql://brain:brain@brain-postgres:5432/brain
+      DATABASE_URL: postgresql://engram:engram@engram-postgres:5432/engram
       JWT_SECRET: ${JWT_SECRET}
       REGISTRATION_ENABLED: "true"
       OLLAMA_URL: http://ollama:11434
@@ -16,21 +16,21 @@ services:
       JINA_URL: ${JINA_URL:-http://jina-reranker:8082}
       COLLECTION: obsidian_notes
       LOG_LEVEL: INFO
-      REDIS_URL: redis://brain-redis:6379/0
+      REDIS_URL: redis://engram-redis:6379/0
     logging:
       options:
         max-size: "50m"
         max-file: "1"
     depends_on:
-      brain-postgres:
+      engram-postgres:
         condition: service_healthy
-      brain-redis:
+      engram-redis:
         condition: service_healthy
     restart: unless-stopped
 
-  brain-redis:
+  engram-redis:
     image: redis:7-alpine
-    container_name: brain-redis
+    container_name: engram-redis
     command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -43,17 +43,17 @@ services:
         max-file: "1"
     restart: unless-stopped
 
-  brain-postgres:
+  engram-postgres:
     image: postgres:16-alpine
-    container_name: brain-postgres
+    container_name: engram-postgres
     volumes:
-      - brain_pg_data:/var/lib/postgresql/data
+      - engram_pg_data:/var/lib/postgresql/data
     environment:
-      POSTGRES_USER: brain
-      POSTGRES_PASSWORD: brain
-      POSTGRES_DB: brain
+      POSTGRES_USER: engram
+      POSTGRES_PASSWORD: engram
+      POSTGRES_DB: engram
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U brain"]
+      test: ["CMD-SHELL", "pg_isready -U engram"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -69,5 +69,5 @@ networks:
     external: true
 
 volumes:
-  brain_pg_data:
+  engram_pg_data:
     external: true

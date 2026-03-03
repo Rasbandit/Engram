@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from auth import get_current_user_api_key
 from events import event_bus
 
-logger = logging.getLogger("brain-stream")
+logger = logging.getLogger("engram-stream")
 
 router = APIRouter()
 

@@ -10,7 +10,7 @@ from auth import get_current_user_api_key
 from config import RATE_LIMIT_RPM
 import redis_client
 
-logger = logging.getLogger("brain-api")
+logger = logging.getLogger("engram")
 
 
 class RateLimiter:

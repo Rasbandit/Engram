@@ -1,9 +1,9 @@
 services:
-  brain-api:
+  engram:
     build: ./api
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://brain:brain@postgres:5432/brain
+      DATABASE_URL: postgresql://engram:engram@postgres:5432/engram
       JWT_SECRET: dev-secret-not-for-production
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     ports:
@@ -18,15 +18,15 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: brain
-      POSTGRES_PASSWORD: brain
-      POSTGRES_DB: brain
+      POSTGRES_USER: engram
+      POSTGRES_PASSWORD: engram
+      POSTGRES_DB: engram
     ports:
       - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U brain"]
+      test: ["CMD-SHELL", "pg_isready -U engram"]
       interval: 5s
       timeout: 5s
       retries: 5
