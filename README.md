@@ -4,7 +4,7 @@ Your vault remembers everything.
 
 AI-powered personal knowledge base that makes your Obsidian vault queryable by any AI assistant via [MCP](https://modelcontextprotocol.io). Notes are stored in PostgreSQL, embedded into vectors, and searched with a two-stage pipeline (vector retrieval + semantic reranking) that actually understands what you wrote.
 
-Pairs with the [brain-obsidian-sync](https://github.com/Rasbandit/brain-obsidian-sync) plugin for real-time bidirectional sync between Obsidian and the server.
+Pairs with the [Engram Obsidian Sync](https://github.com/Rasbandit/Engram-obsidian-sync) plugin for real-time bidirectional sync between Obsidian and the server.
 
 ## How It Works
 
@@ -214,7 +214,7 @@ curl -X POST http://localhost:8000/search \
 
 ### 7. Connect the Obsidian Plugin
 
-Install [brain-obsidian-sync](https://github.com/Rasbandit/brain-obsidian-sync) via BRAT, then configure:
+Install [Engram Obsidian Sync](https://github.com/Rasbandit/Engram-obsidian-sync) via BRAT, then configure:
 
 - **Server URL**: `http://your-server:8000`
 - **API Key**: your `engram_` key
