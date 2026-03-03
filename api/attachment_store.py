@@ -14,27 +14,31 @@ logger = logging.getLogger("engram")
 def init_attachment_db():
     """Create attachments table and indexes if they don't exist."""
     pool = get_pool()
-    with pool.connection() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS attachments (
-                id SERIAL PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                path TEXT NOT NULL,
-                content BYTEA NOT NULL DEFAULT '',
-                mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
-                size_bytes BIGINT NOT NULL DEFAULT 0,
-                mtime DOUBLE PRECISION NOT NULL DEFAULT 0,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                deleted_at TIMESTAMPTZ,
-                UNIQUE(user_id, path)
-            )
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_attachments_user_updated
-            ON attachments(user_id, updated_at)
-        """)
-        conn.commit()
+    try:
+        with pool.connection() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS attachments (
+                    id SERIAL PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    content BYTEA NOT NULL DEFAULT '',
+                    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+                    size_bytes BIGINT NOT NULL DEFAULT 0,
+                    mtime DOUBLE PRECISION NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    deleted_at TIMESTAMPTZ,
+                    UNIQUE(user_id, path)
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_attachments_user_updated
+                ON attachments(user_id, updated_at)
+            """)
+            conn.commit()
+    except psycopg.errors.UniqueViolation:
+        # Concurrent workers may race on CREATE TABLE IF NOT EXISTS
+        pass
     logger.info("PostgreSQL attachment store initialized")
 
 

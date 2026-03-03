@@ -15,6 +15,7 @@ import note_store
 from search import search
 from indexing import index_note
 from events import event_bus, NoteEvent, EventType
+from folder_index import rebuild_folder_index, search_folders
 
 logger = logging.getLogger("engram-mcp")
 
@@ -164,6 +165,40 @@ def list_folders() -> str:
 
 
 @mcp.tool()
+def suggest_folder(description: str, limit: int = 5) -> str:
+    """Find the best folder for a new note based on a description of its content.
+    Returns top matching folders ranked by semantic similarity.
+    If the folder index hasn't been built yet, builds it automatically.
+
+    Use before create_note to pick the right folder, or let create_note auto-place.
+
+    Args:
+        description: What the note is about (e.g. "blood test results for iron panel")
+        limit: Number of suggestions (1-10, default 5)
+    """
+    user_id = _current_user_id.get()
+    limit = max(1, min(limit, 10))
+
+    results = search_folders(description, user_id, limit=limit)
+
+    # Cold start: if no results, build the index and retry
+    if not results:
+        count = rebuild_folder_index(user_id)
+        if count > 0:
+            results = search_folders(description, user_id, limit=limit)
+
+    if not results:
+        return "No folders found. The vault may be empty."
+
+    lines = ["| Rank | Folder | Score | Notes |", "|------|--------|-------|-------|"]
+    for i, r in enumerate(results, 1):
+        folder_name = r["folder"] or "(root)"
+        lines.append(f"| {i} | {folder_name} | {r['score']:.3f} | {r['count']} |")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
 def write_note(path: str, content: str) -> str:
     """Write or update a note in the knowledge base. Saves to storage and
     indexes for search. The note will sync to all connected Obsidian devices.
@@ -228,13 +263,27 @@ def create_note(title: str, content: str, suggested_folder: Optional[str] = None
 
 
 def _auto_place_folder(content: str, user_id: str) -> str:
-    """Find the best folder for content by searching similar notes."""
-    from collections import Counter
-
-    # Search for similar content using first ~200 chars as query
+    """Find the best folder for content using folder vector search with content fallback."""
     query = content[:200].replace("\n", " ").strip()
     if not query:
         return ""
+
+    # Try folder vector search first
+    try:
+        folder_results = search_folders(query, user_id, limit=3)
+        if not folder_results:
+            # Cold start: build index and retry
+            count = rebuild_folder_index(user_id)
+            if count > 0:
+                folder_results = search_folders(query, user_id, limit=3)
+
+        if folder_results and folder_results[0]["score"] >= 0.3:
+            return folder_results[0]["folder"]
+    except Exception:
+        logger.debug("Folder vector search failed, falling back to content search")
+
+    # Fallback: search similar content, find most common folder
+    from collections import Counter
 
     try:
         results = search(query, limit=10, user_id=user_id)
@@ -244,13 +293,11 @@ def _auto_place_folder(content: str, user_id: str) -> str:
     if not results:
         return ""
 
-    # Count folders from source_path
     folder_counts: Counter = Counter()
     for r in results:
         sp = r.get("source_path", "")
         if "/" in sp:
             folder = sp.rsplit("/", 1)[0]
-            # Strip /vault/ prefix if present
             if folder.startswith("/vault/"):
                 folder = folder[7:]
             folder_counts[folder] += 1

@@ -9,6 +9,7 @@ JINA_URL = os.environ.get("JINA_URL", "http://localhost:8082")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 EMBED_DIMS = int(os.environ.get("EMBED_DIMS", "768"))
 COLLECTION = os.environ.get("COLLECTION", "obsidian_notes")
+FOLDER_COLLECTION = os.environ.get("FOLDER_COLLECTION", "engram_folders")
 
 # PostgreSQL
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://engram:engram@localhost:5432/engram")

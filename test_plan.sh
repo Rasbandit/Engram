@@ -1523,6 +1523,252 @@ else
 fi
 
 # ============================================================================
+# SECTION 36: Folder Reindex
+# ============================================================================
+echo ""
+echo "=== 36. Folder Reindex ==="
+
+# Reindex folders (test notes should already be in various folders)
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/folders/reindex" \
+    -H "Authorization: Bearer $API_KEY")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /folders/reindex" 200 "$STATUS"
+
+FOLDER_COUNT=$(echo "$BODY" | jq -r '.folders_indexed' 2>/dev/null || echo "0")
+if [[ "$FOLDER_COUNT" -gt 0 ]]; then
+    pass "Folder reindex returned $FOLDER_COUNT folders"
+else
+    fail "Folder reindex returned 0 folders (expected > 0)"
+fi
+
+# Verify folder count matches actual folder count from GET /folders
+FOLDERS_RESP=$(curl -s "$BASE/folders" -H "Authorization: Bearer $API_KEY")
+PG_FOLDER_COUNT=$(echo "$FOLDERS_RESP" | jq '.folders | length' 2>/dev/null || echo "0")
+if [[ "$FOLDER_COUNT" == "$PG_FOLDER_COUNT" ]]; then
+    pass "Folder index count matches PostgreSQL folder count ($PG_FOLDER_COUNT)"
+else
+    fail "Folder index count ($FOLDER_COUNT) != PostgreSQL folder count ($PG_FOLDER_COUNT)"
+fi
+
+# ============================================================================
+# SECTION 37: Folder Search
+# ============================================================================
+echo ""
+echo "=== 37. Folder Search ==="
+
+# Search for folders matching "health supplements vitamin"
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/folders/search" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"query": "health supplements vitamin", "limit": 3}')
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /folders/search" 200 "$STATUS"
+
+RESULT_COUNT=$(echo "$BODY" | jq '.results | length' 2>/dev/null || echo "0")
+if [[ "$RESULT_COUNT" -gt 0 ]]; then
+    pass "Folder search returned $RESULT_COUNT results"
+else
+    fail "Folder search returned 0 results (expected > 0)"
+fi
+
+# Verify result shape has expected fields
+FIRST_FOLDER=$(echo "$BODY" | jq -r '.results[0].folder' 2>/dev/null || echo "__MISSING__")
+FIRST_SCORE=$(echo "$BODY" | jq -r '.results[0].score' 2>/dev/null || echo "")
+FIRST_COUNT=$(echo "$BODY" | jq -r '.results[0].count' 2>/dev/null || echo "")
+if [[ "$FIRST_FOLDER" != "null" && "$FIRST_FOLDER" != "__MISSING__" ]]; then
+    DISPLAY_FOLDER="${FIRST_FOLDER:-"(root)"}"
+    pass "Folder search result has folder field: $DISPLAY_FOLDER"
+else
+    fail "Folder search result missing folder field"
+fi
+if [[ -n "$FIRST_SCORE" && "$FIRST_SCORE" != "null" ]]; then
+    pass "Folder search result has score field: $FIRST_SCORE"
+else
+    fail "Folder search result missing score field"
+fi
+if [[ -n "$FIRST_COUNT" && "$FIRST_COUNT" != "null" ]]; then
+    pass "Folder search result has count field"
+else
+    fail "Folder search result missing count field"
+fi
+
+# Search with limit validation
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/folders/search" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"query": "test", "limit": 1}')
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /folders/search limit=1" 200 "$STATUS"
+RESULT_COUNT=$(echo "$BODY" | jq '.results | length' 2>/dev/null || echo "0")
+if [[ "$RESULT_COUNT" -le 1 ]]; then
+    pass "Folder search respects limit=1 (got $RESULT_COUNT)"
+else
+    fail "Folder search limit=1 returned $RESULT_COUNT results"
+fi
+
+# ============================================================================
+# SECTION 38: Folder Search Multi-Tenant Isolation
+# ============================================================================
+echo ""
+echo "=== 38. Folder Search Multi-Tenant Isolation ==="
+
+if [[ -n "$API_KEY2" ]]; then
+    # Second user should get empty results (they have no notes)
+    RESP=$(curl -s "$BASE/folders/search" \
+        -X POST \
+        -H "Authorization: Bearer $API_KEY2" \
+        -H "Content-Type: application/json" \
+        -d '{"query": "health supplements", "limit": 5}')
+    RESULT_COUNT=$(echo "$RESP" | jq '.results | length' 2>/dev/null || echo "0")
+    if [[ "$RESULT_COUNT" -eq 0 ]]; then
+        pass "Second user gets no folder results (isolation works)"
+    else
+        fail "Second user got $RESULT_COUNT folder results (expected 0 — isolation broken)"
+    fi
+else
+    pass "Folder multi-tenant test skipped (no second user)"
+fi
+
+# ============================================================================
+# SECTION 39: Folder Auto-Rebuild on Note Create
+# ============================================================================
+echo ""
+echo "=== 39. Folder Auto-Rebuild on Note Create ==="
+
+# Use User 2's key — rate limit test may have exhausted User 1's RPM window
+if [[ -n "$API_KEY2" ]]; then
+    # Create a note in a brand-new folder under User 2
+    RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/notes" \
+        -H "Authorization: Bearer $API_KEY2" \
+        -H "Content-Type: application/json" \
+        -d '{"path": "NewFolderTest/AutoRebuild.md", "content": "# Auto Rebuild\nTesting folder auto-rebuild on new folder creation.", "mtime": 1709234999.0}')
+    STATUS=$(echo "$RESP" | tail -1)
+    assert_status "Create note in new folder" 200 "$STATUS"
+
+    # Now search folders — should find the new folder
+    RESP=$(curl -s -X POST "$BASE/folders/search" \
+        -H "Authorization: Bearer $API_KEY2" \
+        -H "Content-Type: application/json" \
+        -d '{"query": "auto rebuild testing", "limit": 5}')
+    FOUND=$(echo "$RESP" | jq '[.results[] | select(.folder == "NewFolderTest")] | length' 2>/dev/null || echo "0")
+    if [[ "$FOUND" -gt 0 ]]; then
+        pass "New folder auto-indexed and searchable"
+    else
+        fail "New folder not found in search after auto-rebuild"
+    fi
+
+    # Cleanup User 2's test note
+    curl -s -X DELETE "$BASE/notes/NewFolderTest%2FAutoRebuild.md" \
+        -H "Authorization: Bearer $API_KEY2" -o /dev/null
+else
+    pass "Folder auto-rebuild test skipped (no second user)"
+fi
+
+# ============================================================================
+# SECTION 40: Folder Search Relevance
+# ============================================================================
+echo ""
+echo "=== 40. Folder Search Relevance ==="
+
+# The "Vitamin D" note is in "2. Knowledge Vault/Health/Supplements"
+# Searching for "vitamin supplement health" should return that folder somewhere in results
+RESP=$(curl -s -X POST "$BASE/folders/search" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"query": "vitamin supplement health dosage", "limit": 5}')
+HEALTH_FOUND=$(echo "$RESP" | jq '[.results[] | select(.folder | test("Health|Supplement|Knowledge"; "i"))] | length' 2>/dev/null || echo "0")
+if [[ "$HEALTH_FOUND" -gt 0 ]]; then
+    pass "Folder search returns health/supplements folder for vitamin query"
+else
+    # Show what we got for debugging
+    ALL_FOLDERS=$(echo "$RESP" | jq -r '[.results[].folder] | join(", ")' 2>/dev/null || echo "(none)")
+    fail "Health/supplements folder not in results for vitamin query (got: $ALL_FOLDERS)"
+fi
+
+# ============================================================================
+# SECTION 41: Folder Auto-Rebuild on Note Delete
+# ============================================================================
+echo ""
+echo "=== 41. Folder Auto-Rebuild on Note Delete ==="
+
+if [[ -n "$API_KEY2" ]]; then
+    # Create a note in a unique folder under User 2
+    curl -s -X POST "$BASE/notes" \
+        -H "Authorization: Bearer $API_KEY2" \
+        -H "Content-Type: application/json" \
+        -d '{"path": "DeleteTest/Ephemeral.md", "content": "# Ephemeral\nThis will be deleted.", "mtime": 1709235001.0}' -o /dev/null
+
+    # Verify folder exists in search
+    RESP=$(curl -s -X POST "$BASE/folders/search" \
+        -H "Authorization: Bearer $API_KEY2" \
+        -H "Content-Type: application/json" \
+        -d '{"query": "ephemeral delete test", "limit": 5}')
+    FOUND=$(echo "$RESP" | jq '[.results[] | select(.folder == "DeleteTest")] | length' 2>/dev/null || echo "0")
+    if [[ "$FOUND" -gt 0 ]]; then
+        pass "DeleteTest folder exists before delete"
+    else
+        fail "DeleteTest folder not found after creation"
+    fi
+
+    # Delete the note — should trigger folder rebuild, removing the folder
+    curl -s -X DELETE "$BASE/notes/DeleteTest%2FEphemeral.md" \
+        -H "Authorization: Bearer $API_KEY2" -o /dev/null
+
+    # Verify folder is gone from search
+    RESP=$(curl -s -X POST "$BASE/folders/search" \
+        -H "Authorization: Bearer $API_KEY2" \
+        -H "Content-Type: application/json" \
+        -d '{"query": "ephemeral delete test", "limit": 5}')
+    FOUND=$(echo "$RESP" | jq '[.results[] | select(.folder == "DeleteTest")] | length' 2>/dev/null || echo "0")
+    if [[ "$FOUND" -eq 0 ]]; then
+        pass "DeleteTest folder removed from index after note delete"
+    else
+        fail "DeleteTest folder still in index after note delete (expected 0, got $FOUND)"
+    fi
+else
+    pass "Folder auto-rebuild on delete test skipped (no second user)"
+    pass "Folder auto-rebuild on delete test skipped (no second user)"
+fi
+
+# ============================================================================
+# SECTION 42: Folder Reindex Idempotency
+# ============================================================================
+echo ""
+echo "=== 42. Folder Reindex Idempotency ==="
+
+# Reindex twice — count should be the same both times
+RESP1=$(curl -s -X POST "$BASE/folders/reindex" \
+    -H "Authorization: Bearer $API_KEY")
+COUNT1=$(echo "$RESP1" | jq -r '.folders_indexed' 2>/dev/null || echo "0")
+
+RESP2=$(curl -s -X POST "$BASE/folders/reindex" \
+    -H "Authorization: Bearer $API_KEY")
+COUNT2=$(echo "$RESP2" | jq -r '.folders_indexed' 2>/dev/null || echo "0")
+
+if [[ "$COUNT1" == "$COUNT2" ]]; then
+    pass "Folder reindex is idempotent ($COUNT1 == $COUNT2)"
+else
+    fail "Folder reindex not idempotent ($COUNT1 != $COUNT2)"
+fi
+
+# ============================================================================
+# SECTION 43: Folder Search Validation
+# ============================================================================
+echo ""
+echo "=== 43. Folder Search Validation ==="
+
+# Missing query field should return 422
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/folders/search" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"limit": 3}')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /folders/search missing query" 422 "$STATUS"
+
+# ============================================================================
 # SECTION 16: Cleanup — Delete test notes
 # ============================================================================
 echo ""

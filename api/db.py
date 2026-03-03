@@ -27,27 +27,31 @@ _LAST_USED_INTERVAL = 60  # seconds
 def init_db():
     """Create auth tables if they don't exist."""
     pool = get_pool()
-    with pool.connection() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                email TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                display_name TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS api_keys (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                key_hash TEXT UNIQUE NOT NULL,
-                name TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                last_used TIMESTAMPTZ
-            )
-        """)
-        conn.commit()
+    try:
+        with pool.connection() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    key_hash TEXT UNIQUE NOT NULL,
+                    name TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    last_used TIMESTAMPTZ
+                )
+            """)
+            conn.commit()
+    except UniqueViolation:
+        # Concurrent workers may race on CREATE TABLE IF NOT EXISTS
+        pass
     logger.info("Auth database initialized (PostgreSQL)")
 
 

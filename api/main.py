@@ -26,6 +26,7 @@ from task_queue import TaskQueue
 from notes import get_all_tags, get_note_by_path
 from indexing import index_note, delete_note_index
 from mcp_tools import mcp as mcp_server, MCPAuthMiddleware
+from folder_index import ensure_folder_collection, rebuild_folder_index, search_folders
 from routes.web import router as web_router
 from routes.stream import router as stream_router
 from events import event_bus, NoteEvent, EventType
@@ -48,6 +49,7 @@ async def lifespan(app: FastAPI):
     db.init_db()
     note_store.init_note_db()
     attachment_store.init_attachment_db()
+    ensure_folder_collection()
     await _task_queue.start()
     await event_bus.start_listener()
     async with _mcp_app.lifespan(app):
@@ -218,6 +220,10 @@ def upsert_note_endpoint(req: NoteUpsertRequest, user: dict = Depends(rate_limit
     if len(req.content.encode("utf-8")) > MAX_NOTE_SIZE:
         raise HTTPException(status_code=413, detail=f"Note exceeds max size ({MAX_NOTE_SIZE} bytes)")
     user_id = str(user["id"])
+
+    # Snapshot folder set before upsert to detect new folders
+    folders_before = {f["folder"] for f in note_store.get_folders(user_id)}
+
     note = note_store.upsert_note(user_id, req.path, req.content, req.mtime)
     if ASYNC_INDEXING:
         _task_queue.enqueue(index_note, req.path, req.content, req.mtime, user_id)
@@ -229,6 +235,15 @@ def upsert_note_endpoint(req: NoteUpsertRequest, user: dict = Depends(rate_limit
             logging.getLogger("engram").warning("Indexing failed for %s: %s", req.path, e)
             chunk_count = 0
     event_bus.publish(NoteEvent(EventType.upsert, user_id, req.path))
+
+    # Rebuild folder index if folder set changed
+    folders_after = {f["folder"] for f in note_store.get_folders(user_id)}
+    if folders_after != folders_before:
+        try:
+            rebuild_folder_index(user_id)
+        except Exception as e:
+            logging.getLogger("engram").warning("Folder reindex failed: %s", e)
+
     return {"note": note, "chunks_indexed": chunk_count}
 
 
@@ -255,6 +270,27 @@ def folders_endpoint(user: dict = Depends(get_current_user_api_key)):
     return {"folders": note_store.get_folders(user_id)}
 
 
+class FolderSearchRequest(BaseModel):
+    query: str
+    limit: int = Field(default=5, ge=1, le=10)
+
+
+@app.post("/folders/reindex")
+def reindex_folders_endpoint(user: dict = Depends(get_current_user_api_key)):
+    """Rebuild the folder vector index for semantic folder search."""
+    user_id = str(user["id"])
+    count = rebuild_folder_index(user_id)
+    return {"folders_indexed": count}
+
+
+@app.post("/folders/search")
+def search_folders_endpoint(req: FolderSearchRequest, user: dict = Depends(get_current_user_api_key)):
+    """Search for the best folder for a note based on content description."""
+    user_id = str(user["id"])
+    results = search_folders(req.query, user_id, limit=req.limit)
+    return {"query": req.query, "results": results}
+
+
 @app.get("/notes/{path:path}")
 def get_note_endpoint(path: str, user: dict = Depends(get_current_user_api_key)):
     """Get full note from PostgreSQL."""
@@ -269,6 +305,10 @@ def get_note_endpoint(path: str, user: dict = Depends(get_current_user_api_key))
 def delete_note_endpoint(path: str, user: dict = Depends(get_current_user_api_key)):
     """Soft-delete a note from PostgreSQL and remove from Qdrant."""
     user_id = str(user["id"])
+
+    # Snapshot folder set before delete
+    folders_before = {f["folder"] for f in note_store.get_folders(user_id)}
+
     deleted = note_store.delete_note(user_id, path)
     if not deleted:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -277,6 +317,15 @@ def delete_note_endpoint(path: str, user: dict = Depends(get_current_user_api_ke
     except Exception as e:
         logging.getLogger("engram").warning("Failed to delete index for %s: %s", path, e)
     event_bus.publish(NoteEvent(EventType.delete, user_id, path))
+
+    # Rebuild folder index if folder set changed
+    folders_after = {f["folder"] for f in note_store.get_folders(user_id)}
+    if folders_after != folders_before:
+        try:
+            rebuild_folder_index(user_id)
+        except Exception as e:
+            logging.getLogger("engram").warning("Folder reindex failed: %s", e)
+
     return {"deleted": True, "path": path}
 
 
