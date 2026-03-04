@@ -83,6 +83,7 @@ ssh "${SERVER}" "docker inspect engram-redis >/dev/null 2>&1 || \
     --log-opt max-size=50m \
     --log-opt max-file=1 \
     --restart unless-stopped \
+    --label net.unraid.docker.managed=dockerman \
     redis:7-alpine redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru"
 
 echo "--- Replacing engram container..."
@@ -94,6 +95,8 @@ ssh "${SERVER}" "docker run -d \
   --log-opt max-size=50m \
   --log-opt max-file=1 \
   --restart unless-stopped \
+  --label net.unraid.docker.managed=dockerman \
+  --label 'net.unraid.docker.webui=http://[IP]:[PORT:8000]/' \
   -e TZ=America/Los_Angeles \
   -e EMBED_MODEL=nomic-embed-text \
   -e EMBED_BACKEND=ollama \
