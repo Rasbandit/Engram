@@ -2,6 +2,7 @@
 
 import contextvars
 import logging
+import threading
 import time
 from typing import Optional
 
@@ -166,11 +167,12 @@ def list_folders() -> str:
 
 @mcp.tool()
 def suggest_folder(description: str, limit: int = 5) -> str:
-    """Find the best folder for a new note based on a description of its content.
+    """Find the best existing folder for a new note based on a description of its content.
     Returns top matching folders ranked by semantic similarity.
     If the folder index hasn't been built yet, builds it automatically.
 
-    Use before create_note to pick the right folder, or let create_note auto-place.
+    Call this before create_note whenever the right folder is unclear. Always prefer
+    an existing folder over inventing a new one — use the top result unless it's clearly wrong.
 
     Args:
         description: What the note is about (e.g. "blood test results for iron panel")
@@ -226,21 +228,24 @@ def create_note(title: str, content: str, suggested_folder: Optional[str] = None
     """Create a new note in the knowledge base with automatic folder placement.
     The note will be indexed for search and sync to all connected Obsidian devices.
 
-    If no folder is given, searches for similar content and places the note
-    in the most relevant folder automatically.
+    Folder placement: if `suggested_folder` is omitted, the note is placed automatically
+    using semantic search over existing vault folders. This is the preferred behaviour —
+    do NOT invent a folder name. Only pass `suggested_folder` if the user explicitly
+    requested a specific folder. When unsure, call `suggest_folder` first to inspect
+    the top matches, then omit `suggested_folder` and let auto-placement decide.
 
     Args:
         title: Title for the new note
         content: Markdown content of the note
-        suggested_folder: Optional folder path. If not given, auto-places based on similar content.
+        suggested_folder: Only set this when the user explicitly named a folder.
+            Leave unset to auto-place into the most semantically relevant existing folder.
     """
     user_id = _current_user_id.get()
 
     if suggested_folder:
         folder = suggested_folder.rstrip("/")
     else:
-        # Auto-place: search for similar content, find most common folder
-        folder = _auto_place_folder(content, user_id)
+        folder = _auto_place_folder(title, content, user_id)
 
     # Build full path
     filename = title.replace("/", "-") + ".md"
@@ -251,7 +256,7 @@ def create_note(title: str, content: str, suggested_folder: Optional[str] = None
         content = f"# {title}\n\n{content}"
 
     mtime = time.time()
-    note = note_store.upsert_note(user_id, path, content, mtime)
+    note_store.upsert_note(user_id, path, content, mtime)
     try:
         chunk_count = index_note(path, content, mtime, user_id)
     except Exception as e:
@@ -259,38 +264,62 @@ def create_note(title: str, content: str, suggested_folder: Optional[str] = None
         chunk_count = 0
 
     event_bus.publish(NoteEvent(EventType.upsert, user_id, path))
+
+    # Rebuild folder index in background so future placements see the new note
+    threading.Thread(
+        target=_rebuild_folder_index_bg, args=(user_id,), daemon=True
+    ).start()
+
     return f"Note created: {path} ({chunk_count} chunks indexed)"
 
 
-def _auto_place_folder(content: str, user_id: str) -> str:
-    """Find the best folder for content using folder vector search with content fallback."""
-    query = content[:200].replace("\n", " ").strip()
+def _rebuild_folder_index_bg(user_id: str) -> None:
+    """Rebuild folder index silently in a background thread."""
+    try:
+        rebuild_folder_index(user_id)
+    except Exception:
+        logger.debug("Background folder index rebuild failed for user %s", user_id)
+
+
+def _auto_place_folder(title: str, content: str, user_id: str) -> str:
+    """Find the best existing folder using semantic folder search, with content fallback.
+
+    Uses title + content snippet as the query — title is the strongest signal.
+    Prefers any folder-index hit over the content-search fallback; only falls back
+    when the folder index is empty (cold vault).
+    """
+    # Title is the strongest placement signal; supplement with content snippet
+    query = f"{title} {content[:300]}".replace("\n", " ").strip()
     if not query:
         return ""
 
-    # Try folder vector search first
+    # Folder vector search — always trust it if the index has any folders
     try:
         folder_results = search_folders(query, user_id, limit=3)
         if not folder_results:
-            # Cold start: build index and retry
+            # Cold start: build index and retry once
             count = rebuild_folder_index(user_id)
             if count > 0:
                 folder_results = search_folders(query, user_id, limit=3)
 
-        if folder_results and folder_results[0]["score"] >= 0.3:
-            return folder_results[0]["folder"]
+        if folder_results:
+            # Always prefer the top-ranked existing folder over inventing one.
+            # A low score (e.g. 0.15) still beats a content-search guess.
+            top = folder_results[0]
+            logger.debug(
+                "Folder placement: '%s' (score %.3f)", top["folder"], top["score"]
+            )
+            return top["folder"]
     except Exception:
         logger.debug("Folder vector search failed, falling back to content search")
 
-    # Fallback: search similar content, find most common folder
+    # Fallback: vault is empty or index unavailable — find most common folder
+    # among semantically similar notes.
     from collections import Counter
 
     try:
         results = search(query, limit=10, user_id=user_id)
     except Exception:
-        return ""
-
-    if not results:
         return ""
 
     folder_counts: Counter = Counter()
