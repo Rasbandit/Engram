@@ -37,7 +37,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-_mcp_app = mcp_server.http_app(path="/", transport="streamable-http")
+_mcp_app = mcp_server.http_app(path="/", transport="streamable-http", stateless_http=True)
 mcp_app = MCPAuthMiddleware(_mcp_app)
 
 _task_queue = TaskQueue()
