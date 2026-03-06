@@ -160,7 +160,7 @@ The deploy script creates two files on the remote server at `$DEPLOY_DIR`:
 | Port | 8000:8000 |
 | Volumes | `engram_pg_data` (PostgreSQL data) |
 | Log limits | max-size=50m, max-file=1 |
-| Current version | 2.0.0 |
+| Current version | 2.1.0 |
 
 ### First-Time Setup
 
@@ -186,3 +186,5 @@ The Docker network (default `ai`) connects these containers:
 - **ollama** (port 11434) — embedding model inference, GPU-accelerated
 - **qdrant** (port 6333) — vector database
 - **jina-reranker** (port 8082) — Jina reranker for search quality
+
+@/home/open-claw/documents/code-projects/ops-agent/docs/self-updating-docs.md
