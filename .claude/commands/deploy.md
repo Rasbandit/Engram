@@ -29,9 +29,14 @@ Compute the next version number from the current version and your chosen bump le
 
 Then deploy by running:
 ```
-cd ~/documents/code-projects/engram && ./deploy.sh <version>
+cd ~/documents/code-projects/edi-brain && ENGRAM_REGISTRY="ghcr.io/rasbandit/engram" DEPLOY_SERVER="root@10.0.20.214" ./deploy.sh <version>
 ```
 
 If there are no changes since the last deploy tag, tell the user there's nothing to deploy.
 
 Do not ask for confirmation. Just determine the version and deploy.
+
+After a successful deploy:
+1. Commit any version bumps in CLAUDE.md (the deploy script updates this automatically)
+2. Push the commit and tags to origin
+3. Log the deploy to the daily work log via `mcp__brain__append_to_note`
