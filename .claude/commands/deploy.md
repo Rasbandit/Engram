@@ -29,7 +29,7 @@ Compute the next version number from the current version and your chosen bump le
 
 Then deploy by running:
 ```
-cd ~/documents/code-projects/edi-brain && ENGRAM_REGISTRY="ghcr.io/rasbandit/engram" DEPLOY_SERVER="root@10.0.20.214" ./deploy.sh <version>
+cd ~/documents/code-projects/engram && ENGRAM_REGISTRY="ghcr.io/rasbandit/engram" DEPLOY_SERVER="root@10.0.20.214" ./deploy.sh <version>
 ```
 
 If there are no changes since the last deploy tag, tell the user there's nothing to deploy.
