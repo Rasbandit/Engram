@@ -1,4 +1,4 @@
-"""OpenAI embedding adapter for brain-indexer."""
+"""OpenAI embedding adapter for engram-indexer."""
 
 import os
 

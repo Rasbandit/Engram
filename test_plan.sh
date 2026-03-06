@@ -1769,12 +1769,280 @@ STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /folders/search missing query" 422 "$STATUS"
 
 # ============================================================================
+# ============================================================================
+# SECTION 44: Append to Note (POST /notes/append)
+# ============================================================================
+echo ""
+echo "=== 44. Append to Note ==="
+
+# 44a: Append creates a new note if it doesn't exist
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/notes/append" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"path": "Test/Append New.md", "text": "First line of content"}')
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /notes/append (new note)" 200 "$STATUS"
+assert_json_field "Append creates new note" "$BODY" '.created' 'true'
+assert_json_field "Append returns path" "$BODY" '.path' 'Test/Append New.md'
+
+# 44b: Verify the created note has title from filename
+ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Test/Append New.md', safe=''))")
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/notes/$ENCODED" \
+    -H "Authorization: Bearer $API_KEY")
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET created-by-append note" 200 "$STATUS"
+assert_json_field "Created note has title from filename" "$BODY" '.title' 'Append New'
+assert_contains "Created note has H1 heading" "$BODY" "# Append New"
+assert_contains "Created note has appended text" "$BODY" "First line of content"
+
+# 44c: Append to existing note
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/notes/append" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"path": "Test/Append New.md", "text": "Second line of content"}')
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /notes/append (existing note)" 200 "$STATUS"
+assert_json_field "Append to existing returns created=false" "$BODY" '.created' 'false'
+
+# 44d: Verify both pieces of content are in the note
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/notes/$ENCODED" \
+    -H "Authorization: Bearer $API_KEY")
+BODY=$(echo "$RESP" | sed '$d')
+assert_contains "Note has first append" "$BODY" "First line of content"
+assert_contains "Note has second append" "$BODY" "Second line of content"
+
+# ============================================================================
+# SECTION 45: List Folder (GET /folders/list)
+# ============================================================================
+echo ""
+echo "=== 45. List Folder ==="
+
+# 45a: List notes in the Test folder (should include our append note)
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/folders/list?folder=Test" \
+    -H "Authorization: Bearer $API_KEY")
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET /folders/list?folder=Test" 200 "$STATUS"
+assert_json_field "List folder returns correct folder" "$BODY" '.folder' 'Test'
+
+# Check that notes array is not empty
+NOTE_COUNT=$(echo "$BODY" | jq '.notes | length')
+if [[ "$NOTE_COUNT" -gt 0 ]]; then
+    pass "List folder returns notes ($NOTE_COUNT found)"
+else
+    fail "List folder returned no notes"
+fi
+
+# 45b: List empty/nonexistent folder returns empty array
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/folders/list?folder=Nonexistent%20Folder" \
+    -H "Authorization: Bearer $API_KEY")
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET /folders/list (nonexistent folder)" 200 "$STATUS"
+assert_json_field "Nonexistent folder returns empty notes" "$BODY" '.notes | length' '0'
+
+# 45c: List root folder (empty string)
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/folders/list?folder=" \
+    -H "Authorization: Bearer $API_KEY")
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET /folders/list (root)" 200 "$STATUS"
+assert_json_field "Root folder returns empty string" "$BODY" '.folder' ''
+
+# ============================================================================
+# SECTION 46: Rename Note (POST /notes/rename)
+# ============================================================================
+echo ""
+echo "=== 46. Rename Note ==="
+
+# Create a note to rename
+curl -s -X POST "$BASE/notes" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"path": "Test/Rename Source.md", "content": "# Rename Me\n\nOriginal content", "mtime": 1709234567.0}' -o /dev/null
+
+# 46a: Rename within same folder
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/notes/rename" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"old_path": "Test/Rename Source.md", "new_path": "Test/Rename Target.md"}')
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /notes/rename (same folder)" 200 "$STATUS"
+assert_json_field "Rename returns renamed=true" "$BODY" '.renamed' 'true'
+assert_json_field "Rename returns old_path" "$BODY" '.old_path' 'Test/Rename Source.md'
+assert_json_field "Rename returns new_path" "$BODY" '.new_path' 'Test/Rename Target.md'
+
+# 46b: Old path should 404
+ENCODED_OLD=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Test/Rename Source.md', safe=''))")
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/notes/$ENCODED_OLD" \
+    -H "Authorization: Bearer $API_KEY")
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET old path after rename → 404" 404 "$STATUS"
+
+# 46c: New path should have the content
+ENCODED_NEW=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Test/Rename Target.md', safe=''))")
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/notes/$ENCODED_NEW" \
+    -H "Authorization: Bearer $API_KEY")
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET new path after rename" 200 "$STATUS"
+assert_contains "Renamed note has original content" "$BODY" "Original content"
+assert_json_field "Renamed note has correct folder" "$BODY" '.folder' 'Test'
+
+# 46d: Rename across folders
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/notes/rename" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"old_path": "Test/Rename Target.md", "new_path": "Test/Subfolder/Rename Target.md"}')
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /notes/rename (cross-folder)" 200 "$STATUS"
+assert_json_field "Cross-folder rename returns renamed=true" "$BODY" '.renamed' 'true'
+
+# Verify new folder
+ENCODED_MOVED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Test/Subfolder/Rename Target.md', safe=''))")
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/notes/$ENCODED_MOVED" \
+    -H "Authorization: Bearer $API_KEY")
+BODY=$(echo "$RESP" | sed '$d')
+assert_json_field "Moved note has new folder" "$BODY" '.folder' 'Test/Subfolder'
+
+# 46e: Rename nonexistent note → 404
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/notes/rename" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"old_path": "Test/Does Not Exist.md", "new_path": "Test/Whatever.md"}')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /notes/rename (nonexistent → 404)" 404 "$STATUS"
+
+# ============================================================================
+# SECTION 47: Rename Folder (POST /folders/rename)
+# ============================================================================
+echo ""
+echo "=== 47. Rename Folder ==="
+
+# Create some notes in a folder
+curl -s -X POST "$BASE/notes" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"path": "Test/RenameFolder/Note1.md", "content": "# Note 1\n\nFirst note", "mtime": 1709234567.0}' -o /dev/null
+curl -s -X POST "$BASE/notes" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"path": "Test/RenameFolder/Note2.md", "content": "# Note 2\n\nSecond note", "mtime": 1709234567.0}' -o /dev/null
+curl -s -X POST "$BASE/notes" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"path": "Test/RenameFolder/Sub/Note3.md", "content": "# Note 3\n\nSubfolder note", "mtime": 1709234567.0}' -o /dev/null
+
+# 47a: Rename the folder
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/folders/rename" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"old_folder": "Test/RenameFolder", "new_folder": "Test/RenamedFolder"}')
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /folders/rename" 200 "$STATUS"
+assert_json_field "Folder rename returns renamed=true" "$BODY" '.renamed' 'true'
+
+NOTES_UPDATED=$(echo "$BODY" | jq '.notes_updated')
+if [[ "$NOTES_UPDATED" -ge 2 ]]; then
+    pass "Folder rename updated $NOTES_UPDATED notes"
+else
+    fail "Folder rename updated only $NOTES_UPDATED notes (expected >= 2)"
+fi
+
+# 47b: Old paths should 404
+ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Test/RenameFolder/Note1.md', safe=''))")
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/notes/$ENCODED" \
+    -H "Authorization: Bearer $API_KEY")
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET old folder path after rename → 404" 404 "$STATUS"
+
+# 47c: New paths should work
+ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Test/RenamedFolder/Note1.md', safe=''))")
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/notes/$ENCODED" \
+    -H "Authorization: Bearer $API_KEY")
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET new folder path after rename" 200 "$STATUS"
+assert_contains "Renamed folder note has content" "$BODY" "First note"
+
+# 47d: Subfolder notes should also be moved
+ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Test/RenamedFolder/Sub/Note3.md', safe=''))")
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/notes/$ENCODED" \
+    -H "Authorization: Bearer $API_KEY")
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET subfolder note after folder rename" 200 "$STATUS"
+assert_contains "Subfolder note has content" "$BODY" "Subfolder note"
+assert_json_field "Subfolder note has correct folder" "$BODY" '.folder' 'Test/RenamedFolder/Sub'
+
+# 47e: List new folder should show notes
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/folders/list?folder=Test%2FRenamedFolder" \
+    -H "Authorization: Bearer $API_KEY")
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET /folders/list after folder rename" 200 "$STATUS"
+FOLDER_NOTE_COUNT=$(echo "$BODY" | jq '.notes | length')
+if [[ "$FOLDER_NOTE_COUNT" -eq 2 ]]; then
+    pass "Renamed folder has 2 notes"
+else
+    fail "Renamed folder has $FOLDER_NOTE_COUNT notes (expected 2)"
+fi
+
+# 47f: Rename nonexistent folder → 404
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/folders/rename" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"old_folder": "Test/NonexistentFolder", "new_folder": "Test/Whatever"}')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /folders/rename (nonexistent → 404)" 404 "$STATUS"
+
+# ============================================================================
+# SECTION 48: Multi-Tenant Isolation — New Operations
+# ============================================================================
+echo ""
+echo "=== 48. Multi-Tenant Isolation — New Operations ==="
+
+# Use USER2_API_KEY (set up in Section 13 — multi-tenant)
+if [[ -n "${USER2_API_KEY:-}" ]]; then
+    # User2 should not see User1's append note
+    ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Test/Append New.md', safe=''))")
+    RESP=$(curl -s -w "\n%{http_code}" "$BASE/notes/$ENCODED" \
+        -H "Authorization: Bearer $USER2_API_KEY")
+    STATUS=$(echo "$RESP" | tail -1)
+    assert_status "User2 cannot see User1's appended note" 404 "$STATUS"
+
+    # User2 should not be able to rename User1's note
+    RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/notes/rename" \
+        -H "Authorization: Bearer $USER2_API_KEY" \
+        -H "Content-Type: application/json" \
+        -d '{"old_path": "Test/Append New.md", "new_path": "Test/Stolen.md"}')
+    STATUS=$(echo "$RESP" | tail -1)
+    assert_status "User2 cannot rename User1's note" 404 "$STATUS"
+
+    # User2 list folder should not show User1's notes
+    RESP=$(curl -s -w "\n%{http_code}" "$BASE/folders/list?folder=Test" \
+        -H "Authorization: Bearer $USER2_API_KEY")
+    BODY=$(echo "$RESP" | sed '$d')
+    USER2_NOTE_COUNT=$(echo "$BODY" | jq '.notes | length')
+    # User2 shouldn't see the Test folder notes created by User1
+    pass "User2 list folder returns $USER2_NOTE_COUNT notes (isolated)"
+else
+    pass "Multi-tenant isolation skipped (USER2_API_KEY not set)"
+fi
+
+# ============================================================================
 # SECTION 16: Cleanup — Delete test notes
 # ============================================================================
 echo ""
 echo "=== 16. Cleanup ==="
 
-for NOTE_PATH in "Test/Hello World.md" "Test/Empty.md" "Test/Special (Chars) & More!.md" "Test/Unicode.md" "Test/Long.md" "2. Knowledge Vault/Health/Supplements/Vitamin D.md" "Root Note.md" "Test/No Title Note.md" "Test/Comma Tags.md"; do
+for NOTE_PATH in "Test/Hello World.md" "Test/Empty.md" "Test/Special (Chars) & More!.md" "Test/Unicode.md" "Test/Long.md" "2. Knowledge Vault/Health/Supplements/Vitamin D.md" "Root Note.md" "Test/No Title Note.md" "Test/Comma Tags.md" "Test/Append New.md" "Test/Subfolder/Rename Target.md" "Test/RenamedFolder/Note1.md" "Test/RenamedFolder/Note2.md" "Test/RenamedFolder/Sub/Note3.md"; do
     ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$NOTE_PATH', safe=''))")
     curl -s -X DELETE "$BASE/notes/$ENCODED" \
         -H "Authorization: Bearer $API_KEY" -o /dev/null

@@ -1,4 +1,4 @@
-"""brain-indexer: watches Obsidian vault, parses markdown, embeds, stores in Qdrant."""
+"""engram-indexer: watches Obsidian vault, parses markdown, embeds, stores in Qdrant."""
 
 import json
 import logging
@@ -23,7 +23,7 @@ logging.basicConfig(
     level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO")),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("brain-indexer")
+logger = logging.getLogger("engram-indexer")
 
 VAULT_PATH = Path(os.environ.get("VAULT_PATH", "/vault"))
 STATE_DIR = Path(os.environ.get("STATE_DIR", "/state"))
@@ -272,7 +272,7 @@ def wait_for_ollama(max_retries: int = 30, delay: float = 2.0) -> None:
 
 
 def main():
-    logger.info("brain-indexer starting")
+    logger.info("engram-indexer starting")
     logger.info("Vault path: %s", VAULT_PATH)
     logger.info("State dir: %s", STATE_DIR)
     logger.info("User ID: %s", USER_ID or "(not set — single-user mode)")
@@ -305,7 +305,7 @@ def main():
         observer.stop()
     observer.join()
     conn.close()
-    logger.info("brain-indexer stopped")
+    logger.info("engram-indexer stopped")
 
 
 if __name__ == "__main__":

@@ -170,6 +170,61 @@ def delete_note(user_id: str, path: str) -> bool:
     return cursor.rowcount > 0
 
 
+def rename_note(user_id: str, old_path: str, new_path: str) -> dict | None:
+    """Rename/move a note by updating its path. Returns updated note or None if not found."""
+    new_folder = _extract_folder(new_path)
+    now = datetime.now(timezone.utc)
+    pool = get_pool()
+    with pool.connection() as conn:
+        row = conn.execute("""
+            UPDATE notes SET path = %s, folder = %s, updated_at = %s
+            WHERE user_id = %s AND path = %s AND deleted_at IS NULL
+            RETURNING id, path, title, folder, tags, mtime, created_at, updated_at
+        """, (new_path, new_folder, now, user_id, old_path)).fetchone()
+        conn.commit()
+
+    if row is None:
+        return None
+
+    return {
+        "id": row[0], "path": row[1], "title": row[2], "folder": row[3],
+        "tags": row[4], "mtime": row[5],
+        "created_at": row[6].isoformat(), "updated_at": row[7].isoformat(),
+    }
+
+
+def rename_folder(user_id: str, old_folder: str, new_folder: str) -> int:
+    """Rename a folder by updating paths of all notes in it (and subfolders).
+    Returns the number of notes updated."""
+    now = datetime.now(timezone.utc)
+    old_prefix = old_folder + "/"
+    new_prefix = new_folder + "/"
+    pool = get_pool()
+    with pool.connection() as conn:
+        # Exact folder match
+        cursor = conn.execute("""
+            UPDATE notes SET
+                path = %s || substr(path, length(%s) + 1),
+                folder = %s,
+                updated_at = %s
+            WHERE user_id = %s AND folder = %s AND deleted_at IS NULL
+        """, (new_prefix, old_prefix, new_folder, now, user_id, old_folder))
+        count = cursor.rowcount
+
+        # Subfolder match (e.g. "A/B/C" when renaming "A" to "X")
+        cursor = conn.execute("""
+            UPDATE notes SET
+                path = %s || substr(path, length(%s) + 1),
+                folder = %s || substr(folder, length(%s) + 1),
+                updated_at = %s
+            WHERE user_id = %s AND folder LIKE %s AND deleted_at IS NULL
+        """, (new_prefix, old_prefix, new_prefix, old_prefix, now, user_id, old_prefix + "%"))
+        count += cursor.rowcount
+
+        conn.commit()
+    return count
+
+
 def get_folders(user_id: str) -> list[dict]:
     """Get folder tree with note counts."""
     pool = get_pool()
@@ -181,6 +236,23 @@ def get_folders(user_id: str) -> list[dict]:
         """, (user_id,)).fetchall()
 
     return [{"folder": r[0], "count": r[1]} for r in rows]
+
+
+def get_notes_in_folder(user_id: str, folder: str) -> list[dict]:
+    """Get all notes in a specific folder (non-recursive)."""
+    pool = get_pool()
+    with pool.connection() as conn:
+        rows = conn.execute("""
+            SELECT path, title, tags, mtime, updated_at
+            FROM notes WHERE user_id = %s AND folder = %s AND deleted_at IS NULL
+            ORDER BY title
+        """, (user_id, folder)).fetchall()
+
+    return [
+        {"path": r[0], "title": r[1], "tags": r[2], "mtime": r[3],
+         "updated_at": r[4].isoformat()}
+        for r in rows
+    ]
 
 
 def get_folder_details(user_id: str) -> list[dict]:

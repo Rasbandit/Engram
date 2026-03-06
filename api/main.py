@@ -270,6 +270,21 @@ def folders_endpoint(user: dict = Depends(get_current_user_api_key)):
     return {"folders": note_store.get_folders(user_id)}
 
 
+class NoteRenameRequest(BaseModel):
+    old_path: str
+    new_path: str
+
+
+class FolderRenameRequest(BaseModel):
+    old_folder: str
+    new_folder: str
+
+
+class NoteAppendRequest(BaseModel):
+    path: str
+    text: str
+
+
 class FolderSearchRequest(BaseModel):
     query: str
     limit: int = Field(default=5, ge=1, le=10)
@@ -327,6 +342,118 @@ def delete_note_endpoint(path: str, user: dict = Depends(get_current_user_api_ke
             logging.getLogger("engram").warning("Folder reindex failed: %s", e)
 
     return {"deleted": True, "path": path}
+
+
+@app.post("/notes/rename")
+def rename_note_endpoint(req: NoteRenameRequest, user: dict = Depends(get_current_user_api_key)):
+    """Rename or move a note to a new path."""
+    user_id = str(user["id"])
+
+    existing = note_store.get_note(user_id, req.old_path)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    result = note_store.rename_note(user_id, req.old_path, req.new_path)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Failed to rename note")
+
+    # Reindex: remove old vectors, index new path
+    try:
+        delete_note_index(req.old_path, user_id)
+        index_note(req.new_path, existing["content"], existing["mtime"], user_id)
+    except Exception as e:
+        logging.getLogger("engram").warning("Reindex after rename failed: %s", e)
+
+    event_bus.publish(NoteEvent(EventType.delete, user_id, req.old_path))
+    event_bus.publish(NoteEvent(EventType.upsert, user_id, req.new_path))
+
+    # Rebuild folder index if folder changed
+    old_folder = req.old_path.rsplit("/", 1)[0] if "/" in req.old_path else ""
+    new_folder = req.new_path.rsplit("/", 1)[0] if "/" in req.new_path else ""
+    if old_folder != new_folder:
+        try:
+            rebuild_folder_index(user_id)
+        except Exception:
+            pass
+
+    return {"renamed": True, "old_path": req.old_path, "new_path": req.new_path}
+
+
+@app.post("/folders/rename")
+def rename_folder_endpoint(req: FolderRenameRequest, user: dict = Depends(get_current_user_api_key)):
+    """Rename a folder and all notes within it (including subfolders)."""
+    user_id = str(user["id"])
+
+    # Collect affected notes before rename
+    affected = note_store.get_notes_in_folder(user_id, req.old_folder)
+    all_folders = note_store.get_folders(user_id)
+    old_prefix = req.old_folder + "/"
+    for f in all_folders:
+        if f["folder"].startswith(old_prefix):
+            affected.extend(note_store.get_notes_in_folder(user_id, f["folder"]))
+
+    if not affected:
+        raise HTTPException(status_code=404, detail="No notes found in folder")
+
+    # Get full content for reindexing
+    old_notes = []
+    for n in affected:
+        full = note_store.get_note(user_id, n["path"])
+        if full:
+            old_notes.append({"path": full["path"], "content": full["content"], "mtime": full["mtime"]})
+
+    count = note_store.rename_folder(user_id, req.old_folder, req.new_folder)
+
+    # Reindex all affected notes
+    for n in old_notes:
+        new_path = req.new_folder + n["path"][len(req.old_folder):]
+        try:
+            delete_note_index(n["path"], user_id)
+            index_note(new_path, n["content"], n["mtime"], user_id)
+        except Exception as e:
+            logging.getLogger("engram").warning("Reindex failed for %s: %s", new_path, e)
+        event_bus.publish(NoteEvent(EventType.delete, user_id, n["path"]))
+        event_bus.publish(NoteEvent(EventType.upsert, user_id, new_path))
+
+    try:
+        rebuild_folder_index(user_id)
+    except Exception:
+        pass
+
+    return {"renamed": True, "old_folder": req.old_folder, "new_folder": req.new_folder, "notes_updated": count}
+
+
+@app.get("/folders/list")
+def list_folder_endpoint(folder: str = Query(default="", description="Folder path, empty for root"), user: dict = Depends(get_current_user_api_key)):
+    """List all notes in a specific folder."""
+    user_id = str(user["id"])
+    notes = note_store.get_notes_in_folder(user_id, folder)
+    return {"folder": folder, "notes": notes}
+
+
+@app.post("/notes/append")
+def append_to_note_endpoint(req: NoteAppendRequest, user: dict = Depends(get_current_user_api_key)):
+    """Append text to a note, creating it if it doesn't exist."""
+    user_id = str(user["id"])
+    mtime = time.time()
+
+    existing = note_store.get_note(user_id, req.path)
+    if existing:
+        content = existing["content"].rstrip("\n") + "\n" + req.text
+        created = False
+    else:
+        title = req.path.rsplit("/", 1)[-1].removesuffix(".md")
+        content = f"# {title}\n\n{req.text}"
+        created = True
+
+    note = note_store.upsert_note(user_id, req.path, content, mtime)
+    try:
+        index_note(req.path, content, mtime, user_id)
+    except Exception as e:
+        logging.getLogger("engram").warning("Indexing failed for %s: %s", req.path, e)
+
+    event_bus.publish(NoteEvent(EventType.upsert, user_id, req.path))
+    return {"path": req.path, "created": created, "title": note["title"]}
 
 
 # --- Attachment endpoints ---

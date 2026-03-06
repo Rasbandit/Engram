@@ -392,7 +392,7 @@ def append_to_note(path: str, text: str) -> str:
 
     existing = note_store.get_note(user_id, path)
     if existing:
-        content = existing["content"].rstrip("\n") + "\n\n" + text
+        content = existing["content"].rstrip("\n") + "\n" + text
         action = "appended to"
     else:
         # Create new note with title from filename

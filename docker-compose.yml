@@ -1,5 +1,6 @@
 services:
   engram:
+    image: engram:latest
     build: ./api
     env_file: .env
     environment:

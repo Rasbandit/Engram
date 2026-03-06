@@ -8,7 +8,7 @@ REMOTE_DIR="${DEPLOY_DIR:-/opt/engram}"
 DOCKER_NETWORK="${DOCKER_NETWORK:-ai}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_DIR="${PLUGIN_DIR:-$HOME/documents/code-projects/brain-obsidian-sync}"
+PLUGIN_DIR="${PLUGIN_DIR:-$HOME/documents/code-projects/engram-obsidian-sync}"
 
 cd "${SCRIPT_DIR}"
 
@@ -26,7 +26,7 @@ if [[ $# -lt 1 ]]; then
   echo "Optional environment variables:"
   echo "  DEPLOY_DIR      — remote directory (default: /opt/engram)"
   echo "  DOCKER_NETWORK  — Docker network name (default: ai)"
-  echo "  PLUGIN_DIR      — local path to brain-obsidian-sync repo"
+  echo "  PLUGIN_DIR      — local path to engram-obsidian-sync repo"
   exit 1
 fi
 VERSION="$1"
@@ -48,8 +48,8 @@ docker compose build engram --quiet 2>&1 | tail -1
 
 # --- Tag & push ---
 echo "--- Tagging and pushing to registry..."
-docker tag edi-brain-engram:latest "${REGISTRY}:${VERSION}"
-docker tag edi-brain-engram:latest "${REGISTRY}:latest"
+docker tag engram:latest "${REGISTRY}:${VERSION}"
+docker tag engram:latest "${REGISTRY}:latest"
 docker push "${REGISTRY}:${VERSION}" --quiet
 docker push "${REGISTRY}:latest" --quiet
 

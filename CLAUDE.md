@@ -160,7 +160,7 @@ The deploy script creates two files on the remote server at `$DEPLOY_DIR`:
 | Port | 8000:8000 |
 | Volumes | `engram_pg_data` (PostgreSQL data) |
 | Log limits | max-size=50m, max-file=1 |
-| Current version | 2.1.0 |
+| Current version | 2.2.0 |
 
 ### First-Time Setup
 

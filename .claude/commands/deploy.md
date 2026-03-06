@@ -29,7 +29,7 @@ Compute the next version number from the current version and your chosen bump le
 
 Then deploy by running:
 ```
-cd ~/documents/code-projects/edi-brain && ./deploy.sh <version>
+cd ~/documents/code-projects/engram && ./deploy.sh <version>
 ```
 
 If there are no changes since the last deploy tag, tell the user there's nothing to deploy.
