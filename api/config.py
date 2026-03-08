@@ -40,7 +40,7 @@ CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(","
 ASYNC_INDEXING = os.environ.get("ASYNC_INDEXING", "false").lower() == "true"
 
 # Rate limiting
-RATE_LIMIT_RPM = int(os.environ.get("RATE_LIMIT_RPM", "120"))
+RATE_LIMIT_RPM = int(os.environ.get("RATE_LIMIT_RPM", "0"))  # 0 = unlimited
 
 # Redis (optional — enables shared state for multi-instance deployments)
 REDIS_URL = os.environ.get("REDIS_URL") or None  # None/empty = disabled, use in-memory backends

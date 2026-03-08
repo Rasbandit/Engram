@@ -187,4 +187,9 @@ The Docker network (default `ai`) connects these containers:
 - **qdrant** (port 6333) — vector database
 - **jina-reranker** (port 8082) — Jina reranker for search quality
 
+## Life OS
+project: engram
+goal: income
+value: financial-freedom
+
 @/home/open-claw/documents/code-projects/ops-agent/docs/self-updating-docs.md

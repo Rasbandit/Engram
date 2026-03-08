@@ -22,7 +22,9 @@ class RateLimiter:
         self._requests: dict[str, list[float]] = defaultdict(list)
 
     def check(self, user_id: str) -> None:
-        """Raise HTTPException 429 if rate limit exceeded."""
+        """Raise HTTPException 429 if rate limit exceeded. 0 = unlimited."""
+        if self.max_requests <= 0:
+            return
         if redis_client.is_enabled():
             self._check_redis(user_id)
         else:

@@ -18,7 +18,7 @@ import db
 import note_store
 import attachment_store
 from auth import get_current_user_api_key
-from config import ASYNC_INDEXING, MAX_ATTACHMENT_SIZE, MAX_NOTE_SIZE, MAX_STORAGE_PER_USER, CORS_ORIGINS, QDRANT_URL, OLLAMA_URL
+from config import ASYNC_INDEXING, MAX_ATTACHMENT_SIZE, MAX_NOTE_SIZE, MAX_STORAGE_PER_USER, CORS_ORIGINS, QDRANT_URL, OLLAMA_URL, RATE_LIMIT_RPM
 from pool import close_pool
 from rate_limit import rate_limit
 from search import search
@@ -144,6 +144,12 @@ class AttachmentUpsertRequest(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/rate-limit")
+def get_rate_limit(user: dict = Depends(get_current_user_api_key)):
+    """Return the server's rate limit for this user. 0 means unlimited."""
+    return {"requests_per_minute": RATE_LIMIT_RPM}
 
 
 @app.get("/health/deep")
