@@ -537,7 +537,7 @@ fi
 RESP=$(curl -s -w "\n%{http_code}" -X DELETE "$BASE/notes/Fake/Note.md" \
     -H "Authorization: Bearer $API_KEY")
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "DELETE /notes (not found)" 404 "$STATUS"
+assert_status "DELETE /notes (idempotent)" 200 "$STATUS"
 
 # ============================================================================
 # SECTION 12: Edge Cases & Validation
@@ -905,7 +905,7 @@ assert_status "GET deleted attachment (404)" 404 "$STATUS"
 RESP=$(curl -s -w "\n%{http_code}" -X DELETE "$BASE/attachments/fake.png" \
     -H "Authorization: Bearer $API_KEY")
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "DELETE /attachments (not found)" 404 "$STATUS"
+assert_status "DELETE /attachments (idempotent)" 200 "$STATUS"
 
 # 18f. Size limit (generate payload larger than 5MB)
 # Write the large JSON payload to a temp file to avoid shell argument limits
@@ -1170,7 +1170,7 @@ else
 fi
 
 # ============================================================================
-# SECTION 26: Delete Already-Deleted Note (404)
+# SECTION 26: Delete Already-Deleted Note (Idempotent)
 # ============================================================================
 echo ""
 echo "=== 26. Delete Already-Deleted Note ==="
@@ -1185,11 +1185,11 @@ ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Test/Double
 curl -s -X DELETE "$BASE/notes/$ENCODED" \
     -H "Authorization: Bearer $API_KEY" -o /dev/null
 
-# Second delete should return 404
+# Second delete should return 200 (idempotent)
 RESP=$(curl -s -w "\n%{http_code}" -X DELETE "$BASE/notes/$ENCODED" \
     -H "Authorization: Bearer $API_KEY")
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "DELETE already-deleted note (404)" 404 "$STATUS"
+assert_status "DELETE already-deleted note (idempotent)" 200 "$STATUS"
 
 # ============================================================================
 # SECTION 27: Attachment Upsert (Update Existing)
@@ -1421,7 +1421,7 @@ else
 fi
 
 # ============================================================================
-# SECTION 33: Delete Already-Deleted Attachment (404)
+# SECTION 33: Delete Already-Deleted Attachment (Idempotent)
 # ============================================================================
 echo ""
 echo "=== 33. Delete Already-Deleted Attachment ==="
@@ -1440,7 +1440,7 @@ curl -s -X DELETE "$BASE/attachments/Assets/double-del.png" \
 RESP=$(curl -s -w "\n%{http_code}" -X DELETE "$BASE/attachments/Assets/double-del.png" \
     -H "Authorization: Bearer $API_KEY")
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "DELETE already-deleted attachment (404)" 404 "$STATUS"
+assert_status "DELETE already-deleted attachment (idempotent)" 200 "$STATUS"
 
 # ============================================================================
 # SECTION 34: Rate Limiting (429)

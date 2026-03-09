@@ -332,7 +332,8 @@ def delete_note_endpoint(path: str, user: dict = Depends(get_current_user_api_ke
 
     deleted = note_store.delete_note(user_id, path)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Note not found")
+        # Idempotent: note already gone — return success, skip event/reindex
+        return {"deleted": True, "path": path}
     try:
         delete_note_index(path, user_id)
     except Exception as e:
@@ -521,7 +522,8 @@ def delete_attachment_endpoint(path: str, user: dict = Depends(get_current_user_
     user_id = str(user["id"])
     deleted = attachment_store.delete_attachment(user_id, path)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Attachment not found")
+        # Idempotent: attachment already gone — return success, skip event
+        return {"deleted": True, "path": path}
     event_bus.publish(NoteEvent(EventType.delete, user_id, path, kind="attachment"))
     return {"deleted": True, "path": path}
 
