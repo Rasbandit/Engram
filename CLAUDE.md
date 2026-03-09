@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+> **Workspace:** For cross-project work, open `../engram-workspace/` instead. It provides unified context for both plugin and backend.
+
 Engram — AI-powered personal knowledge base built on an Obsidian vault. Your vault remembers everything. Makes your notes queryable by any AI assistant via MCP.
 
 ## Architecture
