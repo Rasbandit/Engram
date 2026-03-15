@@ -1,5 +1,7 @@
 """Web UI routes — login, register, search, settings."""
 
+from markupsafe import Markup
+from markdown_it import MarkdownIt
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -13,6 +15,15 @@ from notes import get_all_tags, get_note_by_path
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+
+_md = MarkdownIt()
+
+
+def _markdown_filter(text: str) -> Markup:
+    return Markup(_md.render(text))
+
+
+templates.env.filters["markdown"] = _markdown_filter
 
 
 def _flash_context(request: Request, user=None, **kwargs):
