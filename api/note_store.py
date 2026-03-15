@@ -306,6 +306,19 @@ def get_folder_details(user_id: str) -> list[dict]:
     return results
 
 
+def get_manifest(user_id: str) -> list[dict]:
+    """Get path + content hash for all active notes. Hash computed in PostgreSQL."""
+    pool = get_pool()
+    with pool.connection() as conn:
+        rows = conn.execute("""
+            SELECT path, md5(content) AS content_hash
+            FROM notes WHERE user_id = %s AND deleted_at IS NULL
+            ORDER BY path
+        """, (user_id,)).fetchall()
+
+    return [{"path": r[0], "content_hash": r[1]} for r in rows]
+
+
 def get_all_tags_pg(user_id: str) -> list[dict]:
     """Get all unique tags with counts from PostgreSQL."""
     pool = get_pool()

@@ -130,6 +130,19 @@ def get_changes_since(user_id: str, since: datetime) -> list[dict]:
     ]
 
 
+def get_manifest(user_id: str) -> list[dict]:
+    """Get path + content hash for all active attachments. Hash computed in PostgreSQL."""
+    pool = get_pool()
+    with pool.connection() as conn:
+        rows = conn.execute("""
+            SELECT path, md5(content) AS content_hash
+            FROM attachments WHERE user_id = %s AND deleted_at IS NULL
+            ORDER BY path
+        """, (user_id,)).fetchall()
+
+    return [{"path": r[0], "content_hash": r[1]} for r in rows]
+
+
 def get_user_storage(user_id: str) -> dict:
     """Get total storage used by a user's attachments."""
     pool = get_pool()

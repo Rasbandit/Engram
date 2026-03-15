@@ -2037,10 +2037,47 @@ else
 fi
 
 # ============================================================================
-# SECTION 16: Cleanup — Delete test notes
+# SECTION 16: Sync Manifest
 # ============================================================================
 echo ""
-echo "=== 16. Cleanup ==="
+echo "=== 16. Sync Manifest ==="
+
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/sync/manifest" \
+    -H "Authorization: Bearer $API_KEY")
+STATUS=$(echo "$RESP" | tail -1)
+BODY=$(echo "$RESP" | sed '$d')
+assert_status 200 "$STATUS" "GET /sync/manifest"
+
+MANIFEST_NOTES=$(echo "$BODY" | jq '.total_notes')
+MANIFEST_ATTACHMENTS=$(echo "$BODY" | jq '.total_attachments')
+if [[ "$MANIFEST_NOTES" -gt 0 ]]; then
+    pass "Manifest reports $MANIFEST_NOTES notes, $MANIFEST_ATTACHMENTS attachments"
+else
+    fail "Manifest returned 0 notes (expected >0)"
+fi
+
+# Verify note entries have path + content_hash
+FIRST_HASH=$(echo "$BODY" | jq -r '.notes[0].content_hash')
+FIRST_PATH=$(echo "$BODY" | jq -r '.notes[0].path')
+if [[ "$FIRST_HASH" =~ ^[a-f0-9]{32}$ ]]; then
+    pass "Manifest note entry has valid MD5 hash: $FIRST_PATH"
+else
+    fail "Manifest note entry has invalid hash: $FIRST_HASH"
+fi
+
+# Verify total_notes matches notes array length
+NOTES_LEN=$(echo "$BODY" | jq '.notes | length')
+if [[ "$NOTES_LEN" -eq "$MANIFEST_NOTES" ]]; then
+    pass "total_notes ($MANIFEST_NOTES) matches notes array length"
+else
+    fail "total_notes ($MANIFEST_NOTES) != notes array length ($NOTES_LEN)"
+fi
+
+# ============================================================================
+# SECTION 17: Cleanup — Delete test notes
+# ============================================================================
+echo ""
+echo "=== 17. Cleanup ==="
 
 for NOTE_PATH in "Test/Hello World.md" "Test/Empty.md" "Test/Special (Chars) & More!.md" "Test/Unicode.md" "Test/Long.md" "2. Knowledge Vault/Health/Supplements/Vitamin D.md" "Root Note.md" "Test/No Title Note.md" "Test/Comma Tags.md" "Test/Append New.md" "Test/Subfolder/Rename Target.md" "Test/RenamedFolder/Note1.md" "Test/RenamedFolder/Note2.md" "Test/RenamedFolder/Sub/Note3.md"; do
     ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$NOTE_PATH', safe=''))")

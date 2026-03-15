@@ -528,6 +528,20 @@ def delete_attachment_endpoint(path: str, user: dict = Depends(get_current_user_
     return {"deleted": True, "path": path}
 
 
+@app.get("/sync/manifest")
+def sync_manifest_endpoint(user: dict = Depends(get_current_user_api_key)):
+    """Get path + content hash manifest for reconciliation."""
+    user_id = str(user["id"])
+    notes = note_store.get_manifest(user_id)
+    attachments = attachment_store.get_manifest(user_id)
+    return {
+        "notes": notes,
+        "attachments": attachments,
+        "total_notes": len(notes),
+        "total_attachments": len(attachments),
+    }
+
+
 @app.get("/user/storage")
 def user_storage_endpoint(user: dict = Depends(get_current_user_api_key)):
     """Get user's attachment storage usage."""
