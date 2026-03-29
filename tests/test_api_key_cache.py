@@ -1,8 +1,9 @@
-"""Unit tests for db.py API key validation — local cache behavior, TTL, throttling."""
+"""Unit tests for db.py API key validation — local cache, Redis cache, TTL, throttling."""
 
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 import time
 from datetime import datetime, timezone
@@ -55,7 +56,6 @@ def _clear_cache():
 
 class TestValidateApiKey:
     def test_valid_key_returns_user_dict(self):
-        # row: (key_id, user_id, email, display_name)
         pool, _ = _make_pool_mock(fetchone_return=(99, 1, "u@test.com", "U"))
         with patch("db.get_pool", return_value=pool):
             result = db._validate_api_key_local(_hash("engram_abc123"))
@@ -76,6 +76,15 @@ class TestValidateApiKey:
                 db.validate_api_key(raw)
         mock_local.assert_called_once_with(expected_hash)
 
+    def test_routes_to_redis_when_enabled(self):
+        """validate_api_key should use Redis path when Redis is enabled."""
+        raw = "engram_testkey"
+        expected_hash = _hash(raw)
+        with patch.object(db, "_validate_api_key_redis", return_value=None) as mock_redis:
+            with patch.object(db, "redis_client", MagicMock(is_enabled=MagicMock(return_value=True))):
+                db.validate_api_key(raw)
+        mock_redis.assert_called_once_with(expected_hash)
+
 
 # ---------------------------------------------------------------------------
 # Local cache behavior
@@ -93,13 +102,11 @@ class TestLocalCache:
         with patch("db.get_pool", return_value=pool):
             result = db._validate_api_key_local(key_hash)
         assert result == user
-        # Pool should not have been called (cache hit, throttle active)
         pool.connection.assert_not_called()
 
     def test_expired_cache_queries_db(self):
         key_hash = _hash("engram_expired")
         user = {"id": 2, "email": "old@test.com", "display_name": "Old"}
-        # Cache entry from 6 minutes ago (beyond 5-minute TTL)
         db._key_cache[key_hash] = (user, time.monotonic() - 360)
 
         pool, _ = _make_pool_mock(fetchone_return=(99, 2, "old@test.com", "Old"))
@@ -125,7 +132,6 @@ class TestLocalCache:
 
 class TestLastUsedThrottling:
     def test_first_access_updates_last_used(self):
-        """First validation should update last_used in DB."""
         key_hash = _hash("engram_first")
         pool, _ = _make_pool_mock(fetchone_return=(99, 1, "f@test.com", "F"))
         with patch("db.get_pool", return_value=pool):
@@ -133,36 +139,156 @@ class TestLastUsedThrottling:
         assert key_hash in db._last_used_updates
 
     def test_rapid_access_throttles_last_used_update(self):
-        """Second access within 60s should NOT update last_used again."""
         key_hash = _hash("engram_throttle")
         user = {"id": 1, "email": "t@test.com", "display_name": "T"}
         now = time.monotonic()
         db._key_cache[key_hash] = (user, now)
-        db._last_used_updates[key_hash] = now  # just updated
+        db._last_used_updates[key_hash] = now
 
         pool, conn = _make_pool_mock()
         with patch("db.get_pool", return_value=pool):
             db._validate_api_key_local(key_hash)
-        # Pool should not have been used for UPDATE (throttled)
         pool.connection.assert_not_called()
 
     def test_stale_throttle_allows_update(self):
-        """Access after 60s should update last_used again."""
         key_hash = _hash("engram_stale")
         user = {"id": 1, "email": "s@test.com", "display_name": "S"}
         now = time.monotonic()
         db._key_cache[key_hash] = (user, now)
-        db._last_used_updates[key_hash] = now - 61  # 61s ago — past interval
+        db._last_used_updates[key_hash] = now - 61
 
         pool, conn = _make_pool_mock()
         with patch("db.get_pool", return_value=pool):
             db._validate_api_key_local(key_hash)
-        # Should have opened a connection for the UPDATE
         pool.connection.assert_called()
 
 
 # ---------------------------------------------------------------------------
-# delete_api_key cache invalidation
+# Redis cache behavior
+# ---------------------------------------------------------------------------
+
+
+class TestRedisCache:
+    """Tests for _validate_api_key_redis using mocked Redis client."""
+
+    def _make_redis_mock(self, cached_value=None):
+        """Create a mock Redis client."""
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = cached_value
+        mock_redis.set.return_value = True  # NX succeeds
+        return mock_redis
+
+    def test_cache_hit_returns_user(self):
+        """Redis cache hit should return user dict without DB query."""
+        user = {"id": 1, "email": "r@test.com", "display_name": "R"}
+        mock_redis = self._make_redis_mock(cached_value=json.dumps(user))
+        key_hash = _hash("engram_redis")
+
+        with patch("db.redis_client") as mock_rc:
+            mock_rc.get_sync.return_value = mock_redis
+            result = db._validate_api_key_redis(key_hash)
+
+        assert result == user
+        mock_redis.get.assert_called_once_with(f"auth:key:{key_hash}")
+
+    def test_cache_miss_queries_db_and_caches(self):
+        """Redis cache miss should query DB, then cache the result."""
+        mock_redis = self._make_redis_mock(cached_value=None)
+        key_hash = _hash("engram_miss")
+        pool, _ = _make_pool_mock(fetchone_return=(99, 2, "miss@test.com", "Miss"))
+
+        with patch("db.redis_client") as mock_rc:
+            mock_rc.get_sync.return_value = mock_redis
+            with patch("db.get_pool", return_value=pool):
+                result = db._validate_api_key_redis(key_hash)
+
+        assert result == {"id": 2, "email": "miss@test.com", "display_name": "Miss"}
+        # Should have cached the result in Redis
+        mock_redis.setex.assert_called_once()
+        cache_key = mock_redis.setex.call_args[0][0]
+        assert cache_key == f"auth:key:{key_hash}"
+
+    def test_cache_miss_invalid_key_returns_none(self):
+        """Redis cache miss + DB miss should return None without caching."""
+        mock_redis = self._make_redis_mock(cached_value=None)
+        key_hash = _hash("engram_unknown")
+        pool, _ = _make_pool_mock(fetchone_return=None)
+
+        with patch("db.redis_client") as mock_rc:
+            mock_rc.get_sync.return_value = mock_redis
+            with patch("db.get_pool", return_value=pool):
+                result = db._validate_api_key_redis(key_hash)
+
+        assert result is None
+        mock_redis.setex.assert_not_called()
+
+    def test_cache_hit_throttles_last_used(self):
+        """Cache hit with recent last_used NX should NOT update DB."""
+        user = {"id": 1, "email": "r@test.com", "display_name": "R"}
+        mock_redis = self._make_redis_mock(cached_value=json.dumps(user))
+        mock_redis.set.return_value = False  # NX fails = already set recently
+        key_hash = _hash("engram_throttled")
+
+        pool, conn = _make_pool_mock()
+        with patch("db.redis_client") as mock_rc:
+            mock_rc.get_sync.return_value = mock_redis
+            with patch("db.get_pool", return_value=pool):
+                db._validate_api_key_redis(key_hash)
+
+        # Pool should not be called (NX failed = throttled)
+        pool.connection.assert_not_called()
+
+    def test_cache_hit_stale_last_used_updates_db(self):
+        """Cache hit with stale last_used should update DB."""
+        user = {"id": 1, "email": "r@test.com", "display_name": "R"}
+        mock_redis = self._make_redis_mock(cached_value=json.dumps(user))
+        mock_redis.set.return_value = True  # NX succeeds = stale
+        key_hash = _hash("engram_stale_redis")
+
+        pool, conn = _make_pool_mock()
+        with patch("db.redis_client") as mock_rc:
+            mock_rc.get_sync.return_value = mock_redis
+            with patch("db.get_pool", return_value=pool):
+                db._validate_api_key_redis(key_hash)
+
+        # Pool should have been called for the UPDATE
+        pool.connection.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# Redis delete_api_key cache invalidation
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteApiKeyRedis:
+    def test_delete_clears_redis_cache(self):
+        """delete_api_key should remove both auth:key: and auth:lu: from Redis."""
+        key_hash = "fakehash_redis"
+
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        select_cursor = MagicMock()
+        select_cursor.fetchone.return_value = (key_hash,)
+        mock_conn.execute.return_value = select_cursor
+
+        mock_pool = MagicMock()
+        mock_pool.connection.return_value = mock_conn
+
+        mock_redis = MagicMock()
+        with patch("db.get_pool", return_value=mock_pool):
+            with patch("db.redis_client") as mock_rc:
+                mock_rc.is_enabled.return_value = True
+                mock_rc.get_sync.return_value = mock_redis
+                db.delete_api_key(user_id=1, key_id=99)
+
+        mock_redis.delete.assert_called_once_with(
+            f"auth:key:{key_hash}", f"auth:lu:{key_hash}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# delete_api_key local cache invalidation
 # ---------------------------------------------------------------------------
 
 
@@ -172,8 +298,6 @@ class TestDeleteApiKeyCacheInvalidation:
         db._key_cache[key_hash] = ({"id": 1}, time.monotonic())
         db._last_used_updates[key_hash] = time.monotonic()
 
-        # First execute: SELECT key_hash → returns the hash
-        # Second execute: DELETE
         mock_conn = MagicMock()
         mock_conn.__enter__ = MagicMock(return_value=mock_conn)
         mock_conn.__exit__ = MagicMock(return_value=False)
@@ -221,9 +345,9 @@ class TestCreateApiKey:
         pool, conn = _make_pool_mock()
         with patch("db.get_pool", return_value=pool):
             raw_key = db.create_api_key(user_id=1, name="test")
-        # Check the INSERT call args
         insert_call = conn.execute.call_args
-        args_tuple = insert_call[0][1]  # (user_id, key_hash, name)
+        args_tuple = insert_call[0][1]
         stored_hash = args_tuple[1]
         expected_hash = hashlib.sha256(raw_key.encode()).hexdigest()
         assert stored_hash == expected_hash
+        assert stored_hash != raw_key  # explicitly verify raw key is NOT stored

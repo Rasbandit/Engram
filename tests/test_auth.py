@@ -32,42 +32,43 @@ import db
 
 
 class TestCreateJWT:
-    def test_returns_string(self):
+    def test_token_structure(self):
+        """Token should be a string with valid sub claim, expiry, and HS256 signing."""
         token = auth.create_jwt(42)
         assert isinstance(token, str)
-
-    def test_contains_sub_claim(self):
-        token = auth.create_jwt(42)
         payload = jose_jwt.decode(token, "test-secret-key-for-unit-tests", algorithms=["HS256"])
         assert payload["sub"] == "42"
+        assert "exp" in payload
+        header = jose_jwt.get_unverified_header(token)
+        assert header["alg"] == "HS256"
 
     def test_sub_is_string_of_user_id(self):
         token = auth.create_jwt(999)
         payload = jose_jwt.decode(token, "test-secret-key-for-unit-tests", algorithms=["HS256"])
         assert payload["sub"] == "999"
 
-    def test_has_expiry(self):
-        token = auth.create_jwt(1)
-        payload = jose_jwt.decode(token, "test-secret-key-for-unit-tests", algorithms=["HS256"])
-        assert "exp" in payload
-
     def test_expiry_is_7_days(self):
         token = auth.create_jwt(1)
         payload = jose_jwt.decode(token, "test-secret-key-for-unit-tests", algorithms=["HS256"])
         exp = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
         expected = datetime.now(timezone.utc) + timedelta(days=7)
-        # JWT exp is integer seconds, so allow 2s tolerance
         assert abs((exp - expected).total_seconds()) < 2
-
-    def test_signed_with_hs256(self):
-        token = auth.create_jwt(1)
-        header = jose_jwt.get_unverified_header(token)
-        assert header["alg"] == "HS256"
 
     def test_invalid_secret_rejects(self):
         token = auth.create_jwt(1)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception) as exc_info:
             jose_jwt.decode(token, "wrong-secret", algorithms=["HS256"])
+        assert "Signature verification failed" in str(exc_info.value)
+
+    def test_different_users_get_different_tokens(self):
+        """Tokens for different user IDs must not be interchangeable."""
+        token_1 = auth.create_jwt(1)
+        token_2 = auth.create_jwt(2)
+        payload_1 = jose_jwt.decode(token_1, "test-secret-key-for-unit-tests", algorithms=["HS256"])
+        payload_2 = jose_jwt.decode(token_2, "test-secret-key-for-unit-tests", algorithms=["HS256"])
+        assert payload_1["sub"] != payload_2["sub"]
+        assert payload_1["sub"] == "1"
+        assert payload_2["sub"] == "2"
 
 
 # ---------------------------------------------------------------------------
@@ -183,3 +184,16 @@ class TestGetCurrentUserSession:
         with pytest.raises(Exception) as exc_info:
             auth.get_current_user_session(req)
         assert exc_info.value.status_code == 303
+
+    def test_token_for_user_1_returns_user_1_not_user_2(self):
+        """Token for user 1 must authenticate as user 1, not user 2."""
+        user_1 = {"id": 1, "email": "user1@test.com", "display_name": "User 1"}
+        user_2 = {"id": 2, "email": "user2@test.com", "display_name": "User 2"}
+        token = auth.create_jwt(1)
+        req = self._make_request({"engram_session": token})
+        with patch.object(db, "get_user_by_id", return_value=user_1) as mock_get:
+            result = auth.get_current_user_session(req)
+        # Verify the token's sub claim (user_id=1) was used for the DB lookup
+        mock_get.assert_called_once_with(1)
+        assert result["id"] == 1
+        assert result["id"] != user_2["id"]

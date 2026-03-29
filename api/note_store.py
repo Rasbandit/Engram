@@ -9,7 +9,7 @@ import psycopg
 from pool import get_pool
 
 # Characters illegal on iOS/Android/Windows filesystems
-_ILLEGAL_FILENAME_CHARS = re.compile(r'[\\:*?<>"|]')
+_ILLEGAL_FILENAME_CHARS = re.compile(r'[\\:*?<>"|\x00]')
 
 logger = logging.getLogger("engram")
 
