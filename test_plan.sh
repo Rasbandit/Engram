@@ -677,6 +677,7 @@ RESP2=$(curl -s -X POST "$BASE/settings/keys" \
     -H "Content-Type: application/x-www-form-urlencoded" \
     -b /tmp/engram_cookies2 -L)
 API_KEY2=$(echo "$RESP2" | grep -oP 'engram_[A-Za-z0-9_-]+' | head -1 || true)
+USER2_API_KEY="$API_KEY2"
 
 if [[ -n "$API_KEY2" ]]; then
     pass "Second user created with API key"
