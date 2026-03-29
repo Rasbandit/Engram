@@ -1,11 +1,15 @@
 """PostgreSQL note store — CRUD for canonical note content."""
 
 import logging
+import re
 from datetime import datetime, timezone
 
 import psycopg
 
 from pool import get_pool
+
+# Characters illegal on iOS/Android/Windows filesystems
+_ILLEGAL_FILENAME_CHARS = re.compile(r'[\\:*?<>"|]')
 
 logger = logging.getLogger("engram")
 
@@ -80,6 +84,22 @@ def _extract_tags(content: str) -> list[str]:
     return tags
 
 
+def sanitize_path(path: str) -> str:
+    """Strip characters from filenames that are illegal on mobile/Windows.
+
+    Only sanitizes the filename portions — folder separators (/) are preserved.
+    Collapses multiple consecutive spaces into one and strips leading/trailing spaces
+    from each path segment.
+    """
+    parts = path.split("/")
+    cleaned = []
+    for part in parts:
+        part = _ILLEGAL_FILENAME_CHARS.sub("", part)
+        part = re.sub(r"  +", " ", part).strip()
+        cleaned.append(part)
+    return "/".join(cleaned)
+
+
 def _extract_folder(path: str) -> str:
     """Extract folder from path (everything before the last /)."""
     if "/" in path:
@@ -88,7 +108,12 @@ def _extract_folder(path: str) -> str:
 
 
 def upsert_note(user_id: str, path: str, content: str, mtime: float) -> dict:
-    """Upsert a note into PostgreSQL. Returns the note dict."""
+    """Upsert a note into PostgreSQL. Returns the note dict.
+
+    Path is sanitized to remove characters illegal on mobile/Windows filesystems.
+    The returned dict contains the sanitized path.
+    """
+    path = sanitize_path(path)
     title = _extract_title(content, path)
     tags = _extract_tags(content)
     folder = _extract_folder(path)

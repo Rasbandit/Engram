@@ -563,6 +563,43 @@ BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /notes (special chars in path)" 200 "$STATUS"
 
+# Path sanitization — mobile-illegal characters should be stripped from filename
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/notes" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"path": "Test/Why do I resist feeling good?.md", "content": "# Why?\n\nGood question.", "mtime": 1709234710.0}')
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /notes (path with ? → sanitized)" 200 "$STATUS"
+assert_json_field "Sanitized path strips ?" "$BODY" '.note.path' 'Test/Why do I resist feeling good.md'
+
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/notes" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"path": "Test/What: A \"Great\" Day*.md", "content": "# What\n\nMultiple bad chars.", "mtime": 1709234711.0}')
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /notes (path with : \" * → sanitized)" 200 "$STATUS"
+assert_json_field "Sanitized path strips multiple chars" "$BODY" '.note.path' 'Test/What A Great Day.md'
+
+# Folder separators should NOT be stripped
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/notes" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"path": "2. Knowledge/Sub Folder/Normal Note.md", "content": "# Normal\n\nClean path.", "mtime": 1709234712.0}')
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /notes (clean path unchanged)" 200 "$STATUS"
+assert_json_field "Clean path preserved" "$BODY" '.note.path' '2. Knowledge/Sub Folder/Normal Note.md'
+
+# Read back sanitized note by clean path
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/notes/$(python3 -c 'import urllib.parse; print(urllib.parse.quote("Test/Why do I resist feeling good.md", safe=""))')" \
+    -H "Authorization: Bearer $API_KEY")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET sanitized note by clean path" 200 "$STATUS"
+assert_contains "Sanitized note content" "$BODY" "Good question"
+
 # Unicode content
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/notes" \
     -H "Authorization: Bearer $API_KEY" \
