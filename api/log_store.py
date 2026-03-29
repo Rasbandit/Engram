@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import psycopg
 
-from config import LOG_RETENTION_DAYS
+from config import CONFLICT_LOG_RETENTION_DAYS, LOG_RETENTION_DAYS
 from pool import get_pool
 
 logger = logging.getLogger("engram")
@@ -75,11 +75,17 @@ def insert_logs(user_id: str, entries: list[dict]) -> int:
         )
         conn.execute(sql, params)
 
-        # Piggyback cleanup: delete old entries for this user
-        cutoff = datetime.now(timezone.utc) - timedelta(days=LOG_RETENTION_DAYS)
+        # Piggyback cleanup: delete old entries for this user.
+        # Conflict logs get longer retention for auditing.
+        now = datetime.now(timezone.utc)
+        default_cutoff = now - timedelta(days=LOG_RETENTION_DAYS)
+        conflict_cutoff = now - timedelta(days=CONFLICT_LOG_RETENTION_DAYS)
         conn.execute(
-            "DELETE FROM client_logs WHERE user_id = %s AND created_at < %s",
-            (user_id, cutoff),
+            "DELETE FROM client_logs WHERE user_id = %s AND ("
+            "  (category != 'conflict' AND created_at < %s) OR"
+            "  (category = 'conflict' AND created_at < %s)"
+            ")",
+            (user_id, default_cutoff, conflict_cutoff),
         )
         conn.commit()
 
@@ -89,6 +95,7 @@ def insert_logs(user_id: str, entries: list[dict]) -> int:
 def get_logs(
     user_id: str,
     level: str | None = None,
+    category: str | None = None,
     since: datetime | None = None,
     limit: int = 200,
 ) -> list[dict]:
@@ -100,6 +107,9 @@ def get_logs(
     if level:
         conditions.append("level = %s")
         params.append(level)
+    if category:
+        conditions.append("category = %s")
+        params.append(category)
     if since:
         conditions.append("ts >= %s")
         params.append(since)

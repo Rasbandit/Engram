@@ -44,6 +44,7 @@ RATE_LIMIT_RPM = int(os.environ.get("RATE_LIMIT_RPM", "0"))  # 0 = unlimited
 
 # Client log retention
 LOG_RETENTION_DAYS = int(os.environ.get("LOG_RETENTION_DAYS", "7"))
+CONFLICT_LOG_RETENTION_DAYS = int(os.environ.get("CONFLICT_LOG_RETENTION_DAYS", "30"))
 
 # Redis (optional — enables shared state for multi-instance deployments)
 REDIS_URL = os.environ.get("REDIS_URL") or None  # None/empty = disabled, use in-memory backends
