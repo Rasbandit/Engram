@@ -37,7 +37,7 @@ def _rerank(query: str, texts: list[str]) -> list[float]:
     return scores
 
 
-def search(query: str, limit: int = 5, tags: list[str] | None = None, user_id: str | None = None) -> list[dict]:
+def search(query: str, limit: int = 5, tags: list[str] | None = None, user_id: str | None = None, folder: str | None = None) -> list[dict]:
     """Run two-stage search: vector retrieval → reranking."""
     vector = _embed(query)
 
@@ -49,6 +49,8 @@ def search(query: str, limit: int = 5, tags: list[str] | None = None, user_id: s
         must_conditions.append(FieldCondition(key="user_id", match=MatchValue(value=user_id)))
     if tags:
         must_conditions.append(FieldCondition(key="tags", match=MatchAny(any=tags)))
+    if folder:
+        must_conditions.append(FieldCondition(key="folder", match=MatchValue(value=folder)))
     query_filter = Filter(must=must_conditions) if must_conditions else None
 
     results = _qdrant.query_points(

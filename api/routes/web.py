@@ -27,9 +27,9 @@ def _markdown_filter(text: str) -> Markup:
 templates.env.filters["markdown"] = _markdown_filter
 
 
-def _flash_context(request: Request, user=None, **kwargs):
+def _ctx(user=None, **kwargs):
     """Build template context with common fields."""
-    ctx = {"request": request, "user": user, "get_flashed_messages": lambda: []}
+    ctx = {"user": user, "get_flashed_messages": lambda: []}
     ctx.update(kwargs)
     return ctx
 
@@ -39,16 +39,16 @@ def _flash_context(request: Request, user=None, **kwargs):
 
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
-    ctx = _flash_context(request, registration_enabled=REGISTRATION_ENABLED)
-    return templates.TemplateResponse("login.html", ctx)
+    ctx = _ctx(registration_enabled=REGISTRATION_ENABLED)
+    return templates.TemplateResponse(request, "login.html", ctx)
 
 
 @router.post("/login", response_class=HTMLResponse)
 def login_submit(request: Request, email: str = Form(...), password: str = Form(...)):
     user = db.authenticate_user(email, password)
     if user is None:
-        ctx = _flash_context(request, error="Invalid email or password", registration_enabled=REGISTRATION_ENABLED)
-        return templates.TemplateResponse("login.html", ctx, status_code=401)
+        ctx = _ctx(error="Invalid email or password", registration_enabled=REGISTRATION_ENABLED)
+        return templates.TemplateResponse(request, "login.html", ctx, status_code=401)
     token = create_jwt(user["id"])
     response = RedirectResponse("/search", status_code=303)
     response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=7 * 86400)
@@ -59,8 +59,8 @@ def login_submit(request: Request, email: str = Form(...), password: str = Form(
 def register_page(request: Request):
     if not REGISTRATION_ENABLED:
         return RedirectResponse("/login", status_code=303)
-    ctx = _flash_context(request)
-    return templates.TemplateResponse("register.html", ctx)
+    ctx = _ctx()
+    return templates.TemplateResponse(request, "register.html", ctx)
 
 
 @router.post("/register", response_class=HTMLResponse)
@@ -75,8 +75,8 @@ def register_submit(
     try:
         user = db.create_user(email, password, display_name)
     except UniqueViolation:
-        ctx = _flash_context(request, error="Email already registered")
-        return templates.TemplateResponse("register.html", ctx, status_code=400)
+        ctx = _ctx(error="Email already registered")
+        return templates.TemplateResponse(request, "register.html", ctx, status_code=400)
     token = create_jwt(user["id"])
     response = RedirectResponse("/search", status_code=303)
     response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax", max_age=7 * 86400)
@@ -97,8 +97,8 @@ def logout():
 def search_page(request: Request, user: dict = Depends(get_current_user_session)):
     user_id = str(user["id"])
     tags = get_all_tags(user_id=user_id)
-    ctx = _flash_context(request, user=user, tags=tags)
-    return templates.TemplateResponse("search.html", ctx)
+    ctx = _ctx(user=user, tags=tags)
+    return templates.TemplateResponse(request, "search.html", ctx)
 
 
 @router.get("/search/results", response_class=HTMLResponse)
@@ -110,8 +110,8 @@ def search_results(
 ):
     user_id = str(user["id"])
     results = search(query, limit=10, tags=tags or None, user_id=user_id)
-    ctx = _flash_context(request, user=user, results=results)
-    return templates.TemplateResponse("_results.html", ctx)
+    ctx = _ctx(user=user, results=results)
+    return templates.TemplateResponse(request, "_results.html", ctx)
 
 
 # --- Note viewer ---
@@ -125,8 +125,8 @@ def note_view(
 ):
     user_id = str(user["id"])
     note = get_note_by_path(source_path, user_id=user_id)
-    ctx = _flash_context(request, user=user, note=note)
-    return templates.TemplateResponse("_note.html", ctx)
+    ctx = _ctx(user=user, note=note)
+    return templates.TemplateResponse(request, "_note.html", ctx)
 
 
 @router.get("/note/close", response_class=HTMLResponse)
@@ -140,8 +140,8 @@ def note_close():
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, user: dict = Depends(get_current_user_session)):
     keys = db.list_api_keys(user["id"])
-    ctx = _flash_context(request, user=user, keys=keys)
-    return templates.TemplateResponse("settings.html", ctx)
+    ctx = _ctx(user=user, keys=keys)
+    return templates.TemplateResponse(request, "settings.html", ctx)
 
 
 @router.post("/settings/keys", response_class=HTMLResponse)
@@ -152,8 +152,8 @@ def create_key(
 ):
     new_key = db.create_api_key(user["id"], name)
     keys = db.list_api_keys(user["id"])
-    ctx = _flash_context(request, user=user, keys=keys, new_key=new_key)
-    return templates.TemplateResponse("settings.html", ctx)
+    ctx = _ctx(user=user, keys=keys, new_key=new_key)
+    return templates.TemplateResponse(request, "settings.html", ctx)
 
 
 @router.post("/settings/keys/{key_id}/delete")
@@ -167,8 +167,8 @@ def delete_key(key_id: int, user: dict = Depends(get_current_user_session)):
 
 @router.get("/logs/view", response_class=HTMLResponse)
 def logs_page(request: Request, user: dict = Depends(get_current_user_session)):
-    ctx = _flash_context(request, user=user)
-    return templates.TemplateResponse("logs.html", ctx)
+    ctx = _ctx(user=user)
+    return templates.TemplateResponse(request, "logs.html", ctx)
 
 
 @router.get("/logs/entries", response_class=HTMLResponse)
@@ -179,5 +179,5 @@ def logs_entries(
 ):
     user_id = str(user["id"])
     logs = log_store.get_logs(user_id, level=level or None, limit=200)
-    ctx = _flash_context(request, user=user, logs=logs)
-    return templates.TemplateResponse("_log_entries.html", ctx)
+    ctx = _ctx(user=user, logs=logs)
+    return templates.TemplateResponse(request, "_log_entries.html", ctx)
