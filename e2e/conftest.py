@@ -3,6 +3,11 @@
 Three Obsidian instances:
 - A + B: same user (sync pair — proves two-machine sync)
 - C: different user (proves multi-tenant isolation)
+
+All fixtures are session-scoped because Obsidian startup takes ~30s (AppImage
+extraction + plugin load). Each test uses unique file paths to avoid
+cross-test interference. Per-test vault cleanup is avoided because deleting
+files triggers the plugin's file watcher, causing unexpected sync events.
 """
 
 from __future__ import annotations

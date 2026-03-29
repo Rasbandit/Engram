@@ -14,7 +14,7 @@ import pytest
 from helpers.vault import read_note, write_note
 
 
-@pytest.mark.xfail(reason="Plugin bug: echo suppression blocks merge auto-push (sync.ts:690-691)")
+@pytest.mark.xfail(reason="Plugin bug: echo suppression blocks merge auto-push (sync.ts:690-691) — Rasbandit/Engram-obsidian-sync#2")
 @pytest.mark.asyncio
 async def test_merge_auto_pushes_to_server(vault_a, vault_b, cdp_a, cdp_b, api_sync):
     """After merge resolution, server should have merged content WITHOUT manual intervention."""
