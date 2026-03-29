@@ -6,23 +6,35 @@ on:
     tags-ignore: ["v*"]
   pull_request:
     branches: [main]
+  repository_dispatch:
+    types: [plugin-e2e-trigger]
 
+# Fixed group — CI stack uses fixed ports, only one run at a time regardless of branch
 concurrency:
-  group: ci-engram-${{ github.ref }}
+  group: ci-engram-stack
   cancel-in-progress: true
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Integration tests (test_plan.sh) — runs on every push/PR
+  # ---------------------------------------------------------------------------
   integration:
-    # Fork protection: only run on self-hosted for pushes or same-repo PRs
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # Skip on plugin dispatch (backend code didn't change)
+    if: >
+      github.event_name != 'repository_dispatch' &&
+      (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, engram]
 
     steps:
+      - name: Pre-cleanup stale resources
+        run: |
+          docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
+
       - uses: actions/checkout@v4
 
       - name: Start CI stack
         run: |
-          docker compose -f docker-compose.ci.yml up -d --build --wait
+          docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8100/health > /dev/null 2>&1; then
               echo "engram is healthy"
@@ -34,29 +46,73 @@ jobs:
       - name: Run integration tests
         run: ENGRAM_TEST_URL=http://localhost:8100 bash test_plan.sh
 
-      - name: Show logs on failure
+      - name: Collect logs on failure
         if: failure()
-        run: docker compose -f docker-compose.ci.yml logs engram --tail 200
+        run: |
+          mkdir -p ci-artifacts
+          docker compose -f docker-compose.ci.yml -p engram-ci logs > ci-artifacts/docker-compose.log 2>&1
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-debug-${{ github.sha }}
+          path: ci-artifacts/
+          retention-days: 7
 
       - name: Tear down CI stack
         if: always()
-        run: docker compose -f docker-compose.ci.yml down -v --remove-orphans
+        run: docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans
 
+  # ---------------------------------------------------------------------------
+  # E2E tests — full Obsidian sync cycle
+  # Runs on: push to main (after integration passes), or plugin dispatch
+  # ---------------------------------------------------------------------------
   e2e:
-    needs: integration
-    if: github.ref == 'refs/heads/main'
+    needs: [integration]
+    if: >
+      always() && !cancelled() &&
+      (
+        github.event_name == 'repository_dispatch' ||
+        (github.ref == 'refs/heads/main' && needs.integration.result == 'success')
+      )
     runs-on: [self-hosted, engram]
 
     steps:
+      - name: Pre-cleanup stale resources
+        run: |
+          docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
+          pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
+          pkill -9 Xvfb 2>/dev/null || true
+          rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
+
       - uses: actions/checkout@v4
 
+      - name: Checkout plugin
+        uses: actions/checkout@v4
+        with:
+          repository: Rasbandit/Engram-obsidian-sync
+          token: ${{ secrets.CROSS_REPO_PAT }}
+          path: plugin-src
+          ref: ${{ github.event.client_payload.plugin_ref || 'main' }}
+
       - name: Build plugin
-        working-directory: ../engram-obsidian-sync
+        working-directory: plugin-src
         run: npm ci && npm run build
+
+      - name: Verify plugin build
+        run: |
+          for f in plugin-src/main.js plugin-src/manifest.json; do
+            if [ ! -f "$f" ]; then
+              echo "ERROR: Missing $f — plugin build failed"
+              exit 1
+            fi
+          done
+          echo "Plugin build OK: $(ls -la plugin-src/main.js)"
 
       - name: Start CI stack
         run: |
-          docker compose -f docker-compose.ci.yml up -d --build --wait
+          docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8100/health > /dev/null 2>&1; then
               echo "engram is healthy"
@@ -65,16 +121,46 @@ jobs:
             sleep 1
           done
 
+      - name: Check Ollama reachability
+        run: |
+          if ! curl -sf http://10.0.20.214:11434/api/tags > /dev/null 2>&1; then
+            echo "WARNING: Ollama on FastRaid not reachable — embedding tests will fail"
+          else
+            echo "Ollama OK"
+          fi
+
       - name: Run E2E tests
-        working-directory: ../engram-workspace/e2e
+        working-directory: e2e
         run: python3 -m pytest tests/ -v --timeout=300
         env:
           ENGRAM_API_URL: http://localhost:8100
+          ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
+          CI_POSTGRES_CONTAINER: engram-ci-postgres-1
 
-      - name: Show logs on failure
+      - name: Collect logs on failure
         if: failure()
-        run: docker compose -f docker-compose.ci.yml logs engram --tail 200
+        run: |
+          mkdir -p ci-artifacts
+          docker compose -f docker-compose.ci.yml -p engram-ci logs > ci-artifacts/docker-compose.log 2>&1
+          # Capture vault state for debugging
+          for v in /tmp/e2e-vault-*; do
+            if [ -d "$v" ]; then
+              tar czf "ci-artifacts/$(basename $v).tar.gz" -C /tmp "$(basename $v)" 2>/dev/null || true
+            fi
+          done
 
-      - name: Tear down CI stack
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-debug-${{ github.sha }}
+          path: ci-artifacts/
+          retention-days: 7
+
+      - name: Tear down CI stack + processes
         if: always()
-        run: docker compose -f docker-compose.ci.yml down -v --remove-orphans
+        run: |
+          docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
+          pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
+          pkill -9 Xvfb 2>/dev/null || true
+          rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*

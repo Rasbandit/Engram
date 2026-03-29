@@ -1,15 +1,19 @@
 # Ephemeral CI test stack — all services local except Ollama (GPU on FastRaid).
 #
-# Usage:
-#   docker compose -f docker-compose.ci.yml up -d --build --wait
+# Always invoke with explicit project name for stable container names:
+#   docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
 #   ENGRAM_TEST_URL=http://localhost:8100 bash test_plan.sh
-#   docker compose -f docker-compose.ci.yml down -v --remove-orphans
+#   docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans
+#
+# Container names: engram-ci-engram-1, engram-ci-postgres-1, etc.
 #
 # Ports offset from defaults to avoid collisions with local dev:
 #   engram   8100 (not 8000)
 #   postgres 5433 (not 5432)
 #   redis    6380 (not 6379)
 #   qdrant   6334 (not 6333)
+
+name: engram-ci
 
 services:
   engram:
@@ -62,7 +66,7 @@ services:
     restart: "no"
 
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.17.1
     ports:
       - "6334:6333"
     healthcheck:

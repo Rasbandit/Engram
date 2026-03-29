@@ -189,6 +189,10 @@ The Docker network (default `ai`) connects these containers:
 - **qdrant** (port 6333) — vector database
 - **jina-reranker** (port 8082) — Jina reranker for search quality
 
+## Context Docs
+
+If you need info on Starlette/Jinja2 template issues, see `docs/context/starlette-1.0-templates.md`.
+
 ## Life OS
 project: engram
 goal: income
