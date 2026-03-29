@@ -20,10 +20,10 @@ jobs:
   # Integration tests (test_plan.sh) — runs on every push/PR
   # ---------------------------------------------------------------------------
   integration:
-    # Skip on plugin dispatch (backend code didn't change)
+    # Skip on plugin dispatch (backend code didn't change). Allow workflow_dispatch for manual runs.
     if: >
       github.event_name != 'repository_dispatch' &&
-      (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, engram]
 
     steps:
@@ -75,6 +75,7 @@ jobs:
       always() && !cancelled() &&
       (
         github.event_name == 'repository_dispatch' ||
+        github.event_name == 'workflow_dispatch' ||
         (github.ref == 'refs/heads/main' && needs.integration.result == 'success')
       )
     runs-on: [self-hosted, engram]
