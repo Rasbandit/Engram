@@ -152,6 +152,53 @@ class ApiClient:
         )
         return resp.status_code
 
+    def rename_folder(self, old_folder: str, new_folder: str) -> int:
+        """POST /folders/rename. Returns HTTP status code."""
+        resp = self.session.post(
+            f"{self.base_url}/folders/rename",
+            json={"old_folder": old_folder, "new_folder": new_folder},
+            timeout=10,
+        )
+        return resp.status_code
+
+    def get_manifest(self) -> dict:
+        """GET /sync/manifest. Returns manifest dict."""
+        resp = self.session.get(f"{self.base_url}/sync/manifest", timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+
+    def ingest_logs(self, entries: list[dict]) -> int:
+        """POST /logs. Returns HTTP status code."""
+        resp = self.session.post(
+            f"{self.base_url}/logs",
+            json={"entries": entries},
+            timeout=10,
+        )
+        return resp.status_code
+
+    def get_logs(self, level: str = "", since: str = "", limit: int = 200) -> dict:
+        """GET /logs. Returns logs dict."""
+        params = {"limit": limit}
+        if level:
+            params["level"] = level
+        if since:
+            params["since"] = since
+        resp = self.session.get(
+            f"{self.base_url}/logs", params=params, timeout=10
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def list_folder(self, folder: str = "") -> dict:
+        """GET /folders/list. Returns folder listing dict."""
+        resp = self.session.get(
+            f"{self.base_url}/folders/list",
+            params={"folder": folder},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def get_folders(self) -> list:
         """GET /folders."""
         resp = self.session.get(f"{self.base_url}/folders", timeout=10)

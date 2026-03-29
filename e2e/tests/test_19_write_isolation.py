@@ -195,3 +195,93 @@ async def test_write_isolation_cannot_delete_other_user_attachment(
     assert resp.status_code == 200, (
         "SECURITY BREACH: isolation-user deleted sync-user's attachment!"
     )
+
+
+# ---------------------------------------------------------------------------
+# Folder rename isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_isolation_cannot_rename_other_user_folder(
+    vault_a, cdp_a, api_sync, api_iso
+):
+    """User C cannot rename user A's folder via POST /folders/rename."""
+    path = "E2E/IsoFolder/FolderRenameTarget.md"
+    write_note(vault_a, path, "# Folder Target\nInside a folder owned by sync-user.")
+    api_sync.wait_for_note(path, timeout=10)
+
+    # isolation-user attempts to rename sync-user's folder
+    status = api_iso.rename_folder("E2E/IsoFolder", "E2E/HijackedFolder")
+
+    # sync-user's note must still be at the original folder path
+    note = api_sync.get_note(path)
+    assert note is not None, (
+        "SECURITY BREACH: isolation-user renamed sync-user's folder!"
+    )
+    assert "owned by sync-user" in note["content"]
+
+    # The hijacked folder path should NOT contain sync-user's note
+    hijacked = api_sync.get_note("E2E/HijackedFolder/FolderRenameTarget.md")
+    assert hijacked is None, (
+        "SECURITY BREACH: isolation-user moved sync-user's notes to a new folder!"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Sync manifest isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_isolation_manifest_does_not_leak(
+    vault_a, cdp_a, api_sync, api_iso
+):
+    """User C's sync manifest should not include user A's notes or attachments."""
+    path = "E2E/ManifestIsolation.md"
+    write_note(vault_a, path, "# Manifest Test\nShould not appear in other manifest.")
+    api_sync.wait_for_note(path, timeout=10)
+
+    # sync-user's manifest should include the note
+    sync_manifest = api_sync.get_manifest()
+    sync_paths = [n["path"] for n in sync_manifest.get("notes", [])]
+    assert path in sync_paths, "sync-user's manifest missing their own note"
+
+    # isolation-user's manifest should NOT include it
+    iso_manifest = api_iso.get_manifest()
+    iso_paths = [n["path"] for n in iso_manifest.get("notes", [])]
+    assert path not in iso_paths, (
+        f"SECURITY BREACH: isolation-user's manifest contains sync-user's note! "
+        f"Found {path} in manifest."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Log isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_isolation_logs_do_not_leak(api_sync, api_iso):
+    """User C cannot see user A's log entries via GET /logs."""
+    # sync-user ingests a log entry with a unique marker
+    marker = "SYNC_USER_SECRET_LOG_MARKER_42"
+    api_sync.ingest_logs([{
+        "ts": "2026-03-29T00:00:00Z",
+        "level": "info",
+        "category": "test",
+        "message": marker,
+    }])
+
+    # sync-user can see their own logs
+    sync_logs = api_sync.get_logs()
+    sync_messages = [e.get("message", "") for e in sync_logs.get("logs", [])]
+    assert marker in sync_messages, "sync-user can't see their own log entry"
+
+    # isolation-user should NOT see sync-user's log entry
+    iso_logs = api_iso.get_logs()
+    iso_messages = [e.get("message", "") for e in iso_logs.get("logs", [])]
+    assert marker not in iso_messages, (
+        f"SECURITY BREACH: isolation-user can see sync-user's log entries! "
+        f"Found '{marker}' in logs response."
+    )
