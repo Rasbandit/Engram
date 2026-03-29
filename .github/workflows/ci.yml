@@ -7,63 +7,74 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-engram-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: engram
-          POSTGRES_PASSWORD: engram
-          POSTGRES_DB: engram
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U engram"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
+  integration:
+    # Fork protection: only run on self-hosted for pushes or same-repo PRs
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, engram]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t engram:test ./api
-
-      - name: Start engram
+      - name: Start CI stack
         run: |
-          docker run -d --name engram \
-            --network host \
-            -e DATABASE_URL=postgresql://engram:engram@localhost:5432/engram \
-            -e JWT_SECRET=ci-test-secret \
-            -e REDIS_URL=redis://localhost:6379/0 \
-            -e REGISTRATION_ENABLED=true \
-            -e LOG_LEVEL=WARNING \
-            engram:test
-          # Wait for API to be ready
+          docker compose -f docker-compose.ci.yml up -d --build --wait
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+            if curl -sf http://localhost:8100/health > /dev/null 2>&1; then
               echo "engram is healthy"
               break
             fi
             sleep 1
           done
 
-      - name: Run integration tests (skip search)
-        run: bash test_plan.sh --skip-search
+      - name: Run integration tests
+        run: ENGRAM_TEST_URL=http://localhost:8100 bash test_plan.sh
 
       - name: Show logs on failure
         if: failure()
-        run: docker logs engram
+        run: docker compose -f docker-compose.ci.yml logs engram --tail 200
+
+      - name: Tear down CI stack
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v --remove-orphans
+
+  e2e:
+    needs: integration
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, engram]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build plugin
+        working-directory: ../engram-obsidian-sync
+        run: npm ci && npm run build
+
+      - name: Start CI stack
+        run: |
+          docker compose -f docker-compose.ci.yml up -d --build --wait
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8100/health > /dev/null 2>&1; then
+              echo "engram is healthy"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run E2E tests
+        working-directory: ../engram-workspace/e2e
+        run: python3 -m pytest tests/ -v --timeout=300
+        env:
+          ENGRAM_API_URL: http://localhost:8100
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.ci.yml logs engram --tail 200
+
+      - name: Tear down CI stack
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v --remove-orphans

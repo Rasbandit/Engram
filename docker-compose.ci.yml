@@ -1,0 +1,74 @@
+# Ephemeral CI test stack — all services local except Ollama (GPU on FastRaid).
+#
+# Usage:
+#   docker compose -f docker-compose.ci.yml up -d --build --wait
+#   ENGRAM_TEST_URL=http://localhost:8100 bash test_plan.sh
+#   docker compose -f docker-compose.ci.yml down -v --remove-orphans
+#
+# Ports offset from defaults to avoid collisions with local dev:
+#   engram   8100 (not 8000)
+#   postgres 5433 (not 5432)
+#   redis    6380 (not 6379)
+#   qdrant   6334 (not 6333)
+
+services:
+  engram:
+    build: ./api
+    ports:
+      - "8100:8000"
+    environment:
+      DATABASE_URL: postgresql://engram:engram@postgres:5432/engram
+      OLLAMA_URL: http://10.0.20.214:11434
+      QDRANT_URL: http://qdrant:6333
+      EMBED_MODEL: nomic-embed-text
+      EMBED_DIMS: "768"
+      EMBED_BACKEND: ollama
+      COLLECTION: ci_test_notes
+      JWT_SECRET: ci-test-secret-not-for-production
+      REGISTRATION_ENABLED: "true"
+      LOG_LEVEL: WARNING
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    restart: "no"
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: engram
+      POSTGRES_PASSWORD: engram
+      POSTGRES_DB: engram
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U engram"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    restart: "no"
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6334:6333"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
+      start_period: 5s
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: "no"

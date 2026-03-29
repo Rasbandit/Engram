@@ -97,7 +97,7 @@ if [[ "${1:-}" == "--both" ]]; then
     fi
 fi
 
-BASE="http://localhost:8000"
+BASE="${ENGRAM_TEST_URL:-http://localhost:8000}"
 PASS=0
 FAIL=0
 ERRORS=""
