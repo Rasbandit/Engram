@@ -32,6 +32,7 @@ services:
       REGISTRATION_ENABLED: "true"
       LOG_LEVEL: WARNING
       REDIS_URL: redis://redis:6379/0
+      RATE_LIMIT_RPM: "60"
     depends_on:
       postgres:
         condition: service_healthy

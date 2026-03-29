@@ -1518,8 +1518,8 @@ if [[ "$HAS_REDIS_RL" == "true" ]]; then
 
     if [[ -n "$RATE_KEY" ]]; then
         GOT_429=false
-        # Default limit is 120/min. With Redis, it's global across all workers.
-        for i in $(seq 1 130); do
+        # CI sets RATE_LIMIT_RPM=60. With Redis, it's global across all workers.
+        for i in $(seq 1 70); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/search" \
                 -H "Authorization: Bearer $RATE_KEY" \
                 -H "Content-Type: application/json" \
@@ -1533,7 +1533,7 @@ if [[ "$HAS_REDIS_RL" == "true" ]]; then
         if [[ "$GOT_429" == "true" ]]; then
             pass "Rate limiter returns 429 after exceeding limit (Redis)"
         else
-            fail "Rate limiter did not return 429 after 130 requests (Redis)"
+            fail "Rate limiter did not return 429 after 70 requests (Redis)"
         fi
 
         # Verify the 429 response body has a useful message
@@ -2105,7 +2105,7 @@ RESP=$(curl -s -w "\n%{http_code}" "$BASE/sync/manifest" \
     -H "Authorization: Bearer $API_KEY")
 STATUS=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
-assert_status 200 "$STATUS" "GET /sync/manifest"
+assert_status "GET /sync/manifest" 200 "$STATUS"
 
 MANIFEST_NOTES=$(echo "$BODY" | jq '.total_notes')
 MANIFEST_ATTACHMENTS=$(echo "$BODY" | jq '.total_attachments')
