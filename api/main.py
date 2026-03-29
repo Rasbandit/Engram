@@ -17,6 +17,7 @@ import base64
 import db
 import note_store
 import attachment_store
+import log_store
 from auth import get_current_user_api_key
 from config import ASYNC_INDEXING, MAX_ATTACHMENT_SIZE, MAX_NOTE_SIZE, MAX_STORAGE_PER_USER, CORS_ORIGINS, QDRANT_URL, OLLAMA_URL, RATE_LIMIT_RPM
 from pool import close_pool
@@ -49,6 +50,7 @@ async def lifespan(app: FastAPI):
     db.init_db()
     note_store.init_note_db()
     attachment_store.init_attachment_db()
+    log_store.init_log_db()
     ensure_folder_collection()
     await _task_queue.start()
     await event_bus.start_listener()
@@ -109,6 +111,7 @@ class SearchRequest(BaseModel):
     query: str
     limit: int = Field(default=5, ge=1, le=50)
     tags: list[str] | None = None
+    folder: str | None = None
 
 
 class SearchResult(BaseModel):
@@ -200,7 +203,7 @@ def health_deep():
 
 @app.post("/search", response_model=SearchResponse)
 def search_endpoint(req: SearchRequest, user: dict = Depends(rate_limit)):
-    results = search(req.query, limit=req.limit, tags=req.tags, user_id=str(user["id"]))
+    results = search(req.query, limit=req.limit, tags=req.tags, user_id=str(user["id"]), folder=req.folder)
     return SearchResponse(query=req.query, results=results)
 
 
@@ -550,3 +553,48 @@ def user_storage_endpoint(user: dict = Depends(get_current_user_api_key)):
     storage["max_bytes"] = MAX_STORAGE_PER_USER
     storage["max_attachment_bytes"] = MAX_ATTACHMENT_SIZE
     return storage
+
+
+# --- Client log endpoints ---
+
+
+class ClientLogEntry(BaseModel):
+    ts: str
+    level: str = "info"
+    category: str = ""
+    message: str = ""
+    stack: str | None = None
+    plugin_version: str = ""
+    platform: str = ""
+
+
+class ClientLogBatch(BaseModel):
+    entries: list[ClientLogEntry] = Field(..., max_length=50)
+
+
+@app.post("/logs")
+def ingest_logs_endpoint(req: ClientLogBatch, user: dict = Depends(get_current_user_api_key)):
+    """Receive batched log entries from the plugin (remote debugging)."""
+    user_id = str(user["id"])
+    entries = [e.model_dump() for e in req.entries]
+    count = log_store.insert_logs(user_id, entries)
+    return {"accepted": count}
+
+
+@app.get("/logs")
+def get_logs_endpoint(
+    level: str = Query(default="", description="Filter by level (error, warn, info)"),
+    since: str = Query(default="", description="ISO 8601 timestamp"),
+    limit: int = Query(default=200, ge=1, le=1000),
+    user: dict = Depends(get_current_user_api_key),
+):
+    """Get client log entries for the authenticated user."""
+    user_id = str(user["id"])
+    since_dt = None
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid 'since' timestamp.")
+    logs = log_store.get_logs(user_id, level=level or None, since=since_dt, limit=limit)
+    return {"logs": logs}

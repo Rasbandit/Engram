@@ -42,5 +42,8 @@ ASYNC_INDEXING = os.environ.get("ASYNC_INDEXING", "false").lower() == "true"
 # Rate limiting
 RATE_LIMIT_RPM = int(os.environ.get("RATE_LIMIT_RPM", "0"))  # 0 = unlimited
 
+# Client log retention
+LOG_RETENTION_DAYS = int(os.environ.get("LOG_RETENTION_DAYS", "7"))
+
 # Redis (optional — enables shared state for multi-instance deployments)
 REDIS_URL = os.environ.get("REDIS_URL") or None  # None/empty = disabled, use in-memory backends

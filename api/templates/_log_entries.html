@@ -1,0 +1,32 @@
+{% if logs %}
+{% for log in logs %}
+<tr>
+    <td><small>{{ log.ts[:19] }}</small></td>
+    <td>
+        {% if log.level == "error" %}
+        <mark style="background: var(--pico-del-color); color: white; padding: 2px 6px; border-radius: 4px;">{{ log.level }}</mark>
+        {% elif log.level == "warn" %}
+        <mark style="background: #e67e22; color: white; padding: 2px 6px; border-radius: 4px;">{{ log.level }}</mark>
+        {% else %}
+        <mark style="background: var(--pico-ins-color); color: white; padding: 2px 6px; border-radius: 4px;">{{ log.level }}</mark>
+        {% endif %}
+    </td>
+    <td><small>{{ log.category }}</small></td>
+    <td>
+        {{ log.message }}
+        {% if log.stack %}
+        <details>
+            <summary><small>Stack trace</small></summary>
+            <pre><code>{{ log.stack }}</code></pre>
+        </details>
+        {% endif %}
+    </td>
+    <td><small>{{ log.platform }}</small></td>
+    <td><small>{{ log.plugin_version }}</small></td>
+</tr>
+{% endfor %}
+{% else %}
+<tr>
+    <td colspan="6"><em>No log entries yet. Enable remote logging in the plugin settings.</em></td>
+</tr>
+{% endif %}

@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 from psycopg.errors import UniqueViolation
 
 import db
+import log_store
 from auth import create_jwt, get_current_user_session, SESSION_COOKIE
 from config import REGISTRATION_ENABLED
 from search import search
@@ -159,3 +160,24 @@ def create_key(
 def delete_key(key_id: int, user: dict = Depends(get_current_user_session)):
     db.delete_api_key(user["id"], key_id)
     return RedirectResponse("/settings", status_code=303)
+
+
+# --- Logs ---
+
+
+@router.get("/logs/view", response_class=HTMLResponse)
+def logs_page(request: Request, user: dict = Depends(get_current_user_session)):
+    ctx = _flash_context(request, user=user)
+    return templates.TemplateResponse("logs.html", ctx)
+
+
+@router.get("/logs/entries", response_class=HTMLResponse)
+def logs_entries(
+    request: Request,
+    level: str = Query(default=""),
+    user: dict = Depends(get_current_user_session),
+):
+    user_id = str(user["id"])
+    logs = log_store.get_logs(user_id, level=level or None, limit=200)
+    ctx = _flash_context(request, user=user, logs=logs)
+    return templates.TemplateResponse("_log_entries.html", ctx)
