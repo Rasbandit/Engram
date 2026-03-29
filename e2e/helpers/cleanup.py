@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,28 +17,35 @@ VAULT_PATHS = [
     Path("/tmp/e2e-vault-c"),
 ]
 
-# Stable container name: uses explicit --project-name engram-ci in compose commands
-CI_POSTGRES_CONTAINER = os.environ.get("CI_POSTGRES_CONTAINER", "engram-ci-postgres-1")
+# CI compose project name — matches the directory name where docker-compose.ci.yml lives
+CI_POSTGRES_CONTAINER = os.environ.get("CI_POSTGRES_CONTAINER", "engram-postgres-1")
+
+
+_SAFE_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9._@%+-]+$")
 
 
 def cleanup_test_data(email_pattern: str = "e2e-%@test.local") -> None:
     """Run cleanup SQL via docker exec against the local CI postgres container.
 
     Deletes all users/notes/attachments/api_keys matching the email pattern.
-    FK-safe deletion order.
+    FK-safe deletion order. Uses psql variable binding to avoid SQL injection.
     """
-    sub_int = f"SELECT id FROM users WHERE email LIKE '{email_pattern}'"
-    sub_text = f"SELECT id::text FROM users WHERE email LIKE '{email_pattern}'"
+    if not _SAFE_EMAIL_PATTERN.match(email_pattern):
+        raise ValueError(f"Unsafe email pattern rejected: {email_pattern!r}")
+
+    # Use psql -v to pass the pattern as a variable, then reference it with :'pat'
     sql = (
-        f"DELETE FROM api_keys WHERE user_id IN ({sub_int}); "
-        f"DELETE FROM notes WHERE user_id IN ({sub_text}); "
-        f"DELETE FROM attachments WHERE user_id IN ({sub_text}); "
-        f"DELETE FROM users WHERE email LIKE '{email_pattern}';"
+        "DELETE FROM api_keys WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat'); "
+        "DELETE FROM notes WHERE user_id IN (SELECT id::text FROM users WHERE email LIKE :'pat'); "
+        "DELETE FROM attachments WHERE user_id IN (SELECT id::text FROM users WHERE email LIKE :'pat'); "
+        "DELETE FROM users WHERE email LIKE :'pat';"
     )
 
     cmd = [
         "docker", "exec", CI_POSTGRES_CONTAINER,
-        "psql", "-U", "engram", "-d", "engram", "-c", sql,
+        "psql", "-U", "engram", "-d", "engram",
+        "-v", f"pat={email_pattern}",
+        "-c", sql,
     ]
 
     logger.info("Running cleanup SQL on %s (pattern: %s)", CI_POSTGRES_CONTAINER, email_pattern)

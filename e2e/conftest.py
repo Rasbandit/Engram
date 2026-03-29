@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import secrets
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -24,8 +25,8 @@ from helpers.obsidian import ObsidianInstance
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 API_URL = os.environ.get("ENGRAM_API_URL", "http://localhost:8100")
-PLUGIN_SRC = Path(os.environ.get("ENGRAM_PLUGIN_SRC", str(Path(__file__).parent.parent / "plugin-src")))
-OBSIDIAN_BIN = Path(os.environ.get("ENGRAM_OBSIDIAN_BIN", str(Path.home() / "Applications" / "Obsidian.AppImage")))
+PLUGIN_SRC = Path(__file__).parent.parent / "plugin"
+OBSIDIAN_BIN = Path.home() / "Applications" / "Obsidian.AppImage"
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +46,7 @@ def ts():
 def sync_user(ts):
     """Shared user for Obsidian A + B. Returns (email, api_key)."""
     email = f"e2e-sync-{ts}@test.local"
-    api_key = register_user(API_URL, email, "testpass123")
+    api_key = register_user(API_URL, email, secrets.token_urlsafe(32))
     return email, api_key
 
 
@@ -53,7 +54,7 @@ def sync_user(ts):
 def isolation_user(ts):
     """Separate user for Obsidian C. Returns (email, api_key)."""
     email = f"e2e-iso-{ts}@test.local"
-    api_key = register_user(API_URL, email, "testpass123")
+    api_key = register_user(API_URL, email, secrets.token_urlsafe(32))
     return email, api_key
 
 

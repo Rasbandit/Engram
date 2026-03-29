@@ -8,8 +8,6 @@ End-to-end flow:
 5. Server stores note under clean path
 """
 
-import time
-
 import pytest
 
 from helpers.vault import read_note, write_note, wait_for_file
@@ -35,8 +33,7 @@ async def test_illegal_chars_sanitized_on_push(vault_a, vault_b, cdp_a, cdp_b, a
 
     # 4. A's local file should have been renamed to clean path
     #    (plugin renames after seeing server response)
-    time.sleep(2)  # give plugin time to rename
-    a_content = read_note(vault_a, clean_path)
+    a_content = wait_for_file(vault_a, clean_path, timeout=10)
     assert "path sanitization" in a_content, "A's local file should be renamed to clean path"
 
     # 5. B pulls → should get the clean filename
