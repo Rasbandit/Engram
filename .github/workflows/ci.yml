@@ -44,6 +44,10 @@ jobs:
         working-directory: workspace/e2e/unit_tests
         run: python3 -m pytest -v
 
+      - name: Run backend unit tests
+        working-directory: tests
+        run: python3 -m pytest -v
+
       - name: Start CI stack
         run: |
           docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
