@@ -584,6 +584,7 @@ def ingest_logs_endpoint(req: ClientLogBatch, user: dict = Depends(get_current_u
 @app.get("/logs")
 def get_logs_endpoint(
     level: str = Query(default="", description="Filter by level (error, warn, info)"),
+    category: str = Query(default="", description="Filter by category (e.g. conflict, pull, push, lifecycle)"),
     since: str = Query(default="", description="ISO 8601 timestamp"),
     limit: int = Query(default=200, ge=1, le=1000),
     user: dict = Depends(get_current_user_api_key),
@@ -596,5 +597,5 @@ def get_logs_endpoint(
             since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid 'since' timestamp.")
-    logs = log_store.get_logs(user_id, level=level or None, since=since_dt, limit=limit)
+    logs = log_store.get_logs(user_id, level=level or None, category=category or None, since=since_dt, limit=limit)
     return {"logs": logs}
