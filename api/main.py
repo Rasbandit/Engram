@@ -1,4 +1,4 @@
-"""engram: FastAPI search service for Engram."""
+"""Engram — AI-powered personal knowledge base."""
 
 import logging
 import os
