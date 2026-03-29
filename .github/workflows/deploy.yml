@@ -1,0 +1,118 @@
+name: Deploy
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from tag
+        id: meta
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./api
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            VERSION="${{ needs.build-and-push.outputs.version }}"
+            REGISTRY="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+            NETWORK="${{ vars.DOCKER_NETWORK || 'ai' }}"
+
+            # Pull new image
+            docker pull "${REGISTRY}:${VERSION}"
+
+            # Ensure Redis is running
+            docker inspect engram-redis >/dev/null 2>&1 || \
+              docker run -d \
+                --name engram-redis \
+                --network "${NETWORK}" \
+                --log-opt max-size=50m --log-opt max-file=1 \
+                --restart unless-stopped \
+                --label net.unraid.docker.managed=dockerman \
+                redis:7-alpine redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+
+            # Read JWT_SECRET from existing env
+            JWT_SECRET=$(grep JWT_SECRET /opt/engram/.env | cut -d= -f2)
+
+            # Replace engram container
+            docker stop engram 2>/dev/null || true
+            docker rm engram 2>/dev/null || true
+            docker run -d \
+              --name engram \
+              --network "${NETWORK}" \
+              -p 8000:8000 \
+              --log-opt max-size=50m --log-opt max-file=1 \
+              --restart unless-stopped \
+              --label net.unraid.docker.managed=dockerman \
+              --label 'net.unraid.docker.webui=http://[IP]:[PORT:8000]/' \
+              -e TZ=America/Los_Angeles \
+              -e EMBED_MODEL=nomic-embed-text \
+              -e EMBED_BACKEND=ollama \
+              -e 'DATABASE_URL=postgresql://engram:engram@engram-postgres:5432/engram' \
+              -e "JWT_SECRET=${JWT_SECRET}" \
+              -e REGISTRATION_ENABLED=true \
+              -e 'OLLAMA_URL=http://ollama:11434' \
+              -e 'QDRANT_URL=http://qdrant:6333' \
+              -e 'JINA_URL=http://jina-reranker:8082' \
+              -e COLLECTION=obsidian_notes \
+              -e LOG_LEVEL=INFO \
+              -e 'REDIS_URL=redis://engram-redis:6379/0' \
+              "${REGISTRY}:${VERSION}"
+
+            # Update version in remote .env
+            sed -i "s/^VERSION=.*/VERSION=${VERSION}/" /opt/engram/.env
+
+      - name: Health check
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            sleep 3
+            if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+              echo "engram is healthy"
+            else
+              echo "Health check failed!"
+              docker logs engram --tail 20
+              exit 1
+            fi

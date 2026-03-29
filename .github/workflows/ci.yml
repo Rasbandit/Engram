@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["v*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: engram
+          POSTGRES_PASSWORD: engram
+          POSTGRES_DB: engram
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U engram"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t engram:test ./api
+
+      - name: Start engram
+        run: |
+          docker run -d --name engram \
+            --network host \
+            -e DATABASE_URL=postgresql://engram:engram@localhost:5432/engram \
+            -e JWT_SECRET=ci-test-secret \
+            -e REDIS_URL=redis://localhost:6379/0 \
+            -e REGISTRATION_ENABLED=true \
+            -e LOG_LEVEL=WARNING \
+            engram:test
+          # Wait for API to be ready
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+              echo "engram is healthy"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run integration tests (skip search)
+        run: bash test_plan.sh --skip-search
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker logs engram

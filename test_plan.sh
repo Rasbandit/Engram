@@ -6,11 +6,19 @@
 # Requires: engram + postgres + redis running (docker compose up)
 #
 # Usage:
-#   bash test_plan.sh          # run once against current config
-#   bash test_plan.sh --both   # run twice: without Redis, then with Redis
+#   bash test_plan.sh                 # run once against current config
+#   bash test_plan.sh --both          # run twice: without Redis, then with Redis
+#   bash test_plan.sh --skip-search   # skip tests requiring Ollama/Qdrant/Jina
 # ============================================================================
 
 set -euo pipefail
+
+SKIP_SEARCH=false
+for arg in "$@"; do
+    case "$arg" in
+        --skip-search) SKIP_SEARCH=true ;;
+    esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -422,8 +430,9 @@ else
 fi
 
 # ============================================================================
-# SECTION 9: Search (POST /search)
+# SECTION 9: Search (POST /search) [requires Ollama + Qdrant]
 # ============================================================================
+if [[ "$SKIP_SEARCH" != "true" ]]; then
 echo ""
 echo "=== 9. Search ==="
 
@@ -462,6 +471,7 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/search" \
 BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /search (limit 50)" 200 "$STATUS"
+else echo "  ⏭ Skipping Section 9 (search — requires Ollama/Qdrant)"; fi
 
 # ============================================================================
 # SECTION 10: Sync — Changes Endpoint (GET /notes/changes)
@@ -739,8 +749,9 @@ STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /settings (with session)" 200 "$STATUS"
 
 # ============================================================================
-# SECTION 15: Search Validation
+# SECTION 15: Search Validation [requires Ollama + Qdrant]
 # ============================================================================
+if [[ "$SKIP_SEARCH" != "true" ]]; then
 echo ""
 echo "=== 15. Search Validation ==="
 
@@ -772,6 +783,7 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/search" \
     -d '{"query": "test", "limit": 51}')
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /search (limit 51, over max)" 422 "$STATUS"
+else echo "  ⏭ Skipping Section 15 (search validation — requires Ollama/Qdrant)"; fi
 
 # ============================================================================
 # SECTION 17: SSE Live Sync (GET /notes/stream)
@@ -1000,8 +1012,9 @@ STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /attachments (invalid base64 → 400)" 400 "$STATUS"
 
 # ============================================================================
-# SECTION 19: Deep Health Check (GET /health/deep)
+# SECTION 19: Deep Health Check (GET /health/deep) [requires Ollama + Qdrant]
 # ============================================================================
+if [[ "$SKIP_SEARCH" != "true" ]]; then
 echo ""
 echo "=== 19. Deep Health Check ==="
 
@@ -1019,6 +1032,7 @@ assert_json_not_empty "Deep health checks" "$BODY" '.checks'
 assert_json_not_empty "PostgreSQL check" "$BODY" '.checks.postgresql'
 assert_json_not_empty "Qdrant check" "$BODY" '.checks.qdrant'
 assert_json_not_empty "Ollama check" "$BODY" '.checks.ollama'
+else echo "  ⏭ Skipping Section 19 (deep health — requires Ollama/Qdrant)"; fi
 
 # ============================================================================
 # SECTION 20: API Key Deletion + Cache Invalidation
@@ -1318,8 +1332,9 @@ else
 fi
 
 # ============================================================================
-# SECTION 29: Search Result Fields + Multi-Tag Filter
+# SECTION 29: Search Result Fields + Multi-Tag Filter [requires Ollama + Qdrant]
 # ============================================================================
+if [[ "$SKIP_SEARCH" != "true" ]]; then
 echo ""
 echo "=== 29. Search Result Fields ==="
 
@@ -1357,6 +1372,7 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/search" \
 BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /search (multi-tag filter)" 200 "$STATUS"
+else echo "  ⏭ Skipping Section 29 (search fields — requires Ollama/Qdrant)"; fi
 
 # ============================================================================
 # SECTION 30: SSE User Isolation
@@ -1400,8 +1416,9 @@ else
 fi
 
 # ============================================================================
-# SECTION 31: Search Multi-Tenant Isolation
+# SECTION 31: Search Multi-Tenant Isolation [requires Ollama + Qdrant]
 # ============================================================================
+if [[ "$SKIP_SEARCH" != "true" ]]; then
 echo ""
 echo "=== 31. Search Multi-Tenant Isolation ==="
 
@@ -1423,6 +1440,7 @@ if [[ -n "$API_KEY2" ]]; then
 else
     pass "Search multi-tenant test skipped (no second user)"
 fi
+else echo "  ⏭ Skipping Section 31 (search isolation — requires Ollama/Qdrant)"; fi
 
 # ============================================================================
 # SECTION 32: MCP Auth Middleware
@@ -1559,6 +1577,10 @@ else
     pass "Deep health: Redis not configured (skipped — in-memory mode)"
 fi
 
+# ============================================================================
+# SECTIONS 36-43: Folder Search [requires Ollama + Qdrant]
+# ============================================================================
+if [[ "$SKIP_SEARCH" != "true" ]]; then
 # ============================================================================
 # SECTION 36: Folder Reindex
 # ============================================================================
@@ -1804,8 +1826,8 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/folders/search" \
     -d '{"limit": 3}')
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /folders/search missing query" 422 "$STATUS"
+else echo "  ⏭ Skipping Sections 36-43 (folder search — requires Ollama/Qdrant)"; fi
 
-# ============================================================================
 # ============================================================================
 # SECTION 44: Append to Note (POST /notes/append)
 # ============================================================================
