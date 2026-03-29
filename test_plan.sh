@@ -1530,8 +1530,8 @@ if [[ "$HAS_REDIS_RL" == "true" ]]; then
 
     if [[ -n "$RATE_KEY" ]]; then
         GOT_429=false
-        # CI sets RATE_LIMIT_RPM=30 for fast testing. Separate user ensures clean counter.
-        for i in $(seq 1 40); do
+        # CI sets RATE_LIMIT_RPM=120. Separate user ensures clean counter.
+        for i in $(seq 1 130); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/search" \
                 -H "Authorization: Bearer $RATE_KEY" \
                 -H "Content-Type: application/json" \
@@ -1545,7 +1545,7 @@ if [[ "$HAS_REDIS_RL" == "true" ]]; then
         if [[ "$GOT_429" == "true" ]]; then
             pass "Rate limiter returns 429 after exceeding limit (Redis)"
         else
-            fail "Rate limiter did not return 429 after 40 requests (Redis)"
+            fail "Rate limiter did not return 429 after 130 requests (Redis)"
         fi
 
         # Verify the 429 response body has a useful message
