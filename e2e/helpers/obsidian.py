@@ -181,7 +181,7 @@ class ObsidianInstance:
             "--appimage-extract-and-run",
             "--no-sandbox",
             f"--remote-debugging-port={self.cdp_port}",
-            "--remote-allow-origins=*",
+            "--remote-allow-origins=http://127.0.0.1",
             "--disable-gpu",
             f"--user-data-dir={self.config_dir}",
         ]

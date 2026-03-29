@@ -87,35 +87,74 @@ curl -X POST http://localhost:8000/notes \
 
 Tests rarely need to change. The test suite defines the contract that the API must honor. When tests fail after a code change, the code change is wrong.
 
+### Three test layers
+
+| Layer | Location | Command | What it tests | Infra needed |
+|-------|----------|---------|---------------|--------------|
+| **Unit tests** | `tests/` | `python3 -m pytest tests/ -v` | Pure logic: sanitize_path, note helpers, auth/JWT, API key cache, rate limiter | None (mocks DB) |
+| **Integration tests** | `test_plan.sh` | `bash test_plan.sh` | Full API contract against running services | Docker Compose stack |
+| **E2E tests** | `e2e/tests/` | `ENGRAM_API_URL=http://localhost:8100 python3 -m pytest e2e/tests/ -v` | Real Obsidian sync: plugin push/pull, SSE, conflicts, multi-user | CI stack + Obsidian |
+| **E2E helper unit tests** | `e2e/unit_tests/` | `python3 -m pytest e2e/unit_tests/ -v` | SQL injection prevention in cleanup helpers | None |
+
+### Unit tests (92 tests)
+
+Fast, no infrastructure. Run from `tests/` or the repo root.
+
 ```bash
-# Start services, then run tests
+python3 -m pytest tests/ -v
+```
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `test_sanitize_path.py` | 30 | Illegal char stripping, path traversal prevention, unicode, length limits |
+| `test_note_helpers.py` | 17 | `_extract_title` (frontmatter, heading, filename fallback), `_extract_tags`, `_extract_folder` |
+| `test_auth.py` | 18 | JWT creation/validation/expiry, API key auth (401 on invalid), session cookie auth (303 redirects for expired/tampered/missing tokens) |
+| `test_api_key_cache.py` | 14 | Local cache TTL, cache hit skips DB, last_used throttling, cache invalidation on delete, SHA256 hash storage |
+| `test_rate_limit.py` | 13 | Unlimited mode, 429 enforcement, per-user isolation, sliding window pruning, boundary behavior |
+
+**Mock pattern:** Unit tests import from `api/` without a database by stubbing heavy dependencies at the top of each test file:
+
+```python
+sys.modules.setdefault("psycopg", MagicMock())
+sys.modules.setdefault("psycopg.errors", MagicMock())
+sys.modules.setdefault("pool", MagicMock())
+sys.modules.setdefault("redis_client", MagicMock(is_enabled=MagicMock(return_value=False)))
+```
+
+The `conftest.py` adds `api/` to `sys.path`. For functions that call `get_pool()`, use `patch("db.get_pool", return_value=mock_pool)` since `db.py` imports `get_pool` at module level.
+
+### Integration tests (~97 assertions)
+
+```bash
 docker compose up --build -d
 bash test_plan.sh
 ```
 
-`test_plan.sh` covers ~97 assertions across 40 sections:
-- Health check + deep health (PostgreSQL, Qdrant, Ollama, Redis)
-- Auth (registration, login, API key management, API key deletion + cache invalidation, Bearer validation)
-- Note CRUD lifecycle (create, read, upsert/update, delete, double-delete)
-- Frontmatter extraction (title, tags, folder, comma-separated tags)
-- Root-level notes + title fallback
-- Legacy endpoints (`GET /note?source_path=`)
-- Folders and tags from PostgreSQL
-- Search (vector + rerank, tag filtering, multi-tag filter, limit validation, result fields)
-- Sync (`GET /notes/changes` with timestamps, changes response shape)
-- SSE live sync + SSE user isolation
-- CORS
-- Attachments (CRUD, upsert, changes, edge cases, double-delete)
-- Note size limit (413)
-- Rate limiting
-- MCP auth
-- Multi-tenant isolation (users cannot see each other's data, multi-tenant search)
-- Web UI session routes + logout
-- Cleanup
+Covers: health checks, auth, note CRUD, frontmatter extraction, folders/tags, search (vector + rerank), sync changes, SSE live sync, CORS, attachments, size limits, rate limiting, MCP auth, multi-tenant isolation, web UI sessions.
 
-Supports `--both` flag to run tests twice: without Redis (in-memory) then with Redis.
+Supports `--both` flag to run twice: without Redis (in-memory) then with Redis.
 
 Requires: engram + postgres running locally (docker compose), plus Ollama and Qdrant reachable for indexing/search tests.
+
+### E2E tests (18 scenarios)
+
+Full Obsidian sync cycle with headless instances. See `../engram-workspace/docs/e2e-testing.md` for architecture, prerequisites, and gotchas.
+
+### E2E helper unit tests (23 tests)
+
+Tests for the E2E test infrastructure itself — SQL injection prevention in `cleanup.py`.
+
+```bash
+python3 -m pytest e2e/unit_tests/ -v
+```
+
+### CI pipeline
+
+All tests run in GitHub Actions (`.github/workflows/ci.yml`):
+
+1. **Unit tests** — `python3 -m pytest tests/ -v` + `python3 -m pytest e2e/unit_tests/ -v` (no infrastructure)
+2. **Integration tests** — starts CI stack, runs `test_plan.sh`
+3. **E2E tests** — starts CI stack + headless Obsidian, runs full sync scenarios (main branch only)
 
 ## Production Deployment
 

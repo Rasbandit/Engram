@@ -105,6 +105,100 @@ class ApiClient:
             time.sleep(poll)
         raise TimeoutError(f"Note {path} still on server after {timeout}s")
 
+    def rename_note(self, old_path: str, new_path: str) -> int:
+        """POST /notes/rename. Returns HTTP status code."""
+        resp = self.session.post(
+            f"{self.base_url}/notes/rename",
+            json={"old_path": old_path, "new_path": new_path},
+            timeout=10,
+        )
+        return resp.status_code
+
+    def append_note(self, path: str, text: str) -> int:
+        """POST /notes/append. Returns HTTP status code."""
+        resp = self.session.post(
+            f"{self.base_url}/notes/append",
+            json={"path": path, "text": text},
+            timeout=10,
+        )
+        return resp.status_code
+
+    def upload_attachment(self, path: str, data: bytes) -> int:
+        """POST /attachments. Returns HTTP status code."""
+        import base64
+        resp = self.session.post(
+            f"{self.base_url}/attachments",
+            json={
+                "path": path,
+                "content_base64": base64.b64encode(data).decode(),
+                "mtime": time.time(),
+            },
+            timeout=10,
+        )
+        return resp.status_code
+
+    def get_attachment(self, path: str) -> requests.Response:
+        """GET /attachments/{path}. Returns full response."""
+        return self.session.get(
+            f"{self.base_url}/attachments/{quote(path, safe='')}",
+            timeout=10,
+        )
+
+    def delete_attachment(self, path: str) -> int:
+        """DELETE /attachments/{path}. Returns HTTP status code."""
+        resp = self.session.delete(
+            f"{self.base_url}/attachments/{quote(path, safe='')}",
+            timeout=10,
+        )
+        return resp.status_code
+
+    def rename_folder(self, old_folder: str, new_folder: str) -> int:
+        """POST /folders/rename. Returns HTTP status code."""
+        resp = self.session.post(
+            f"{self.base_url}/folders/rename",
+            json={"old_folder": old_folder, "new_folder": new_folder},
+            timeout=10,
+        )
+        return resp.status_code
+
+    def get_manifest(self) -> dict:
+        """GET /sync/manifest. Returns manifest dict."""
+        resp = self.session.get(f"{self.base_url}/sync/manifest", timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+
+    def ingest_logs(self, entries: list[dict]) -> int:
+        """POST /logs. Returns HTTP status code."""
+        resp = self.session.post(
+            f"{self.base_url}/logs",
+            json={"entries": entries},
+            timeout=10,
+        )
+        return resp.status_code
+
+    def get_logs(self, level: str = "", since: str = "", limit: int = 200) -> dict:
+        """GET /logs. Returns logs dict."""
+        params = {"limit": limit}
+        if level:
+            params["level"] = level
+        if since:
+            params["since"] = since
+        resp = self.session.get(
+            f"{self.base_url}/logs", params=params, timeout=10
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def list_folder(self, folder: str = "") -> dict:
+        """GET /folders/list. Returns folder listing dict."""
+        resp = self.session.get(
+            f"{self.base_url}/folders/list",
+            params={"folder": folder},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def get_folders(self) -> list:
         """GET /folders."""
         resp = self.session.get(f"{self.base_url}/folders", timeout=10)

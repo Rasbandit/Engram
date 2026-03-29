@@ -36,11 +36,16 @@ async def test_ignore_patterns(vault_a, cdp_a, api_sync):
     # Wait for the normal file to appear on server (proves push is working)
     api_sync.wait_for_note(normal_path, timeout=10)
 
-    # The ignored file should NOT be on the server
-    # Give extra time — if it were going to sync, it would have by now
+    # Negative assertion: prove the ignored file did NOT sync.
+    # A sleep is appropriate here — there's nothing to poll for, and the control
+    # file above already proved the sync pipeline is active and working.
     time.sleep(2)
     note = api_sync.get_note(ignored_path)
-    assert note is None, "Ignored file should NOT appear on server"
+    assert note is None, (
+        f"Ignored file '{ignored_path}' appeared on server despite matching "
+        f"ignore pattern 'Private/'. Control file synced OK, so this is a real "
+        f"ignore-pattern failure."
+    )
 
     # Reset ignore patterns
     await cdp_a.evaluate(

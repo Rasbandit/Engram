@@ -9,7 +9,7 @@ import psycopg
 from pool import get_pool
 
 # Characters illegal on iOS/Android/Windows filesystems
-_ILLEGAL_FILENAME_CHARS = re.compile(r'[\\:*?<>"|]')
+_ILLEGAL_FILENAME_CHARS = re.compile(r'[\\:*?<>"|\x00]')
 
 logger = logging.getLogger("engram")
 
@@ -84,18 +84,34 @@ def _extract_tags(content: str) -> list[str]:
     return tags
 
 
+_MAX_SEGMENT_BYTES = 255
+
+
 def sanitize_path(path: str) -> str:
     """Strip characters from filenames that are illegal on mobile/Windows.
 
-    Only sanitizes the filename portions — folder separators (/) are preserved.
-    Collapses multiple consecutive spaces into one and strips leading/trailing spaces
-    from each path segment.
+    Also prevents path traversal (../), absolute paths, empty segments,
+    and truncates segments exceeding filesystem limits (255 bytes).
+    Folder separators (/) are preserved.
     """
+    # Strip leading slashes to prevent absolute paths
+    path = path.lstrip("/")
+
     parts = path.split("/")
     cleaned = []
     for part in parts:
         part = _ILLEGAL_FILENAME_CHARS.sub("", part)
         part = re.sub(r"  +", " ", part).strip()
+        # Strip traversal segments (.. and variants like ". .")
+        if part.replace(" ", "") in (".", "..") or ".." in part:
+            continue
+        # Skip empty segments (from double slashes)
+        if not part:
+            continue
+        # Truncate segments exceeding filesystem limits
+        if len(part.encode("utf-8")) > _MAX_SEGMENT_BYTES:
+            encoded = part.encode("utf-8")[:_MAX_SEGMENT_BYTES]
+            part = encoded.decode("utf-8", errors="ignore")
         cleaned.append(part)
     return "/".join(cleaned)
 

@@ -33,6 +33,11 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      - name: Run unit tests (backend + E2E helpers)
+        run: |
+          python3 -m pytest tests/ -v
+          python3 -m pytest e2e/unit_tests/ -v
+
       - name: Start CI stack
         run: |
           docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
