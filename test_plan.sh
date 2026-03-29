@@ -1510,16 +1510,28 @@ DEEP_HEALTH=$(curl -s "$BASE/health/deep")
 HAS_REDIS_RL=$(echo "$DEEP_HEALTH" | jq 'has("checks") and (.checks | has("redis"))' 2>/dev/null || echo "false")
 
 if [[ "$HAS_REDIS_RL" == "true" ]]; then
-    # Redis is configured — rate limit is global, so we can test it
+    # Create a SEPARATE user for rate limit testing to avoid polluting the main
+    # test user's rate limit counter (rate limiting is per user_id, not per key).
+    RL_COOKIES=$(mktemp)
+    RL_EMAIL="rate-limit-test-$$@test.local"
+    curl -s -X POST "$BASE/register" \
+        -c "$RL_COOKIES" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "email=$RL_EMAIL&password=testpass&display_name=Rate+Limit+Test" -o /dev/null -L
+    curl -s -X POST "$BASE/login" \
+        -c "$RL_COOKIES" -b "$RL_COOKIES" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "email=$RL_EMAIL&password=testpass" -o /dev/null -L
     RATE_KEY=$(curl -s -X POST "$BASE/settings/keys" \
-        -b /tmp/engram_cookies \
+        -b "$RL_COOKIES" \
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "name=rate-test-key" -L | grep -oP 'engram_[A-Za-z0-9_-]+' || echo "")
+    rm -f "$RL_COOKIES"
 
     if [[ -n "$RATE_KEY" ]]; then
         GOT_429=false
-        # CI sets RATE_LIMIT_RPM=60. With Redis, it's global across all workers.
-        for i in $(seq 1 70); do
+        # Default limit is 120/min. Separate user ensures we start from 0.
+        for i in $(seq 1 130); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/search" \
                 -H "Authorization: Bearer $RATE_KEY" \
                 -H "Content-Type: application/json" \
@@ -1533,7 +1545,7 @@ if [[ "$HAS_REDIS_RL" == "true" ]]; then
         if [[ "$GOT_429" == "true" ]]; then
             pass "Rate limiter returns 429 after exceeding limit (Redis)"
         else
-            fail "Rate limiter did not return 429 after 70 requests (Redis)"
+            fail "Rate limiter did not return 429 after 130 requests (Redis)"
         fi
 
         # Verify the 429 response body has a useful message
