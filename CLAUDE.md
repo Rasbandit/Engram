@@ -78,7 +78,7 @@ curl -X POST http://localhost:8000/notes \
 | `MAX_NOTE_SIZE` | 10MB | Max single note size |
 | `CORS_ORIGINS` | `*` | CORS allowed origins |
 | `ASYNC_INDEXING` | `false` | Background indexing (opt-in) |
-| `RATE_LIMIT_RPM` | `120` | Requests per minute per user |
+| `RATE_LIMIT_RPM` | `0` (unlimited) | Requests per minute per user |
 | `REDIS_URL` | — | Optional Redis for multi-instance caching |
 
 ## Testing
