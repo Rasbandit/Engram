@@ -8,6 +8,7 @@ on:
     branches: [main]
   repository_dispatch:
     types: [plugin-e2e-trigger]
+  workflow_dispatch:
 
 # Fixed group — CI stack uses fixed ports, only one run at a time regardless of branch
 concurrency:
