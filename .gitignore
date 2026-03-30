@@ -20,3 +20,6 @@ venv/
 
 # Claude Code
 .claude.json
+
+# Plugin (separate repo)
+plugin/
