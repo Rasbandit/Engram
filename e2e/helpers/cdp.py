@@ -224,3 +224,89 @@ class CdpClient:
             # If we can't restore the fancy handler, null is safe (defaults to skip)
             await self.evaluate(f"{ENGINE_PATH}.onConflict = null")
         logger.info("Conflict handler restored")
+
+    # ------------------------------------------------------------------
+    # Resilience testing helpers
+    # ------------------------------------------------------------------
+
+    async def disconnect_sse(self) -> None:
+        """Disconnect the SSE stream (simulates network drop)."""
+        await self.evaluate(f"{PLUGIN_PATH}.noteStream.disconnect()")
+        logger.info("SSE disconnected on CDP port %d", self.port)
+
+    async def reconnect_sse(self) -> None:
+        """Reconnect the SSE stream after a disconnect."""
+        await self.evaluate(f"{PLUGIN_PATH}.noteStream.connect()", await_promise=True)
+        logger.info("SSE reconnect initiated on CDP port %d", self.port)
+
+    async def simulate_offline(self) -> None:
+        """Override API methods to throw, simulating network failure.
+
+        Saves originals so restore_online() can bring the plugin back.
+        Also overrides health() to prevent auto-recovery via health checks.
+        """
+        js = f"""
+        (function() {{
+            const se = {ENGINE_PATH};
+            se._origPushNote = se.api.pushNote.bind(se.api);
+            se._origDeleteNote = se.api.deleteNote.bind(se.api);
+            se._origPushAttachment = se.api.pushAttachment.bind(se.api);
+            se._origDeleteAttachment = se.api.deleteAttachment.bind(se.api);
+            se._origHealth = se.api.health.bind(se.api);
+            const fail = async () => {{ throw new Error('simulated offline'); }};
+            se.api.pushNote = fail;
+            se.api.deleteNote = fail;
+            se.api.pushAttachment = fail;
+            se.api.deleteAttachment = fail;
+            se.api.health = async () => false;
+            return 'offline simulated';
+        }})()
+        """
+        result = await self.evaluate(js)
+        logger.info("Offline simulated on CDP port %d: %s", self.port, result)
+
+    async def restore_online(self) -> None:
+        """Restore original API methods after simulate_offline().
+
+        Calls goOnline() if the engine is in offline state, which triggers
+        queue flush automatically.
+        """
+        js = f"""
+        (function() {{
+            const se = {ENGINE_PATH};
+            if (se._origPushNote) se.api.pushNote = se._origPushNote;
+            if (se._origDeleteNote) se.api.deleteNote = se._origDeleteNote;
+            if (se._origPushAttachment) se.api.pushAttachment = se._origPushAttachment;
+            if (se._origDeleteAttachment) se.api.deleteAttachment = se._origDeleteAttachment;
+            if (se._origHealth) se.api.health = se._origHealth;
+            delete se._origPushNote;
+            delete se._origDeleteNote;
+            delete se._origPushAttachment;
+            delete se._origDeleteAttachment;
+            delete se._origHealth;
+            return 'online restored';
+        }})()
+        """
+        result = await self.evaluate(js)
+        logger.info("Online restored on CDP port %d: %s", self.port, result)
+        # Trigger recovery if engine is offline
+        is_offline = await self.get_offline_status()
+        if is_offline:
+            await self.evaluate(
+                f"{ENGINE_PATH}.flushQueue()", await_promise=True
+            )
+
+    async def get_queue_size(self) -> int:
+        """Read the offline queue size."""
+        result = await self.evaluate(f"{ENGINE_PATH}.queue.size")
+        return result if isinstance(result, int) else 0
+
+    async def get_offline_status(self) -> bool:
+        """Read whether the engine is in offline mode."""
+        result = await self.evaluate(f"{ENGINE_PATH}.offline")
+        return result is True
+
+    async def get_last_error(self) -> str:
+        """Read the engine's last error message."""
+        result = await self.evaluate(f"{ENGINE_PATH}.lastError")
+        return result if isinstance(result, str) else ""
