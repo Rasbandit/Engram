@@ -28,6 +28,7 @@ def init_note_db():
                     content TEXT NOT NULL DEFAULT '',
                     folder TEXT NOT NULL DEFAULT '',
                     tags TEXT[] NOT NULL DEFAULT '{}',
+                    version INTEGER NOT NULL DEFAULT 1,
                     mtime DOUBLE PRECISION NOT NULL DEFAULT 0,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -123,11 +124,19 @@ def _extract_folder(path: str) -> str:
     return ""
 
 
-def upsert_note(user_id: str, path: str, content: str, mtime: float) -> dict:
+def upsert_note(
+    user_id: str, path: str, content: str, mtime: float,
+    expected_version: int | None = None,
+) -> dict:
     """Upsert a note into PostgreSQL. Returns the note dict.
 
     Path is sanitized to remove characters illegal on mobile/Windows filesystems.
     The returned dict contains the sanitized path.
+
+    If expected_version is provided, the update only succeeds when the current
+    server version matches (optimistic concurrency control). On mismatch,
+    returns {"conflict": True, "server_note": {...}} instead of the upserted note.
+    When expected_version is None, the update is unconditional (backwards compat).
     """
     path = sanitize_path(path)
     title = _extract_title(content, path)
@@ -147,15 +156,37 @@ def upsert_note(user_id: str, path: str, content: str, mtime: float) -> dict:
                 tags = EXCLUDED.tags,
                 mtime = EXCLUDED.mtime,
                 updated_at = EXCLUDED.updated_at,
-                deleted_at = NULL
-            RETURNING id, user_id, path, title, folder, tags, mtime, created_at, updated_at
-        """, (user_id, path, title, content, folder, tags, mtime, now)).fetchone()
+                deleted_at = NULL,
+                version = notes.version + 1
+            WHERE (%s IS NULL OR notes.version = %s)
+            RETURNING id, user_id, path, title, folder, tags, mtime, created_at, updated_at, version
+        """, (user_id, path, title, content, folder, tags, mtime, now,
+              expected_version, expected_version)).fetchone()
+
+        if row is None:
+            # Version mismatch — re-fetch current server state for the client
+            server = conn.execute("""
+                SELECT id, path, title, content, folder, tags, mtime, created_at, updated_at, version
+                FROM notes WHERE user_id = %s AND path = %s AND deleted_at IS NULL
+            """, (user_id, path)).fetchone()
+            conn.commit()
+            return {
+                "conflict": True,
+                "server_note": {
+                    "id": server[0], "path": server[1], "title": server[2],
+                    "content": server[3], "folder": server[4], "tags": server[5],
+                    "mtime": server[6], "created_at": server[7].isoformat(),
+                    "updated_at": server[8].isoformat(), "version": server[9],
+                },
+            }
+
         conn.commit()
 
     return {
         "id": row[0], "user_id": row[1], "path": row[2], "title": row[3],
         "folder": row[4], "tags": row[5], "mtime": row[6],
         "created_at": row[7].isoformat(), "updated_at": row[8].isoformat(),
+        "version": row[9],
     }
 
 
@@ -164,7 +195,7 @@ def get_note(user_id: str, path: str) -> dict | None:
     pool = get_pool()
     with pool.connection() as conn:
         row = conn.execute("""
-            SELECT id, path, title, content, folder, tags, mtime, created_at, updated_at
+            SELECT id, path, title, content, folder, tags, mtime, created_at, updated_at, version
             FROM notes WHERE user_id = %s AND path = %s AND deleted_at IS NULL
         """, (user_id, path)).fetchone()
 
@@ -175,6 +206,7 @@ def get_note(user_id: str, path: str) -> dict | None:
         "id": row[0], "path": row[1], "title": row[2], "content": row[3],
         "folder": row[4], "tags": row[5], "mtime": row[6],
         "created_at": row[7].isoformat(), "updated_at": row[8].isoformat(),
+        "version": row[9],
     }
 
 
@@ -183,7 +215,7 @@ def get_changes_since(user_id: str, since: datetime) -> list[dict]:
     pool = get_pool()
     with pool.connection() as conn:
         rows = conn.execute("""
-            SELECT path, title, content, folder, tags, mtime, updated_at, deleted_at
+            SELECT path, title, content, folder, tags, mtime, updated_at, deleted_at, version
             FROM notes WHERE user_id = %s AND updated_at > %s
             ORDER BY updated_at ASC
         """, (user_id, since)).fetchall()
@@ -192,7 +224,7 @@ def get_changes_since(user_id: str, since: datetime) -> list[dict]:
         {
             "path": r[0], "title": r[1], "content": r[2], "folder": r[3],
             "tags": r[4], "mtime": r[5], "updated_at": r[6].isoformat(),
-            "deleted": r[7] is not None,
+            "deleted": r[7] is not None, "version": r[8],
         }
         for r in rows
     ]
@@ -220,7 +252,7 @@ def rename_note(user_id: str, old_path: str, new_path: str) -> dict | None:
         row = conn.execute("""
             UPDATE notes SET path = %s, folder = %s, updated_at = %s
             WHERE user_id = %s AND path = %s AND deleted_at IS NULL
-            RETURNING id, path, title, folder, tags, mtime, created_at, updated_at
+            RETURNING id, path, title, folder, tags, mtime, created_at, updated_at, version
         """, (new_path, new_folder, now, user_id, old_path)).fetchone()
         conn.commit()
 
@@ -231,6 +263,7 @@ def rename_note(user_id: str, old_path: str, new_path: str) -> dict | None:
         "id": row[0], "path": row[1], "title": row[2], "folder": row[3],
         "tags": row[4], "mtime": row[5],
         "created_at": row[6].isoformat(), "updated_at": row[7].isoformat(),
+        "version": row[8],
     }
 
 
@@ -352,12 +385,12 @@ def get_manifest(user_id: str) -> list[dict]:
     pool = get_pool()
     with pool.connection() as conn:
         rows = conn.execute("""
-            SELECT path, md5(content) AS content_hash
+            SELECT path, md5(content) AS content_hash, version
             FROM notes WHERE user_id = %s AND deleted_at IS NULL
             ORDER BY path
         """, (user_id,)).fetchall()
 
-    return [{"path": r[0], "content_hash": r[1]} for r in rows]
+    return [{"path": r[0], "content_hash": r[1], "version": r[2]} for r in rows]
 
 
 def get_all_tags_pg(user_id: str) -> list[dict]:

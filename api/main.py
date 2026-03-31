@@ -135,6 +135,7 @@ class NoteUpsertRequest(BaseModel):
     path: str
     content: str
     mtime: float
+    version: int | None = None
 
 
 class AttachmentUpsertRequest(BaseModel):
@@ -233,7 +234,14 @@ def upsert_note_endpoint(req: NoteUpsertRequest, user: dict = Depends(rate_limit
     # Snapshot folder set before upsert to detect new folders
     folders_before = {f["folder"] for f in note_store.get_folders(user_id)}
 
-    note = note_store.upsert_note(user_id, req.path, req.content, req.mtime)
+    result = note_store.upsert_note(user_id, req.path, req.content, req.mtime, expected_version=req.version)
+    if result.get("conflict"):
+        from starlette.responses import JSONResponse
+        return JSONResponse(
+            status_code=409,
+            content={"conflict": True, "server_note": result["server_note"]},
+        )
+    note = result
     if ASYNC_INDEXING:
         _task_queue.enqueue(index_note, req.path, req.content, req.mtime, user_id)
         chunk_count = 0
