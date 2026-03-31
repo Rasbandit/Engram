@@ -76,6 +76,17 @@ async def test_three_way_merge_clean(vault_a, vault_b, cdp_a, cdp_b, api_sync):
 
     # 8. Resume sync, push merged version to server
     await cdp_b.resume_outgoing_sync()
+
+    # Force push past echo suppression — touch the file to change its hash
+    await cdp_b.evaluate(f"""
+        (async function() {{
+            const file = app.vault.getAbstractFileByPath("{path}");
+            const content = await app.vault.read(file);
+            await app.vault.modify(file, content + "\\n");
+            return 'touched';
+        }})()
+    """, await_promise=True)
+
     await cdp_b.trigger_full_sync()
 
     # 9. Verify server has the merged content

@@ -54,8 +54,8 @@ async def test_restart_preserves_queue(vault_a, cdp_a, api_sync, obsidian_a):
     obsidian_a.stop()
     await asyncio.sleep(2)
 
-    # 5. Restart Obsidian A
-    obsidian_a.start()
+    # 5. Restart Obsidian A (restart=True preserves vault + data.json with queue)
+    await obsidian_a.async_start(restart=True)
     await cdp_a.wait_for_plugin_ready(timeout=60)
 
     # 6. Startup sync should restore queue and flush it

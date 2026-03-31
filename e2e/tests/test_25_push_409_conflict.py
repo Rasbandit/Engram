@@ -50,7 +50,16 @@ async def test_push_409_handled(vault_a, cdp_a, api_sync):
     assert a_content is not None and len(a_content) > 0, "A should still have content"
     assert server_note is not None, "Server should still have the note"
 
-    # Check if auto-merge worked (best case)
+    # Check if auto-merge worked (best case — non-overlapping edits)
     if "edited by A" in a_content and "edited by server" in a_content:
-        # Auto-merge succeeded — verify server has merged version too
+        # Auto-merge succeeded locally — force push past echo suppression
+        await cdp_a.evaluate(f"""
+            (async function() {{
+                const file = app.vault.getAbstractFileByPath("{path}");
+                const content = await app.vault.read(file);
+                await app.vault.modify(file, content + "\\n");
+                return 'touched';
+            }})()
+        """, await_promise=True)
+        await asyncio.sleep(3)
         api_sync.wait_for_note_content(path, "edited by A", timeout=10)

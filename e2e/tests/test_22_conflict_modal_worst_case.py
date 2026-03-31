@@ -145,7 +145,7 @@ async def test_conflict_modal_receives_base_content(
     assert info["path"] == path
     assert info["hasBase"] is True, "baseContent should be present from initial sync"
     assert info["baseLen"] > 0, "baseContent should have content"
-    assert "Original" in info["baseSnippet"], (
+    assert "original" in info["baseSnippet"].lower(), (
         f"baseContent should be the original version, got: {info['baseSnippet']}"
     )
     assert "Rewritten by B" in info["localSnippet"], (

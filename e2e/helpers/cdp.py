@@ -235,9 +235,21 @@ class CdpClient:
         logger.info("SSE disconnected on CDP port %d", self.port)
 
     async def reconnect_sse(self) -> None:
-        """Reconnect the SSE stream after a disconnect."""
-        await self.evaluate(f"{PLUGIN_PATH}.noteStream.connect()", await_promise=True)
+        """Reconnect the SSE stream after a disconnect.
+
+        NOTE: connect() is fire-and-forget — it calls startStream() which
+        enters a blocking while(true) read loop. Do NOT use await_promise=True
+        or the CDP call will hang forever.
+        """
+        await self.evaluate(f"{PLUGIN_PATH}.noteStream.connect()")
         logger.info("SSE reconnect initiated on CDP port %d", self.port)
+        # Wait for the connection to establish and trigger onStatusChange
+        for _ in range(10):
+            await asyncio.sleep(1)
+            if await self.check_sse_connected():
+                logger.info("SSE reconnected on CDP port %d", self.port)
+                return
+        logger.warning("SSE did not reconnect within 10s on CDP port %d", self.port)
 
     async def simulate_offline(self) -> None:
         """Override API methods to throw, simulating network failure.

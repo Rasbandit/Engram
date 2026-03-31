@@ -17,7 +17,11 @@ async def test_sse_reconnect_catches_up(vault_a, vault_b, cdp_a, cdp_b, api_sync
     """SSE drops, A creates note, SSE reconnects, B gets the note."""
     path = "E2E/SSEReconnect.md"
 
-    # Verify SSE is connected on B
+    # Wait for SSE to be connected on B (may take a moment after prior tests)
+    for _ in range(10):
+        if await cdp_b.check_sse_connected():
+            break
+        await asyncio.sleep(1)
     assert await cdp_b.check_sse_connected(), "B's SSE should be connected"
 
     # Disconnect B's SSE stream
