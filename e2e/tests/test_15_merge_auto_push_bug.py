@@ -37,7 +37,8 @@ async def test_merge_auto_pushes_to_server(vault_a, vault_b, cdp_a, cdp_b, api_s
     await cdp_b.pause_outgoing_sync()
     write_note(vault_b, path, "# Merge Auto Push\nEdited by B")
 
-    # 5. Set merge handler, resume sync so pushFile can work
+    # 5. Switch to modal mode and set merge handler, resume sync so pushFile can work
+    await cdp_b.set_conflict_resolution("modal")
     await cdp_b.override_conflict_handler("merge", merged_content=merged)
     await cdp_b.resume_outgoing_sync()
 
@@ -54,3 +55,4 @@ async def test_merge_auto_pushes_to_server(vault_a, vault_b, cdp_a, cdp_b, api_s
 
     # Cleanup
     await cdp_b.restore_conflict_handler()
+    await cdp_b.set_conflict_resolution("auto")

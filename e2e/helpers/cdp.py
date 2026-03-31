@@ -118,6 +118,15 @@ class CdpClient:
         result = await self.evaluate(f"{PLUGIN_PATH}.sseConnected")
         return result is True
 
+    async def set_conflict_resolution(self, mode: str) -> None:
+        """Set the plugin's conflictResolution setting.
+
+        Modes: 'auto' (creates conflict files) or 'modal' (calls onConflict handler).
+        """
+        js = f"{ENGINE_PATH}.settings.conflictResolution = '{mode}'"
+        await self.evaluate(js)
+        logger.info("Conflict resolution set to '%s' on CDP port %d", mode, self.port)
+
     async def override_conflict_handler(
         self, choice: str, merged_content: str | None = None
     ) -> None:
