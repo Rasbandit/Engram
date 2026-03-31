@@ -37,7 +37,8 @@ async def test_conflict_merge(vault_a, vault_b, cdp_a, cdp_b, api_sync):
     # 5. B edits locally
     write_note(vault_b, path, "# Conflict Test\nEdited by B for merge")
 
-    # 6. Override B's handler to return merged content
+    # 6. Switch to modal mode (v0.6.0 defaults to auto) and override handler
+    await cdp_b.set_conflict_resolution("modal")
     await cdp_b.override_conflict_handler("merge", merged_content=merged)
 
     # 7. B pulls — conflict detected, auto-resolved with merge
@@ -55,6 +56,7 @@ async def test_conflict_merge(vault_a, vault_b, cdp_a, cdp_b, api_sync):
     #     plugin bug: sync.ts line 691 pushFile after line 690 sets syncedHash.)
     await cdp_b.resume_outgoing_sync()
     await cdp_b.restore_conflict_handler()
+    await cdp_b.set_conflict_resolution("auto")
 
     # Modify the file trivially to force a push past echo suppression
     await cdp_b.evaluate(f"""

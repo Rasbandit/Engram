@@ -208,7 +208,7 @@ class ObsidianInstance:
             time.sleep(1)
         raise TimeoutError(f"CDP not available on port {self.cdp_port} after {timeout}s")
 
-    def _enable_plugin_via_cdp(self) -> None:
+    async def _enable_plugin_async(self) -> None:
         """Enable community plugins and load engram-sync via CDP.
 
         Fresh Obsidian installs have restricted mode on. The gate is:
@@ -217,46 +217,76 @@ class ObsidianInstance:
         """
         cdp = CdpClient(self.cdp_port)
 
-        async def _enable():
-            # Wait for app object to be available
-            for _ in range(30):
-                try:
-                    app_type = await cdp.evaluate("typeof app")
-                    if app_type == "object":
-                        break
-                except Exception:
-                    pass
-                await asyncio.sleep(1)
-            else:
-                raise TimeoutError("Obsidian app object not available")
+        # Wait for app object to be available
+        for _ in range(30):
+            try:
+                app_type = await cdp.evaluate("typeof app")
+                if app_type == "object":
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(1)
+        else:
+            raise TimeoutError("Obsidian app object not available")
 
-            # Wait for vault adapter to be ready (manifests loaded)
-            for _ in range(20):
-                try:
-                    manifests = await cdp.evaluate(
-                        "JSON.stringify(Object.keys(app.plugins.manifests))"
-                    )
-                    if "engram-sync" in (manifests or ""):
-                        break
-                except Exception:
-                    pass
-                await asyncio.sleep(1)
-            else:
-                raise TimeoutError("Plugin manifest not found")
+        # Wait for vault adapter to be ready (manifests loaded)
+        for _ in range(20):
+            try:
+                manifests = await cdp.evaluate(
+                    "JSON.stringify(Object.keys(app.plugins.manifests))"
+                )
+                if "engram-sync" in (manifests or ""):
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(1)
+        else:
+            raise TimeoutError("Plugin manifest not found")
 
-            # Enable community plugins by setting the localStorage flag
-            await cdp.evaluate(
-                'localStorage.setItem("enable-plugin-" + app.appId, "true")'
-            )
-            logger.info("[%s] Community plugins enabled via localStorage", self.name)
+        # Enable community plugins by setting the localStorage flag
+        await cdp.evaluate(
+            'localStorage.setItem("enable-plugin-" + app.appId, "true")'
+        )
+        logger.info("[%s] Community plugins enabled via localStorage", self.name)
 
-            # Load the plugin (void return — don't try to serialize the result)
-            await cdp.evaluate(
-                'app.plugins.loadPlugin("engram-sync").then(() => "ok")',
-                await_promise=True,
-            )
+        # Load the plugin (void return — don't try to serialize the result)
+        await cdp.evaluate(
+            'app.plugins.loadPlugin("engram-sync").then(() => "ok")',
+            await_promise=True,
+        )
 
-            # Wait for syncEngine.ready
-            await cdp.wait_for_plugin_ready(timeout=30)
+        # Wait for syncEngine.ready
+        await cdp.wait_for_plugin_ready(timeout=30)
 
-        asyncio.run(_enable())
+    def _enable_plugin_via_cdp(self) -> None:
+        """Sync wrapper — calls _enable_plugin_async via asyncio.run().
+
+        Only works when no event loop is running (e.g. during initial setup).
+        For restart inside async tests, use async_start() instead.
+        """
+        asyncio.run(self._enable_plugin_async())
+
+    async def async_start(self, *, restart: bool = False) -> None:
+        """Start Obsidian from an async context (e.g. inside a running test).
+
+        Same as start() but awaits the CDP plugin enablement instead of
+        using asyncio.run(), which fails inside an already-running event loop.
+
+        Args:
+            restart: If True, skip vault/config prep to preserve existing state
+                     (e.g. persisted offline queue in data.json).
+        """
+        logger.info(
+            "[%s] Starting (async) on display %s, CDP port %d",
+            self.name, self.display, self.cdp_port,
+        )
+
+        if not restart:
+            self._prepare_vault()
+        self._prepare_config()
+        self._start_xvfb()
+        self._start_obsidian()
+        self._wait_for_cdp()
+        await self._enable_plugin_async()
+
+        logger.info("[%s] Fully ready (async)", self.name)

@@ -18,6 +18,9 @@ async def test_conflict_keep_both(vault_a, vault_b, cdp_a, cdp_b, api_sync):
 
     await setup_conflict(path, vault_a, vault_b, cdp_b, api_sync)
 
+    # v0.6.0 defaults to "auto" which bypasses onConflict — switch to modal
+    await cdp_b.set_conflict_resolution("modal")
+
     # Override B's conflict handler to auto-resolve with keep-both
     await cdp_b.override_conflict_handler("keep-both")
 
@@ -40,6 +43,7 @@ async def test_conflict_keep_both(vault_a, vault_b, cdp_a, cdp_b, api_sync):
     conflict_content = conflict_files[0].read_text(encoding="utf-8")
     assert "Edited by A" in conflict_content, "Conflict copy should have A's content"
 
-    # Cleanup: restore handlers
+    # Cleanup: restore handlers and default settings
     await cdp_b.restore_conflict_handler()
+    await cdp_b.set_conflict_resolution("auto")
     await cdp_b.resume_outgoing_sync()

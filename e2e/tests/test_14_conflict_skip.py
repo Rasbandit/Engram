@@ -13,6 +13,9 @@ async def test_conflict_skip(vault_a, vault_b, cdp_a, cdp_b, api_sync):
 
     await setup_conflict(path, vault_a, vault_b, cdp_b, api_sync)
 
+    # v0.6.0 defaults to "auto" which bypasses onConflict — switch to modal
+    await cdp_b.set_conflict_resolution("modal")
+
     # Override B's handler to skip
     await cdp_b.override_conflict_handler("skip")
 
@@ -30,4 +33,5 @@ async def test_conflict_skip(vault_a, vault_b, cdp_a, cdp_b, api_sync):
 
     # Cleanup
     await cdp_b.restore_conflict_handler()
+    await cdp_b.set_conflict_resolution("auto")
     await cdp_b.resume_outgoing_sync()
