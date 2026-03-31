@@ -6,6 +6,7 @@ edits the note locally and pushes, the server returns 409 (version conflict).
 The plugin should handle this via 3-way merge or conflict resolution.
 """
 
+import asyncio
 import time
 
 import pytest
@@ -36,7 +37,6 @@ async def test_push_409_handled(vault_a, cdp_a, api_sync):
     write_note(vault_a, path, local_content)
 
     # Wait for push attempt + conflict resolution
-    import asyncio
     await asyncio.sleep(5)
 
     # 4. Verify: the note should be in a consistent state
@@ -44,15 +44,20 @@ async def test_push_409_handled(vault_a, cdp_a, api_sync):
     a_content = read_note(vault_a, path)
     server_note = api_sync.get_note(path)
 
-    # The 409 handler should have produced some resolution:
-    # - If auto-merge succeeded: both edits present
-    # - If conflict resolution: at least A's content preserved locally
-    assert a_content is not None and len(a_content) > 0, "A should still have content"
     assert server_note is not None, "Server should still have the note"
 
-    # Check if auto-merge worked (best case — non-overlapping edits)
-    if "edited by A" in a_content and "edited by server" in a_content:
-        # Auto-merge succeeded locally — force push past echo suppression
+    # The 409 handler must produce one of these outcomes — anything else is data loss:
+    # a) Auto-merge succeeded: both edits present in A's local file
+    # b) Conflict file created: A's local edit preserved, conflict copy exists
+    # c) Keep-local: A's edit preserved locally
+    # In ALL cases, A's local edit must survive.
+    assert "edited by A" in a_content, (
+        f"A's local edit was lost during 409 handling! Got: {a_content[:300]}"
+    )
+
+    auto_merged = "edited by server" in a_content
+    if auto_merged:
+        # Auto-merge succeeded — force push past echo suppression
         await cdp_a.evaluate(f"""
             (async function() {{
                 const file = app.vault.getAbstractFileByPath("{path}");
@@ -63,3 +68,19 @@ async def test_push_409_handled(vault_a, cdp_a, api_sync):
         """, await_promise=True)
         await asyncio.sleep(3)
         api_sync.wait_for_note_content(path, "edited by A", timeout=10)
+        api_sync.wait_for_note_content(path, "edited by server", timeout=10)
+    else:
+        # Auto-merge didn't fire — check for conflict file (auto resolution)
+        e2e_dir = vault_a / "E2E"
+        conflict_files = list(e2e_dir.glob("Push409 (conflict*).md"))
+        # Server's edit should be either in the conflict file or on the server
+        server_content = server_note.get("content", "")
+        has_server_edit = (
+            "edited by server" in server_content
+            or any("edited by server" in f.read_text() for f in conflict_files)
+        )
+        assert has_server_edit, (
+            f"Server's edit was lost during 409 handling! "
+            f"Server content: {server_content[:200]}, "
+            f"Conflict files: {[f.name for f in conflict_files]}"
+        )

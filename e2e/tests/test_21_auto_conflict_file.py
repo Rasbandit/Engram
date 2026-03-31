@@ -29,26 +29,26 @@ async def test_auto_conflict_file(vault_a, vault_b, cdp_a, cdp_b, api_sync):
         b_edit="Edited by B — overlapping",
     )
 
-    # B pulls — 3-way merge detects overlap → auto creates conflict file
-    await cdp_b.trigger_pull()
+    try:
+        # B pulls — 3-way merge detects overlap → auto creates conflict file
+        await cdp_b.trigger_pull()
 
-    # Original file should keep B's local version
-    b_content = read_note(vault_b, path)
-    assert "Edited by B" in b_content, (
-        f"Original should keep B's local version, got: {b_content[:200]}"
-    )
+        # Original file should keep B's local version
+        b_content = read_note(vault_b, path)
+        assert "Edited by B" in b_content, (
+            f"Original should keep B's local version, got: {b_content[:200]}"
+        )
 
-    # A conflict file should exist with A's (remote) content
-    e2e_dir = vault_b / "E2E"
-    conflict_files = list(e2e_dir.glob("AutoConflictFile (conflict*).md"))
-    assert len(conflict_files) >= 1, (
-        f"Expected at least 1 conflict file, found: "
-        f"{[f.name for f in e2e_dir.glob('AutoConflictFile*')]}"
-    )
-    conflict_content = conflict_files[0].read_text(encoding="utf-8")
-    assert "Edited by A" in conflict_content, (
-        f"Conflict file should have A's remote content, got: {conflict_content[:200]}"
-    )
-
-    # Cleanup
-    await cdp_b.resume_outgoing_sync()
+        # A conflict file should exist with A's (remote) content
+        e2e_dir = vault_b / "E2E"
+        conflict_files = list(e2e_dir.glob("AutoConflictFile (conflict*).md"))
+        assert len(conflict_files) >= 1, (
+            f"Expected at least 1 conflict file, found: "
+            f"{[f.name for f in e2e_dir.glob('AutoConflictFile*')]}"
+        )
+        conflict_content = conflict_files[0].read_text(encoding="utf-8")
+        assert "Edited by A" in conflict_content, (
+            f"Conflict file should have A's remote content, got: {conflict_content[:200]}"
+        )
+    finally:
+        await cdp_b.resume_outgoing_sync()

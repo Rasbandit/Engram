@@ -1,4 +1,4 @@
-"""Shared conflict test setup — used by test_06, test_13, test_14.
+"""Shared conflict test setup — used by test_06, test_13, test_14, test_21, test_22.
 
 Extracts the common 5-step pattern:
 1. A creates base note
@@ -6,9 +6,12 @@ Extracts the common 5-step pattern:
 3. A edits → push to server
 4. Pause B's outgoing sync
 5. B edits locally
+6. Verify pause is working (B's edit did not reach server)
 """
 
 from __future__ import annotations
+
+import time
 
 from helpers.vault import write_note
 
@@ -30,6 +33,8 @@ async def setup_conflict(
     - Server has A's version
     - B has B's version locally (outgoing sync paused)
     - B's syncedHash records the original base, so pull will detect conflict
+
+    Raises AssertionError if pause_outgoing_sync failed to prevent B's push.
     """
     # 1. A creates the base note
     write_note(vault_a, path, f"# Conflict Test\n{base_content}")
@@ -48,3 +53,13 @@ async def setup_conflict(
 
     # 5. B edits locally
     write_note(vault_b, path, f"# Conflict Test\n{b_edit}")
+
+    # 6. Verify pause is working — B's edit must NOT overwrite A's on server.
+    #    Wait long enough for a push to have fired if handlers weren't paused.
+    time.sleep(2)
+    server_note = api_sync.get_note(path)
+    assert server_note is not None, "Server note disappeared during conflict setup"
+    assert b_edit not in server_note.get("content", ""), (
+        f"pause_outgoing_sync FAILED: B's edit '{b_edit}' reached the server. "
+        f"All conflict tests using this helper are invalid."
+    )

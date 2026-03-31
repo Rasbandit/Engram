@@ -109,56 +109,56 @@ async def test_conflict_modal_receives_base_content(
         a_content=A_CONTENT, b_content=B_CONTENT,
     )
 
-    # Switch to modal mode and install a handler that captures ConflictInfo
-    await cdp_b.set_conflict_resolution("modal")
-    await cdp_b.evaluate(f"""
-        (function() {{
-            const se = {ENGINE};
-            se._capturedConflict = null;
-            se.onConflict = async (info) => {{
-                se._capturedConflict = {{
-                    path: info.path,
-                    hasBase: info.baseContent != null,
-                    baseLen: info.baseContent ? info.baseContent.length : 0,
-                    localLen: info.localContent.length,
-                    remoteLen: info.remoteContent.length,
-                    baseSnippet: info.baseContent ? info.baseContent.substring(0, 80) : null,
-                    localSnippet: info.localContent.substring(0, 80),
-                    remoteSnippet: info.remoteContent.substring(0, 80),
+    try:
+        # Switch to modal mode and install a handler that captures ConflictInfo
+        await cdp_b.set_conflict_resolution("modal")
+        await cdp_b.evaluate(f"""
+            (function() {{
+                const se = {ENGINE};
+                se._capturedConflict = null;
+                se.onConflict = async (info) => {{
+                    se._capturedConflict = {{
+                        path: info.path,
+                        hasBase: info.baseContent != null,
+                        baseLen: info.baseContent ? info.baseContent.length : 0,
+                        localLen: info.localContent.length,
+                        remoteLen: info.remoteContent.length,
+                        baseSnippet: info.baseContent ? info.baseContent.substring(0, 80) : null,
+                        localSnippet: info.localContent.substring(0, 80),
+                        remoteSnippet: info.remoteContent.substring(0, 80),
+                    }};
+                    return {{ choice: 'keep-local' }};
                 }};
-                return {{ choice: 'keep-local' }};
-            }};
-            return 'handler installed';
-        }})()
-    """)
+                return 'handler installed';
+            }})()
+        """)
 
-    # B pulls — 3-way merge fails (overlapping edits) → modal handler called
-    await cdp_b.trigger_pull()
+        # B pulls — 3-way merge fails (overlapping edits) → modal handler called
+        await cdp_b.trigger_pull()
 
-    # Read back the captured ConflictInfo
-    captured = await cdp_b.evaluate(
-        f"JSON.stringify({ENGINE}._capturedConflict)",
-    )
-    info = json.loads(captured)
+        # Read back the captured ConflictInfo
+        captured = await cdp_b.evaluate(
+            f"JSON.stringify({ENGINE}._capturedConflict)",
+        )
+        info = json.loads(captured)
 
-    assert info is not None, "Conflict handler was never called"
-    assert info["path"] == path
-    assert info["hasBase"] is True, "baseContent should be present from initial sync"
-    assert info["baseLen"] > 0, "baseContent should have content"
-    assert "original" in info["baseSnippet"].lower(), (
-        f"baseContent should be the original version, got: {info['baseSnippet']}"
-    )
-    assert "Rewritten by B" in info["localSnippet"], (
-        f"localContent should be B's version, got: {info['localSnippet']}"
-    )
-    assert "Rewritten by A" in info["remoteSnippet"], (
-        f"remoteContent should be A's version, got: {info['remoteSnippet']}"
-    )
-
-    # Cleanup
-    await cdp_b.restore_conflict_handler()
-    await cdp_b.set_conflict_resolution("auto")
-    await cdp_b.resume_outgoing_sync()
+        assert info is not None, "Conflict handler was never called"
+        assert info["path"] == path
+        assert info["hasBase"] is True, "baseContent should be present from initial sync"
+        assert info["baseLen"] > 0, "baseContent should have content"
+        assert "original" in info["baseSnippet"].lower(), (
+            f"baseContent should be the original version, got: {info['baseSnippet']}"
+        )
+        assert "Rewritten by B" in info["localSnippet"], (
+            f"localContent should be B's version, got: {info['localSnippet']}"
+        )
+        assert "Rewritten by A" in info["remoteSnippet"], (
+            f"remoteContent should be A's version, got: {info['remoteSnippet']}"
+        )
+    finally:
+        await cdp_b.restore_conflict_handler()
+        await cdp_b.set_conflict_resolution("auto")
+        await cdp_b.resume_outgoing_sync()
 
 
 @pytest.mark.asyncio
@@ -174,36 +174,36 @@ async def test_conflict_modal_merge_resolution(
         a_content=A_CONTENT, b_content=B_CONTENT,
     )
 
-    # Modal mode with merge handler
-    await cdp_b.set_conflict_resolution("modal")
-    await cdp_b.override_conflict_handler("merge", merged_content=merged)
-    await cdp_b.resume_outgoing_sync()
+    try:
+        # Modal mode with merge handler
+        await cdp_b.set_conflict_resolution("modal")
+        await cdp_b.override_conflict_handler("merge", merged_content=merged)
+        await cdp_b.resume_outgoing_sync()
 
-    # B pulls — conflict → merge resolution
-    await cdp_b.trigger_pull()
+        # B pulls — conflict → merge resolution
+        await cdp_b.trigger_pull()
 
-    # B should have the merged content
-    b_content = read_note(vault_b, path)
-    assert "Manually merged from both A and B" in b_content, (
-        f"Expected merged content, got: {b_content[:200]}"
-    )
+        # B should have the merged content
+        b_content = read_note(vault_b, path)
+        assert "Manually merged from both A and B" in b_content, (
+            f"Expected merged content, got: {b_content[:200]}"
+        )
 
-    # Force push past echo suppression (known issue — touch the file)
-    await cdp_b.evaluate(f"""
-        (async function() {{
-            const file = app.vault.getAbstractFileByPath("{path}");
-            const content = await app.vault.read(file);
-            await app.vault.modify(file, content + "\\n");
-            return 'touched';
-        }})()
-    """, await_promise=True)
+        # Force push past echo suppression (known issue — touch the file)
+        await cdp_b.evaluate(f"""
+            (async function() {{
+                const file = app.vault.getAbstractFileByPath("{path}");
+                const content = await app.vault.read(file);
+                await app.vault.modify(file, content + "\\n");
+                return 'touched';
+            }})()
+        """, await_promise=True)
 
-    # Server should have merged content
-    api_sync.wait_for_note_content(path, "Manually merged from both A and B", timeout=10)
-
-    # Cleanup
-    await cdp_b.restore_conflict_handler()
-    await cdp_b.set_conflict_resolution("auto")
+        # Server should have merged content
+        api_sync.wait_for_note_content(path, "Manually merged from both A and B", timeout=10)
+    finally:
+        await cdp_b.restore_conflict_handler()
+        await cdp_b.set_conflict_resolution("auto")
 
 
 @pytest.mark.asyncio
@@ -218,22 +218,22 @@ async def test_conflict_modal_keep_remote_overwrites_local(
         a_content=A_CONTENT, b_content=B_CONTENT,
     )
 
-    await cdp_b.set_conflict_resolution("modal")
-    await cdp_b.override_conflict_handler("keep-remote")
+    try:
+        await cdp_b.set_conflict_resolution("modal")
+        await cdp_b.override_conflict_handler("keep-remote")
 
-    # B pulls — conflict → keep-remote
-    await cdp_b.trigger_pull()
+        # B pulls — conflict → keep-remote
+        await cdp_b.trigger_pull()
 
-    # B's file should now have A's (remote) content
-    b_content = read_note(vault_b, path)
-    assert "Rewritten by A" in b_content, (
-        f"Expected A's remote content after keep-remote, got: {b_content[:200]}"
-    )
-    assert "Rewritten by B" not in b_content, (
-        "B's local content should be gone after keep-remote"
-    )
-
-    # Cleanup
-    await cdp_b.restore_conflict_handler()
-    await cdp_b.set_conflict_resolution("auto")
-    await cdp_b.resume_outgoing_sync()
+        # B's file should now have A's (remote) content
+        b_content = read_note(vault_b, path)
+        assert "Rewritten by A" in b_content, (
+            f"Expected A's remote content after keep-remote, got: {b_content[:200]}"
+        )
+        assert "Rewritten by B" not in b_content, (
+            "B's local content should be gone after keep-remote"
+        )
+    finally:
+        await cdp_b.restore_conflict_handler()
+        await cdp_b.set_conflict_resolution("auto")
+        await cdp_b.resume_outgoing_sync()

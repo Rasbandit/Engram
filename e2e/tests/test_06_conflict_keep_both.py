@@ -18,32 +18,32 @@ async def test_conflict_keep_both(vault_a, vault_b, cdp_a, cdp_b, api_sync):
 
     await setup_conflict(path, vault_a, vault_b, cdp_b, api_sync)
 
-    # v0.6.0 defaults to "auto" which bypasses onConflict — switch to modal
-    await cdp_b.set_conflict_resolution("modal")
+    try:
+        # v0.6.0 defaults to "auto" which bypasses onConflict — switch to modal
+        await cdp_b.set_conflict_resolution("modal")
 
-    # Override B's conflict handler to auto-resolve with keep-both
-    await cdp_b.override_conflict_handler("keep-both")
+        # Override B's conflict handler to auto-resolve with keep-both
+        await cdp_b.override_conflict_handler("keep-both")
 
-    # B pulls — should detect conflict:
-    #   local="Edited by B" (hash ≠ syncedHash), server="Edited by A"
-    await cdp_b.trigger_pull()
+        # B pulls — should detect conflict:
+        #   local="Edited by B" (hash ≠ syncedHash), server="Edited by A"
+        await cdp_b.trigger_pull()
 
-    # Verify: original path still exists with B's local content
-    assert (vault_b / path).exists(), "Original path should still exist"
-    original = read_note(vault_b, path)
-    assert "Edited by B" in original, "Original should keep B's local version"
+        # Verify: original path still exists with B's local content
+        assert (vault_b / path).exists(), "Original path should still exist"
+        original = read_note(vault_b, path)
+        assert "Edited by B" in original, "Original should keep B's local version"
 
-    # Verify: exactly 1 conflict copy was created with A's (remote) content
-    e2e_dir = vault_b / "E2E"
-    conflict_files = list(e2e_dir.glob("ConflictKeepBoth (conflict*).md"))
-    assert len(conflict_files) == 1, (
-        f"Expected exactly 1 conflict copy, found {len(conflict_files)}: "
-        f"{[f.name for f in e2e_dir.glob('ConflictKeepBoth*')]}"
-    )
-    conflict_content = conflict_files[0].read_text(encoding="utf-8")
-    assert "Edited by A" in conflict_content, "Conflict copy should have A's content"
-
-    # Cleanup: restore handlers and default settings
-    await cdp_b.restore_conflict_handler()
-    await cdp_b.set_conflict_resolution("auto")
-    await cdp_b.resume_outgoing_sync()
+        # Verify: exactly 1 conflict copy was created with A's (remote) content
+        e2e_dir = vault_b / "E2E"
+        conflict_files = list(e2e_dir.glob("ConflictKeepBoth (conflict*).md"))
+        assert len(conflict_files) == 1, (
+            f"Expected exactly 1 conflict copy, found {len(conflict_files)}: "
+            f"{[f.name for f in e2e_dir.glob('ConflictKeepBoth*')]}"
+        )
+        conflict_content = conflict_files[0].read_text(encoding="utf-8")
+        assert "Edited by A" in conflict_content, "Conflict copy should have A's content"
+    finally:
+        await cdp_b.restore_conflict_handler()
+        await cdp_b.set_conflict_resolution("auto")
+        await cdp_b.resume_outgoing_sync()
