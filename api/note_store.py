@@ -145,23 +145,41 @@ def upsert_note(
     now = datetime.now(timezone.utc)
 
     pool = get_pool()
+    base_params = (user_id, path, title, content, folder, tags, mtime, now)
     with pool.connection() as conn:
-        row = conn.execute("""
-            INSERT INTO notes (user_id, path, title, content, folder, tags, mtime, updated_at, deleted_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
-            ON CONFLICT (user_id, path) DO UPDATE SET
-                title = EXCLUDED.title,
-                content = EXCLUDED.content,
-                folder = EXCLUDED.folder,
-                tags = EXCLUDED.tags,
-                mtime = EXCLUDED.mtime,
-                updated_at = EXCLUDED.updated_at,
-                deleted_at = NULL,
-                version = notes.version + 1
-            WHERE (%s IS NULL OR notes.version = %s)
-            RETURNING id, user_id, path, title, folder, tags, mtime, created_at, updated_at, version
-        """, (user_id, path, title, content, folder, tags, mtime, now,
-              expected_version, expected_version)).fetchone()
+        if expected_version is not None:
+            # Optimistic lock: only update if server version matches
+            row = conn.execute("""
+                INSERT INTO notes (user_id, path, title, content, folder, tags, mtime, updated_at, deleted_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
+                ON CONFLICT (user_id, path) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    content = EXCLUDED.content,
+                    folder = EXCLUDED.folder,
+                    tags = EXCLUDED.tags,
+                    mtime = EXCLUDED.mtime,
+                    updated_at = EXCLUDED.updated_at,
+                    deleted_at = NULL,
+                    version = notes.version + 1
+                WHERE notes.version = %s
+                RETURNING id, user_id, path, title, folder, tags, mtime, created_at, updated_at, version
+            """, (*base_params, expected_version)).fetchone()
+        else:
+            # Unconditional update (backwards compat: old plugins, MCP tools)
+            row = conn.execute("""
+                INSERT INTO notes (user_id, path, title, content, folder, tags, mtime, updated_at, deleted_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
+                ON CONFLICT (user_id, path) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    content = EXCLUDED.content,
+                    folder = EXCLUDED.folder,
+                    tags = EXCLUDED.tags,
+                    mtime = EXCLUDED.mtime,
+                    updated_at = EXCLUDED.updated_at,
+                    deleted_at = NULL,
+                    version = notes.version + 1
+                RETURNING id, user_id, path, title, folder, tags, mtime, created_at, updated_at, version
+            """, base_params).fetchone()
 
         if row is None:
             # Version mismatch — re-fetch current server state for the client
