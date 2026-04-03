@@ -42,6 +42,12 @@ defmodule EngramWeb.Router do
     post "/api-keys", AuthController, :create_api_key
     delete "/api-keys/:id", AuthController, :revoke_api_key
 
+    # Attachments
+    post "/attachments", AttachmentsController, :upload
+    get "/attachments/changes", AttachmentsController, :changes
+    get "/attachments/*path", AttachmentsController, :show
+    delete "/attachments/*path", AttachmentsController, :delete
+
     # Remote logging stub (plugin pushes logs here)
     post "/logs", LogsController, :ingest
 
