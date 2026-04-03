@@ -59,7 +59,7 @@ SEARCH:            MCP/REST → Voyage embed query → Qdrant similarity → top
 
 ```bash
 # Docker Compose (Elixir + PostgreSQL + Qdrant)
-docker compose up --build
+docker compose -f docker-compose.elixir.yml up --build
 
 # Outside Docker (requires Elixir 1.17+, PostgreSQL, Qdrant)
 mix deps.get

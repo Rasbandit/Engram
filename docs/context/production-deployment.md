@@ -133,5 +133,6 @@ end
 
 ## References
 - Fly config: `fly.toml`
-- Docker Compose (dev/CI): `docker-compose.yml`
+- Docker Compose (dev): `docker-compose.elixir.yml`
+- Docker Compose (CI): `docker-compose.ci.yml`
 - Pricing: `docs/context/pricing-strategy.md`

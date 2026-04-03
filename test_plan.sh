@@ -3,7 +3,7 @@
 # Engram Comprehensive Test Plan
 # ============================================================================
 # Tests all REST endpoints, auth, note lifecycle, search, sync, and edge cases.
-# Requires: engram + postgres + redis running (docker compose up)
+# Requires: engram + postgres + qdrant running (docker compose -f docker-compose.elixir.yml up)
 #
 # Usage:
 #   bash test_plan.sh                 # run once against current config
@@ -46,7 +46,7 @@ if [[ "${1:-}" == "--both" ]]; then
     echo "║  PHASE 1: Tests WITHOUT Redis (in-memory mode)  ║"
     echo "╚══════════════════════════════════════════════════╝"
     echo ""
-    REDIS_URL="" docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d engram --wait 2>&1 | tail -3
+    REDIS_URL="" docker compose -f "$SCRIPT_DIR/docker-compose.elixir.yml" up -d engram_elixir --wait 2>&1 | tail -3
     wait_healthy
     echo ""
 
@@ -62,7 +62,7 @@ if [[ "${1:-}" == "--both" ]]; then
     echo "║  PHASE 2: Tests WITH Redis (shared state mode)  ║"
     echo "╚══════════════════════════════════════════════════╝"
     echo ""
-    docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d engram --wait 2>&1 | tail -3
+    docker compose -f "$SCRIPT_DIR/docker-compose.elixir.yml" up -d engram_elixir --wait 2>&1 | tail -3
     wait_healthy
     echo ""
 
