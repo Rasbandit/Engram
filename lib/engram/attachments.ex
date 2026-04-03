@@ -122,7 +122,7 @@ defmodule Engram.Attachments do
       from(a in Attachment,
         where: a.user_id == ^user.id and is_nil(a.deleted_at),
         select: %{
-          used_bytes: coalesce(sum(a.size_bytes), 0),
+          used_bytes: type(coalesce(sum(a.size_bytes), 0), :integer),
           file_count: count(a.id)
         }
       )

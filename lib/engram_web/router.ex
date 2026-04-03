@@ -40,7 +40,8 @@ defmodule EngramWeb.Router do
     # Sync
     get "/sync/manifest", SyncController, :manifest
 
-    # Current user (for WebSocket channel topic)
+    # User info
+    get "/user/storage", StorageController, :index
     get "/me", UsersController, :me
 
     # API key management
