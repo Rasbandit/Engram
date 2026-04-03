@@ -23,6 +23,7 @@ defmodule EngramWeb.Router do
 
     # Notes CRUD
     post "/notes/rename", NotesController, :rename
+    post "/notes/append", NotesController, :append
     post "/notes", NotesController, :upsert
     get "/notes/changes", NotesController, :changes
     get "/notes/*path", NotesController, :show
