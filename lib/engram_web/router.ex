@@ -36,6 +36,9 @@ defmodule EngramWeb.Router do
     # Search
     post "/search", SearchController, :search
 
+    # Sync
+    get "/sync/manifest", SyncController, :manifest
+
     # Current user (for WebSocket channel topic)
     get "/me", UsersController, :me
 
