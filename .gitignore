@@ -3,12 +3,8 @@
 .env.deploy
 .env.elixir
 
-# Python
+# Python (benchmarks)
 __pycache__/
-*.pyc
-*.pyo
-.venv/
-venv/
 
 # Elixir/Phoenix
 /_build/
