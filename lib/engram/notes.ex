@@ -66,6 +66,7 @@ defmodule Engram.Notes do
             Oban.insert(EmbedNote.new_debounced(note.id))
           end
 
+          broadcast_change(user.id, "upsert", note.path)
           {:ok, note}
 
         {:error, _} = err ->
@@ -132,6 +133,7 @@ defmodule Engram.Notes do
     case result do
       {:ok, {:ok, note}} ->
         Oban.insert(EmbedNote.new_debounced(note.id))
+        broadcast_change(user.id, "upsert", note.path)
         {:ok, note}
 
       {:ok, :not_found} ->
@@ -154,6 +156,7 @@ defmodule Engram.Notes do
       |> Repo.update_all(set: [deleted_at: DateTime.utc_now() |> DateTime.truncate(:second)])
     end)
 
+    broadcast_change(user.id, "delete", path)
     :ok
   end
 
@@ -244,5 +247,13 @@ defmodule Engram.Notes do
 
   defp content_hash(content) do
     :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
+  end
+
+  defp broadcast_change(user_id, event_type, path) do
+    EngramWeb.Endpoint.broadcast("sync:#{user_id}", "note_changed", %{
+      event_type: event_type,
+      path: path,
+      kind: "note"
+    })
   end
 end
