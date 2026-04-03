@@ -16,7 +16,8 @@ defmodule EngramWeb.AuthController do
     end
   end
 
-  def login(conn, %{"email" => email, "password" => password}) do
+  def login(conn, %{"email" => email, "password" => password})
+      when is_binary(email) and is_binary(password) do
     case Accounts.authenticate_user(email, password) do
       {:ok, user} ->
         token = Accounts.generate_jwt(user)
@@ -27,6 +28,12 @@ defmodule EngramWeb.AuthController do
         |> put_status(401)
         |> json(%{error: "invalid credentials"})
     end
+  end
+
+  def login(conn, _params) do
+    conn
+    |> put_status(422)
+    |> json(%{error: "email and password are required"})
   end
 
   def create_api_key(conn, %{"name" => name}) do
@@ -46,20 +53,20 @@ defmodule EngramWeb.AuthController do
   def revoke_api_key(conn, %{"id" => id}) do
     user = conn.assigns.current_user
 
-    case Accounts.revoke_api_key(user, String.to_integer(id)) do
-      :ok ->
-        json(conn, %{deleted: true})
+    case Integer.parse(id) do
+      {int_id, ""} ->
+        case Accounts.revoke_api_key(user, int_id) do
+          :ok ->
+            json(conn, %{deleted: true})
 
-      {:error, _} ->
-        conn |> put_status(404) |> json(%{error: "API key not found"})
+          {:error, _} ->
+            conn |> put_status(404) |> json(%{error: "API key not found"})
+        end
+
+      _ ->
+        conn |> put_status(400) |> json(%{error: "invalid API key id"})
     end
   end
 
-  defp format_errors(changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
-        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
-      end)
-    end)
-  end
+  defp format_errors(changeset), do: EngramWeb.format_errors(changeset)
 end

@@ -48,26 +48,33 @@ defmodule Engram.Notes do
         Repo.with_tenant(user.id, fn ->
           case Repo.get_by(Note, user_id: user.id, path: sanitized_path) do
             nil ->
-              {nil, Repo.insert!(changeset)}
+              case Repo.insert(changeset) do
+                {:ok, note} -> {:ok, {nil, note}}
+                {:error, changeset} -> {:error, changeset}
+              end
 
             existing ->
-              updated =
-                existing
-                |> Note.changeset(Map.put(attrs, :version, existing.version + 1))
-                |> Repo.update!()
-
-              {existing.content_hash, updated}
+              existing
+              |> Note.changeset(Map.put(attrs, :version, existing.version + 1))
+              |> Repo.update()
+              |> case do
+                {:ok, updated} -> {:ok, {existing.content_hash, updated}}
+                {:error, changeset} -> {:error, changeset}
+              end
           end
         end)
 
       case result do
-        {:ok, {prev_hash, note}} ->
+        {:ok, {:ok, {prev_hash, note}}} ->
           if prev_hash != note.content_hash do
             Oban.insert(EmbedNote.new_debounced(note.id))
           end
 
           broadcast_change(user.id, "upsert", note.path)
           {:ok, note}
+
+        {:ok, {:error, changeset}} ->
+          {:error, changeset}
 
         {:error, _} = err ->
           err
@@ -347,28 +354,38 @@ defmodule Engram.Notes do
       {:ok, 0}
     else
       now = DateTime.utc_now() |> DateTime.truncate(:second)
+      old_len = String.length(old_folder)
 
-      Repo.with_tenant(user.id, fn ->
-        Enum.each(notes, fn note ->
+      # Build bulk updates — compute new paths/folders/titles in Elixir,
+      # then apply as a single update per note (avoids N+1 per-row queries)
+      updates =
+        Enum.map(notes, fn note ->
           new_note_folder =
             if note.folder == old_folder do
               new_folder
             else
-              new_folder <> String.slice(note.folder, String.length(old_folder)..-1//1)
+              new_folder <> String.slice(note.folder, old_len..-1//1)
             end
 
-          # Replace folder prefix in path
           new_path = new_note_folder <> String.slice(note.path, String.length(note.folder)..-1//1)
           new_title = Helpers.extract_title(note.content || "", new_path)
 
-          from(n in Note, where: n.id == ^note.id)
+          {note.id, new_path, new_note_folder, new_title}
+        end)
+
+      Repo.with_tenant(user.id, fn ->
+        Enum.each(updates, fn {id, new_path, new_note_folder, new_title} ->
+          from(n in Note, where: n.id == ^id)
           |> Repo.update_all(
             set: [path: new_path, folder: new_note_folder, title: new_title, updated_at: now]
           )
-
-          Oban.insert(Engram.Workers.EmbedNote.new_debounced(note.id))
-          broadcast_change(user.id, "upsert", new_path)
         end)
+      end)
+
+      # Side effects outside the transaction — broadcast + reindex
+      Enum.each(updates, fn {id, new_path, _folder, _title} ->
+        Oban.insert(Engram.Workers.EmbedNote.new_debounced(id))
+        broadcast_change(user.id, "upsert", new_path)
       end)
 
       {:ok, length(notes)}

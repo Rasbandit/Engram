@@ -47,7 +47,7 @@ defmodule EngramWeb.NotesController do
   def delete(conn, %{"path" => path_parts}) do
     user = conn.assigns.current_user
     path = Enum.join(List.wrap(path_parts), "/")
-    :ok = Notes.delete_note(user, path)
+    Notes.delete_note(user, path)
     json(conn, %{deleted: true})
   end
 
@@ -103,11 +103,5 @@ defmodule EngramWeb.NotesController do
     }
   end
 
-  defp format_errors(changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Enum.reduce(opts, msg, fn {key, val}, acc ->
-        String.replace(acc, "%{#{key}}", to_string(val))
-      end)
-    end)
-  end
+  defp format_errors(changeset), do: EngramWeb.format_errors(changeset)
 end

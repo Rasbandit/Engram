@@ -1,5 +1,5 @@
 defmodule EngramWeb.AuthControllerTest do
-  use EngramWeb.ConnCase, async: false
+  use EngramWeb.ConnCase, async: true
 
   # ---------------------------------------------------------------------------
   # POST /users/register
@@ -71,6 +71,16 @@ defmodule EngramWeb.AuthControllerTest do
       conn = post(conn, "/users/login", %{email: "nobody@test.com", password: "password123"})
       assert %{"error" => _} = json_response(conn, 401)
     end
+
+    test "returns 422 when email and password are missing", %{conn: conn} do
+      conn = post(conn, "/users/login", %{})
+      assert json_response(conn, 422)
+    end
+
+    test "returns 422 when email is missing", %{conn: conn} do
+      conn = post(conn, "/users/login", %{password: "password123"})
+      assert json_response(conn, 422)
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -116,6 +126,20 @@ defmodule EngramWeb.AuthControllerTest do
         |> post("/api-keys", %{name: "nope"})
 
       assert json_response(conn, 401)
+    end
+  end
+
+  describe "DELETE /api-keys/:id" do
+    setup %{conn: conn} do
+      user = insert(:user)
+      {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "setup-key")
+      authed = put_req_header(conn, "authorization", "Bearer #{api_key}")
+      %{conn: authed, user: user}
+    end
+
+    test "returns 400 for non-integer API key id", %{conn: conn} do
+      conn = delete(conn, "/api-keys/abc")
+      assert %{"error" => _} = json_response(conn, 400)
     end
   end
 

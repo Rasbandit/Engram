@@ -51,11 +51,18 @@ defmodule EngramWeb.McpController do
         try do
           text = tool.handler.(user, args)
           {:ok, %{"content" => [%{"type" => "text", "text" => text}], "isError" => false}}
-        rescue
-          e ->
+        catch
+          kind, reason ->
+            message =
+              case kind do
+                :error -> Exception.message(reason)
+                :exit -> "Process exited: #{inspect(reason)}"
+                :throw -> "Unexpected throw: #{inspect(reason)}"
+              end
+
             {:ok,
              %{
-               "content" => [%{"type" => "text", "text" => "Error: #{Exception.message(e)}"}],
+               "content" => [%{"type" => "text", "text" => "Error: #{message}"}],
                "isError" => true
              }}
         end

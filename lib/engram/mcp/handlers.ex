@@ -174,6 +174,8 @@ defmodule Engram.MCP.Handlers do
 
   # -- Write tools --
 
+  @max_note_bytes 10 * 1024 * 1024
+
   def create_note(user, args) do
     title = args["title"] || "Untitled"
     content = args["content"] || ""
@@ -201,6 +203,10 @@ defmodule Engram.MCP.Handlers do
       {:ok, _note} -> "Note created: #{path}"
       {:error, _} -> "Failed to create note: #{path}"
     end
+  end
+
+  def write_note(_user, %{"content" => content}) when byte_size(content) > 10 * 1024 * 1024 do
+    "Error: note exceeds maximum size of 10MB"
   end
 
   def write_note(user, args) do
@@ -352,7 +358,7 @@ defmodule Engram.MCP.Handlers do
 
   def delete_note(user, args) do
     path = args["path"] || ""
-    :ok = Notes.delete_note(user, path)
+    Notes.delete_note(user, path)
     "Note deleted: #{path}"
   end
 
