@@ -24,10 +24,11 @@ defmodule EngramWeb.TagsFoldersControllerTest do
 
       conn = get(conn, "/tags")
       assert %{"tags" => tags} = json_response(conn, 200)
-      assert "health" in tags
-      assert "fitness" in tags
-      assert "nutrition" in tags
-      assert Enum.count(tags, &(&1 == "health")) == 1
+      tag_names = Enum.map(tags, & &1["name"])
+      assert "health" in tag_names
+      assert "fitness" in tag_names
+      assert "nutrition" in tag_names
+      assert Enum.count(tag_names, &(&1 == "health")) == 1
     end
 
     test "returns 401 without auth" do
@@ -47,9 +48,10 @@ defmodule EngramWeb.TagsFoldersControllerTest do
 
       conn = get(conn, "/folders")
       assert %{"folders" => folders} = json_response(conn, 200)
-      assert "Folder A" in folders
-      assert "Folder B" in folders
-      assert Enum.count(folders, &(&1 == "Folder A")) == 1
+      folder_names = Enum.map(folders, & &1["folder"])
+      assert "Folder A" in folder_names
+      assert "Folder B" in folder_names
+      assert Enum.count(folder_names, &(&1 == "Folder A")) == 1
     end
 
     test "returns 401 without auth" do
@@ -134,9 +136,9 @@ defmodule EngramWeb.TagsFoldersControllerTest do
       assert json_response(conn2, 200)["content"] =~ "Deep"
     end
 
-    test "returns count 0 for nonexistent folder", %{conn: conn} do
+    test "returns 404 for nonexistent folder", %{conn: conn} do
       conn = post(conn, "/folders/rename", %{old_folder: "Ghost", new_folder: "New"})
-      assert %{"count" => 0} = json_response(conn, 200)
+      assert json_response(conn, 404)
     end
   end
 end

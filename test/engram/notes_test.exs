@@ -76,7 +76,7 @@ defmodule Engram.NotesTest do
       content = "# Hello\nWorld"
       {:ok, note} = Notes.upsert_note(user, %{"path" => "Test/A.md", "content" => content, "mtime" => 1_000.0})
 
-      expected = :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
+      expected = :crypto.hash(:md5, content) |> Base.encode16(case: :lower)
       assert note.content_hash == expected
     end
 

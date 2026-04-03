@@ -145,9 +145,12 @@ defmodule EngramWeb.NotesControllerTest do
       assert note["content"] =~ "World!"
     end
 
-    test "returns 404 when note doesn't exist", %{conn: conn} do
+    test "creates new note when note doesn't exist", %{conn: conn} do
       conn = post(conn, "/notes/append", %{path: "Nope/Missing.md", text: "stuff"})
-      assert json_response(conn, 404)
+      resp = json_response(conn, 200)
+      assert resp["created"] == true
+      assert resp["path"] == "Nope/Missing.md"
+      assert resp["note"]["content"] =~ "stuff"
     end
 
     test "returns 401 without auth", %{conn: conn} do

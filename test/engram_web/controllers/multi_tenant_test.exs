@@ -60,8 +60,9 @@ defmodule EngramWeb.MultiTenantTest do
     test "user1 sees own folders", %{conn1: conn1} do
       conn = get(conn1, "/folders")
       assert %{"folders" => folders} = json_response(conn, 200)
-      assert "Folder A" in folders
-      assert "Folder B" in folders
+      folder_names = Enum.map(folders, & &1["folder"])
+      assert "Folder A" in folder_names
+      assert "Folder B" in folder_names
     end
   end
 
@@ -79,8 +80,9 @@ defmodule EngramWeb.MultiTenantTest do
     test "user1 sees own tags", %{conn1: conn1} do
       conn = get(conn1, "/tags")
       assert %{"tags" => tags} = json_response(conn, 200)
-      assert "secret" in tags
-      assert "private" in tags
+      tag_names = Enum.map(tags, & &1["name"])
+      assert "secret" in tag_names
+      assert "private" in tag_names
     end
   end
 
