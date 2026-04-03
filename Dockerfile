@@ -25,8 +25,7 @@ RUN mix deps.get --only $MIX_ENV
 
 # Compile deps
 RUN mkdir config
-COPY config/config.exs config/runtime.exs config/
-COPY config/prod.exs config/ 2>/dev/null || true
+COPY config/config.exs config/runtime.exs config/prod.exs config/
 RUN mix deps.compile
 
 # Build release

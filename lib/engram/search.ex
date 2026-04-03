@@ -6,7 +6,7 @@ defmodule Engram.Search do
 
   alias Engram.Vector.Qdrant
 
-  @collection Application.compile_env(:engram, :qdrant_collection, "obsidian_notes")
+  defp collection, do: Application.get_env(:engram, :qdrant_collection, "obsidian_notes")
 
   defp embedder, do: Application.get_env(:engram, :embedder, Engram.Embedders.Voyage)
 
@@ -30,7 +30,7 @@ defmodule Engram.Search do
         |> then(&if(tags, do: Keyword.put(&1, :tags, tags), else: &1))
         |> then(&if(folder, do: Keyword.put(&1, :folder, folder), else: &1))
 
-      Qdrant.search(@collection, vector, search_opts)
+      Qdrant.search(collection(), vector, search_opts)
     end
   end
 end

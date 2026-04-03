@@ -23,6 +23,33 @@ end
 config :engram, EngramWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+if config_env() != :test do
+  # Embedder — select adapter from EMBED_BACKEND env var (voyage or ollama)
+  case System.get_env("EMBED_BACKEND", "voyage") do
+    "ollama" ->
+      config :engram, :embedder, Engram.Embedders.Ollama
+
+    _ ->
+      config :engram, :embedder, Engram.Embedders.Voyage
+  end
+
+  if System.get_env("EMBED_MODEL") do
+    config :engram, :embed_model, System.get_env("EMBED_MODEL")
+  end
+
+  if System.get_env("EMBED_DIMS") do
+    config :engram, :embed_dims, String.to_integer(System.get_env("EMBED_DIMS"))
+  end
+
+  if System.get_env("QDRANT_URL") do
+    config :engram, :qdrant_url, System.get_env("QDRANT_URL")
+  end
+
+  if System.get_env("QDRANT_COLLECTION") do
+    config :engram, :qdrant_collection, System.get_env("QDRANT_COLLECTION")
+  end
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

@@ -14,8 +14,8 @@ defmodule Engram.Indexing do
   alias Engram.Vector.Qdrant
 
   @default_dims 1024
-  @collection Application.compile_env(:engram, :qdrant_collection, "obsidian_notes")
 
+  defp collection, do: Application.get_env(:engram, :qdrant_collection, "obsidian_notes")
   defp embedder, do: Application.get_env(:engram, :embedder, Engram.Embedders.Voyage)
 
   @doc """
@@ -31,7 +31,7 @@ defmodule Engram.Indexing do
       context_texts = Enum.map(chunks, & &1.context_text)
       dims = Application.get_env(:engram, :embed_dims, @default_dims)
 
-      with :ok <- Qdrant.ensure_collection(@collection, dims),
+      with :ok <- Qdrant.ensure_collection(collection(), dims),
            {:ok, vectors} <- embedder().embed_texts(context_texts),
            :ok <- replace_chunks(note, chunks, vectors) do
         {:ok, length(chunks)}
@@ -44,7 +44,7 @@ defmodule Engram.Indexing do
   """
   def delete_note_index(note) do
     Repo.delete_all(from(c in Chunk, where: c.note_id == ^note.id), skip_tenant_check: true)
-    Qdrant.delete_by_note(@collection, to_string(note.user_id), note.path)
+    Qdrant.delete_by_note(collection(), to_string(note.user_id), note.path)
   end
 
   # ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ defmodule Engram.Indexing do
   defp replace_chunks(note, chunks, vectors) do
     # skip_tenant_check: trusted internal pipeline, already scoped by note_id/user_id
     Repo.delete_all(from(c in Chunk, where: c.note_id == ^note.id), skip_tenant_check: true)
-    :ok = Qdrant.delete_by_note(@collection, to_string(note.user_id), note.path)
+    :ok = Qdrant.delete_by_note(collection(), to_string(note.user_id), note.path)
 
     # Build new chunk rows + Qdrant points
     now = DateTime.utc_now() |> DateTime.truncate(:second)
@@ -101,6 +101,6 @@ defmodule Engram.Indexing do
         }
       end)
 
-    Qdrant.upsert_points(@collection, qdrant_points)
+    Qdrant.upsert_points(collection(), qdrant_points)
   end
 end
