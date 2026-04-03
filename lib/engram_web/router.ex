@@ -5,7 +5,14 @@ defmodule EngramWeb.Router do
     plug :accepts, ["json"]
   end
 
-  scope "/api", EngramWeb do
+  # Public endpoints (no auth required)
+  scope "/", EngramWeb do
     pipe_through :api
+    get "/health", HealthController, :index
+  end
+
+  # Authenticated API endpoints
+  scope "/", EngramWeb do
+    pipe_through [:api, EngramWeb.Plugs.Auth]
   end
 end
