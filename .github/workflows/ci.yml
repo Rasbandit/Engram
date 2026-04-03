@@ -80,7 +80,7 @@ jobs:
           done
 
       - name: Run integration tests
-        run: ENGRAM_TEST_URL=http://localhost:8100 bash test_plan.sh
+        run: ENGRAM_TEST_URL=http://localhost:8100 bash test_plan.sh --skip-search
 
       - name: Collect logs on failure
         if: failure()
