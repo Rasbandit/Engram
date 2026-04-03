@@ -13,6 +13,7 @@ defmodule EngramWeb.Router do
   scope "/", EngramWeb do
     pipe_through :api
     get "/health", HealthController, :index
+    get "/health/deep", HealthController, :deep
     post "/users/register", AuthController, :register
     post "/users/login", AuthController, :login
   end
