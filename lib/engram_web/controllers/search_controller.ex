@@ -3,9 +3,11 @@ defmodule EngramWeb.SearchController do
 
   alias Engram.Search
 
+  @max_search_limit 50
+
   def search(conn, %{"query" => query} = params) do
     user = conn.assigns.current_user
-    limit = params["limit"] || 5
+    limit = params["limit"] |> clamp_limit()
     tags = params["tags"]
     folder = params["folder"]
 
@@ -19,9 +21,12 @@ defmodule EngramWeb.SearchController do
         json(conn, %{results: results})
 
       {:error, reason} ->
+        require Logger
+        Logger.error("Search failed: #{inspect(reason)}")
+
         conn
         |> put_status(500)
-        |> json(%{error: inspect(reason)})
+        |> json(%{error: "search_failed"})
     end
   end
 
@@ -30,4 +35,14 @@ defmodule EngramWeb.SearchController do
     |> put_status(422)
     |> json(%{error: "query is required"})
   end
+
+  defp clamp_limit(nil), do: 5
+  defp clamp_limit(n) when is_integer(n), do: n |> max(1) |> min(@max_search_limit)
+  defp clamp_limit(n) when is_binary(n) do
+    case Integer.parse(n) do
+      {int, ""} -> clamp_limit(int)
+      _ -> 5
+    end
+  end
+  defp clamp_limit(_), do: 5
 end

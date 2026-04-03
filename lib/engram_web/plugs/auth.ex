@@ -38,8 +38,9 @@ defmodule EngramWeb.Plugs.Auth do
 
   defp authenticate_token(jwt) do
     with {:ok, claims} <- Accounts.verify_jwt(jwt),
-         user_id when is_integer(user_id) <- claims["user_id"] do
-      {:ok, Accounts.get_user!(user_id)}
+         user_id when is_integer(user_id) <- claims["user_id"],
+         %Engram.Accounts.User{} = user <- Accounts.get_user(user_id) do
+      {:ok, user}
     else
       _ -> {:error, :invalid_token}
     end

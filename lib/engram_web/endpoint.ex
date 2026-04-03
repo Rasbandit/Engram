@@ -12,7 +12,9 @@ defmodule EngramWeb.Endpoint do
   ]
 
   socket "/socket", EngramWeb.UserSocket,
-    websocket: [check_origin: false],
+    websocket: [
+      check_origin: Application.compile_env(:engram, :websocket_check_origin, false)
+    ],
     longpoll: false
 
   # Serve at "/" the static files from "priv/static" directory.
@@ -40,11 +42,10 @@ defmodule EngramWeb.Endpoint do
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
-    json_decoder: Phoenix.json_library()
+    json_decoder: Phoenix.json_library(),
+    length: 11_000_000
 
-  plug Plug.MethodOverride
   plug Plug.Head
-  plug Plug.Session, @session_options
   plug EngramWeb.Plugs.CORS
   plug EngramWeb.Router
 end

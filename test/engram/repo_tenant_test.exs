@@ -1,5 +1,5 @@
 defmodule Engram.RepoTenantTest do
-  use Engram.DataCase, async: false
+  use Engram.DataCase, async: true
 
   alias Engram.Notes.Note
 
@@ -59,6 +59,18 @@ defmodule Engram.RepoTenantTest do
       end
 
       assert Process.get(:engram_tenant) == nil
+    end
+
+    test "rejects non-integer tenant_id (SQL injection guard)" do
+      assert_raise ArgumentError, ~r/tenant_id must be a positive integer/, fn ->
+        Repo.with_tenant("1'; DROP TABLE notes; --", fn -> :ok end)
+      end
+    end
+
+    test "rejects nil tenant_id" do
+      assert_raise ArgumentError, ~r/tenant_id must be a positive integer/, fn ->
+        Repo.with_tenant(nil, fn -> :ok end)
+      end
     end
   end
 

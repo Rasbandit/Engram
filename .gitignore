@@ -1,6 +1,7 @@
 # Environment
 .env
 .env.deploy
+.env.elixir
 
 # Python
 __pycache__/

@@ -25,8 +25,9 @@ defmodule EngramWeb.UserSocket do
 
   defp authenticate(jwt) do
     with {:ok, claims} <- Engram.Accounts.verify_jwt(jwt),
-         user_id when is_integer(user_id) <- claims["user_id"] do
-      {:ok, Engram.Accounts.get_user!(user_id)}
+         user_id when is_integer(user_id) <- claims["user_id"],
+         %Engram.Accounts.User{} = user <- Engram.Accounts.get_user(user_id) do
+      {:ok, user}
     else
       _ -> {:error, :invalid_token}
     end

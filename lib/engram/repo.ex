@@ -11,13 +11,13 @@ defmodule Engram.Repo do
   Sets both the process-dict guard (for prepare_query) and the
   PostgreSQL `SET LOCAL app.current_tenant` (for RLS enforcement).
   """
-  def with_tenant(tenant_id, fun) do
+  def with_tenant(tenant_id, fun) when is_integer(tenant_id) and tenant_id > 0 do
     Process.put(:engram_tenant, tenant_id)
 
     try do
       transaction(fn ->
         # SET LOCAL doesn't support $1 parameter binding — it's a utility statement.
-        # tenant_id is always a DB-generated integer, so to_string is safe.
+        # Guard clause ensures tenant_id is always a positive integer.
         query!("SET LOCAL app.current_tenant = '#{tenant_id}'")
         # Drop to engram_app role so RLS policies are enforced.
         # Superusers bypass RLS even with FORCE — SET LOCAL ROLE scopes to this transaction.
@@ -36,6 +36,11 @@ defmodule Engram.Repo do
     end
   end
 
+  def with_tenant(tenant_id, _fun) do
+    raise ArgumentError,
+      "tenant_id must be a positive integer, got: #{inspect(tenant_id)}"
+  end
+
   @doc """
   Safety net — raises if a tenant-scoped table is queried without
   `with_tenant/2`. Uses process dict (zero-cost) rather than a DB query.
@@ -51,10 +56,10 @@ defmodule Engram.Repo do
     {query, opts}
   end
 
+  @tenant_table_strings Enum.map(@tenant_tables, &Atom.to_string/1)
+
   defp tenant_required?(%Ecto.Query{from: %{source: {table, _}}}) do
-    String.to_existing_atom(table) in @tenant_tables
-  rescue
-    ArgumentError -> false
+    table in @tenant_table_strings
   end
 
   defp tenant_required?(_), do: false

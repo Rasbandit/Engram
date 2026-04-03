@@ -1,5 +1,5 @@
 defmodule Engram.AccountsTest do
-  use Engram.DataCase, async: false
+  use Engram.DataCase, async: true
 
   alias Engram.Accounts
 
@@ -48,6 +48,28 @@ defmodule Engram.AccountsTest do
 
     test "rejects unknown email" do
       assert {:error, :invalid_credentials} = Accounts.authenticate_user("nobody@test.com", "password123")
+    end
+
+    test "unknown email takes comparable time to wrong password (timing attack protection)" do
+      Accounts.register_user(%{email: "timing@test.com", password: "password123"})
+
+      # Wrong password (does real hash verification)
+      {wrong_pw_time, _} = :timer.tc(fn ->
+        Accounts.authenticate_user("timing@test.com", "wrongpassword")
+      end)
+
+      # Unknown email (should also do dummy hash work via no_user_verify)
+      {unknown_time, _} = :timer.tc(fn ->
+        Accounts.authenticate_user("nonexistent@test.com", "password123")
+      end)
+
+      # Argon2 hashing takes ~100-400ms. If unknown email skips hash work,
+      # it'll be <10ms (just a DB query). Require at least 50% of real hash time.
+      min_expected = div(wrong_pw_time, 2)
+
+      assert unknown_time > min_expected,
+        "unknown email took #{unknown_time}µs vs wrong password #{wrong_pw_time}µs — " <>
+        "missing Argon2.no_user_verify/0"
     end
   end
 

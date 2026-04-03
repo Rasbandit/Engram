@@ -21,7 +21,10 @@ defmodule Engram.Accounts do
     user = Repo.one(from(u in User, where: u.email == ^email), skip_tenant_check: true)
 
     case user do
-      nil -> {:error, :invalid_credentials}
+      nil ->
+        Argon2.no_user_verify()
+        {:error, :invalid_credentials}
+
       user ->
         if Argon2.verify_pass(password, user.password_hash) do
           {:ok, user}
@@ -32,6 +35,8 @@ defmodule Engram.Accounts do
   end
 
   def get_user!(id), do: Repo.get!(User, id, skip_tenant_check: true)
+
+  def get_user(id), do: Repo.get(User, id, skip_tenant_check: true)
 
   # ── JWT ─────────────────────────────────────────────────────────
 

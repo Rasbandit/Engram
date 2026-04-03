@@ -22,6 +22,10 @@ config :engram, EngramWeb.Endpoint,
   pubsub_server: Engram.PubSub,
   live_view: [signing_salt: "tdOwl/mL"]
 
+# WebSocket origin check: false because Obsidian uses app:// scheme which
+# Phoenix can't validate. Channel auth (JWT) is the real security boundary.
+config :engram, :websocket_check_origin, false
+
 # Embedder adapter (overridden per environment)
 config :engram, :embedder, Engram.Embedders.Voyage
 

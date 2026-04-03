@@ -6,7 +6,13 @@ defmodule Engram.Embedders.VoyageTest do
   setup do
     bypass = Bypass.open()
     Application.put_env(:engram, :voyage_url, "http://localhost:#{bypass.port}")
-    on_exit(fn -> Application.delete_env(:engram, :voyage_url) end)
+    System.put_env("VOYAGE_API_KEY", "test-key")
+
+    on_exit(fn ->
+      Application.delete_env(:engram, :voyage_url)
+      System.delete_env("VOYAGE_API_KEY")
+    end)
+
     %{bypass: bypass}
   end
 

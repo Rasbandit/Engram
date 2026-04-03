@@ -1,5 +1,5 @@
 defmodule EngramWeb.Plugs.AuthTest do
-  use EngramWeb.ConnCase, async: false
+  use EngramWeb.ConnCase, async: true
 
   alias Engram.Accounts
   alias EngramWeb.Plugs.Auth
@@ -57,6 +57,24 @@ defmodule EngramWeb.Plugs.AuthTest do
     conn =
       build_conn()
       |> put_req_header("authorization", "Bearer not.a.jwt")
+      |> Auth.call([])
+
+    assert conn.status == 401
+    assert conn.halted
+  end
+
+  test "returns 401 for JWT referencing deleted user" do
+    {:ok, user} =
+      Accounts.register_user(%{email: "deleted@test.com", password: "password123"})
+
+    jwt = Accounts.generate_jwt(user)
+
+    # Delete the user directly from the DB
+    Engram.Repo.delete(user, skip_tenant_check: true)
+
+    conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{jwt}")
       |> Auth.call([])
 
     assert conn.status == 401
