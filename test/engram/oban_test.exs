@@ -1,5 +1,5 @@
 defmodule Engram.ObanTest do
-  use Engram.DataCase, async: false
+  use Engram.DataCase, async: true
   use Oban.Testing, repo: Engram.Repo
 
   alias Engram.Workers.TestWorker

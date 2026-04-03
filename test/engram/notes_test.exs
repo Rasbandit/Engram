@@ -1,5 +1,5 @@
 defmodule Engram.NotesTest do
-  use Engram.DataCase, async: false
+  use Engram.DataCase, async: true
 
   alias Engram.Notes
 

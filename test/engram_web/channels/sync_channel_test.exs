@@ -1,5 +1,5 @@
 defmodule EngramWeb.SyncChannelTest do
-  use EngramWeb.ChannelCase, async: false
+  use EngramWeb.ChannelCase, async: true
 
   alias Engram.Notes
 

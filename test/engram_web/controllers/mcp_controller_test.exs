@@ -1,5 +1,5 @@
 defmodule EngramWeb.McpControllerTest do
-  use EngramWeb.ConnCase, async: false
+  use EngramWeb.ConnCase, async: true
 
   # ---------------------------------------------------------------------------
   # Setup: authenticated connection + seeded notes

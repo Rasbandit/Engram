@@ -57,6 +57,17 @@ defmodule EngramWeb do
   end
 
   @doc """
+  Formats changeset errors into a JSON-friendly map.
+  """
+  def format_errors(changeset) do
+    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+      Enum.reduce(opts, msg, fn {key, val}, acc ->
+        String.replace(acc, "%{#{key}}", to_string(val))
+      end)
+    end)
+  end
+
+  @doc """
   When used, dispatch to the appropriate controller/live_view/etc.
   """
   defmacro __using__(which) when is_atom(which) do

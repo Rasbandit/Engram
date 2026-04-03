@@ -3,7 +3,7 @@ defmodule EngramWeb.MissingFeaturesTest do
   TDD tests for features missing from the Elixir backend that test_plan.sh expects.
   These tests should FAIL initially, then pass after implementation.
   """
-  use EngramWeb.ConnCase, async: false
+  use EngramWeb.ConnCase, async: true
 
   setup %{conn: conn} do
     user = insert(:user)

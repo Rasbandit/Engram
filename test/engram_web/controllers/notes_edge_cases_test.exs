@@ -3,7 +3,7 @@ defmodule EngramWeb.NotesEdgeCasesTest do
   Integration-level tests for notes edge cases, response shapes, and contract compliance.
   Mirrors test_plan.sh Sections 12, 23-26 adapted for the Elixir API.
   """
-  use EngramWeb.ConnCase, async: false
+  use EngramWeb.ConnCase, async: true
 
   setup %{conn: conn} do
     user = insert(:user)

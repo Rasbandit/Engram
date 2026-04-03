@@ -3,7 +3,7 @@ defmodule EngramWeb.MultiTenantTest do
   Multi-tenant isolation tests — verifies that users cannot access each other's data.
   Mirrors test_plan.sh Section 13.
   """
-  use EngramWeb.ConnCase, async: false
+  use EngramWeb.ConnCase, async: true
 
   setup %{conn: conn} do
     user1 = insert(:user)

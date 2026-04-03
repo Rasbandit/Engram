@@ -3,6 +3,10 @@ defmodule EngramWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+    plug :put_secure_browser_headers, %{
+      "x-content-type-options" => "nosniff",
+      "x-frame-options" => "DENY"
+    }
   end
 
   # Public endpoints (no auth required)
