@@ -409,7 +409,7 @@ defmodule Engram.Notes do
   defp validate_path(path), do: {:ok, path}
 
   defp content_hash(content) do
-    :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
+    :crypto.hash(:md5, content) |> Base.encode16(case: :lower)
   end
 
   defp broadcast_change(user_id, event_type, path) do
