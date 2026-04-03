@@ -1,5 +1,5 @@
 defmodule Engram.Vector.QdrantTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Engram.Vector.Qdrant
 
