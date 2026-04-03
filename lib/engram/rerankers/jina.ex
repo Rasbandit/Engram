@@ -6,26 +6,19 @@ defmodule Engram.Rerankers.Jina do
   Falls back to vector-only scoring if Jina is unavailable.
   """
 
+  @behaviour Engram.Reranker
+
   require Logger
 
   @vector_weight 0.4
   @reranker_weight 0.6
 
-  @doc """
-  Rerank candidates using the Jina reranker API.
-  Each candidate must have `:score` (vector) and `:text` fields.
-  Returns {:ok, reranked_results} — always succeeds (falls back to vector scores).
-  """
+  @impl true
   def rerank(_query, [], _top_n), do: {:ok, []}
 
   def rerank(query, candidates, top_n) do
-    case jina_url() do
-      nil ->
-        {:ok, candidates |> Enum.sort_by(& &1.score, :desc) |> Enum.take(top_n)}
-
-      url ->
-        do_rerank(url, query, candidates, top_n)
-    end
+    url = jina_url() || raise "JINA_URL must be configured when using Jina reranker"
+    do_rerank(url, query, candidates, top_n)
   end
 
   defp do_rerank(url, query, candidates, top_n) do

@@ -49,8 +49,15 @@ if config_env() != :test do
     config :engram, :qdrant_collection, System.get_env("QDRANT_COLLECTION")
   end
 
-  if System.get_env("JINA_URL") do
-    config :engram, :jina_url, System.get_env("JINA_URL")
+  # Reranker — select adapter from RERANKER_BACKEND env var (jina or none)
+  case System.get_env("RERANKER_BACKEND", "none") do
+    "jina" ->
+      config :engram, :reranker, Engram.Rerankers.Jina
+      config :engram, :jina_url, System.get_env("JINA_URL") ||
+        raise "JINA_URL is required when RERANKER_BACKEND=jina"
+
+    _ ->
+      config :engram, :reranker, Engram.Rerankers.None
   end
 end
 

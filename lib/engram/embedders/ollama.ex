@@ -11,6 +11,14 @@ defmodule Engram.Embedders.Ollama do
   @default_model "nomic-embed-text"
 
   @impl true
+  def model_info do
+    %{
+      model: Application.get_env(:engram, :embed_model, @default_model),
+      dimensions: Application.get_env(:engram, :embed_dims, 768)
+    }
+  end
+
+  @impl true
   def embed_texts(texts) when is_list(texts) do
     url = System.get_env("OLLAMA_URL", @default_url)
     model = Application.get_env(:engram, :embed_model, @default_model)
