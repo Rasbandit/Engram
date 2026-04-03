@@ -28,6 +28,7 @@ defmodule EngramWeb.ConnCase do
       import Plug.Conn
       import Phoenix.ConnTest
       import EngramWeb.ConnCase
+      import Engram.Factory
     end
   end
 

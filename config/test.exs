@@ -23,6 +23,9 @@ config :engram, EngramWeb.Endpoint,
 # Disable Oban queues/plugins in test — use Oban.Testing helpers instead
 config :engram, Oban, testing: :inline
 
+# JWT signing secret (Joken)
+config :joken, default_signer: "test-jwt-secret"
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 

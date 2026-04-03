@@ -49,6 +49,9 @@ config :engram, EngramWeb.Endpoint,
 # configured to run both http and https servers on
 # different ports.
 
+# JWT signing secret (Joken)
+config :joken, default_signer: "dev-jwt-secret-not-for-production"
+
 # Enable dev routes for dashboard and mailbox
 config :engram, dev_routes: true
 
