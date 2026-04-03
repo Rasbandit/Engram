@@ -1,0 +1,161 @@
+defmodule EngramWeb.NotesControllerTest do
+  use EngramWeb.ConnCase, async: false
+
+  setup %{conn: conn} do
+    user = insert(:user)
+    {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "test-key")
+    authed = put_req_header(conn, "authorization", "Bearer #{api_key}")
+    %{conn: authed, user: user}
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /notes
+  # ---------------------------------------------------------------------------
+
+  describe "POST /notes" do
+    test "creates a note and returns metadata", %{conn: conn} do
+      conn =
+        post(conn, "/notes", %{
+          path: "Test/Hello World.md",
+          content: "---\ntags: [health, omega]\n---\n# Hello World\n\nBody.",
+          mtime: 1_709_234_567.0
+        })
+
+      assert %{"note" => note} = json_response(conn, 200)
+      assert note["path"] == "Test/Hello World.md"
+      assert note["title"] == "Hello World"
+      assert note["folder"] == "Test"
+      assert note["tags"] == ["health", "omega"]
+      assert note["version"] == 1
+    end
+
+    test "upserts an existing note and increments version", %{conn: conn} do
+      post(conn, "/notes", %{path: "Test/File.md", content: "# v1", mtime: 1_000.0})
+
+      conn2 = post(conn, "/notes", %{path: "Test/File.md", content: "# v2", mtime: 2_000.0})
+
+      assert %{"note" => note} = json_response(conn2, 200)
+      assert note["version"] == 2
+    end
+
+    test "sanitizes illegal chars in path", %{conn: conn} do
+      conn =
+        post(conn, "/notes", %{
+          path: "Test/Why do I resist?.md",
+          content: "# Why",
+          mtime: 1_000.0
+        })
+
+      assert %{"note" => note} = json_response(conn, 200)
+      assert note["path"] == "Test/Why do I resist.md"
+    end
+
+    test "returns 422 when path is missing", %{conn: conn} do
+      conn = post(conn, "/notes", %{content: "# Hello", mtime: 1_000.0})
+      assert json_response(conn, 422)
+    end
+
+    test "returns 401 without auth", %{conn: conn} do
+      conn =
+        conn
+        |> delete_req_header("authorization")
+        |> post("/notes", %{path: "Test/A.md", content: "x", mtime: 1_000.0})
+
+      assert json_response(conn, 401)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # GET /notes/:path
+  # ---------------------------------------------------------------------------
+
+  describe "GET /notes/:path" do
+    test "returns note by path", %{conn: conn} do
+      post(conn, "/notes", %{path: "Test/Readable.md", content: "# Readable", mtime: 1_000.0})
+
+      conn = get(conn, "/notes/Test/Readable.md")
+      assert body = json_response(conn, 200)
+      assert body["path"] == "Test/Readable.md"
+    end
+
+    test "returns 404 for missing note", %{conn: conn} do
+      conn = get(conn, "/notes/Nope/Missing.md")
+      assert json_response(conn, 404)
+    end
+
+    test "returns 404 for deleted note", %{conn: conn} do
+      post(conn, "/notes", %{path: "Test/Gone.md", content: "# Gone", mtime: 1_000.0})
+      delete(conn, "/notes/Test/Gone.md")
+
+      conn = get(conn, "/notes/Test/Gone.md")
+      assert json_response(conn, 404)
+    end
+
+    test "user cannot read another user's note", %{conn: conn} do
+      other_user = insert(:user)
+      # Insert directly via factory to avoid with_tenant role-switch leaking into sandbox
+      insert(:note, user: other_user, path: "Test/Private.md", folder: "Test")
+
+      conn = get(conn, "/notes/Test/Private.md")
+      assert json_response(conn, 404)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # DELETE /notes/:path
+  # ---------------------------------------------------------------------------
+
+  describe "DELETE /notes/:path" do
+    test "soft-deletes a note", %{conn: conn} do
+      post(conn, "/notes", %{path: "Test/Bye.md", content: "# Bye", mtime: 1_000.0})
+
+      conn = delete(conn, "/notes/Test/Bye.md")
+      assert %{"deleted" => true} = json_response(conn, 200)
+    end
+
+    test "is idempotent for nonexistent note", %{conn: conn} do
+      conn = delete(conn, "/notes/Fake/Note.md")
+      assert %{"deleted" => true} = json_response(conn, 200)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # GET /notes/changes
+  # ---------------------------------------------------------------------------
+
+  describe "GET /notes/changes" do
+    test "returns changes since timestamp", %{conn: conn} do
+      post(conn, "/notes", %{path: "Test/Recent.md", content: "# Recent", mtime: 1_000.0})
+
+      conn = get(conn, "/notes/changes?since=2020-01-01T00:00:00Z")
+      assert %{"changes" => changes} = json_response(conn, 200)
+      assert Enum.any?(changes, &(&1["path"] == "Test/Recent.md"))
+    end
+
+    test "includes deleted notes with deleted=true flag", %{conn: conn} do
+      post(conn, "/notes", %{path: "Test/Deleted.md", content: "# Del", mtime: 1_000.0})
+      delete(conn, "/notes/Test/Deleted.md")
+
+      conn = get(conn, "/notes/changes?since=2020-01-01T00:00:00Z")
+      assert %{"changes" => changes} = json_response(conn, 200)
+
+      deleted = Enum.find(changes, &(&1["path"] == "Test/Deleted.md"))
+      assert deleted["deleted"] == true
+    end
+
+    test "returns empty list for future timestamp", %{conn: conn} do
+      conn = get(conn, "/notes/changes?since=2099-01-01T00:00:00Z")
+      assert %{"changes" => []} = json_response(conn, 200)
+    end
+
+    test "returns 400 for invalid timestamp", %{conn: conn} do
+      conn = get(conn, "/notes/changes?since=not-a-date")
+      assert json_response(conn, 400)
+    end
+
+    test "returns 400 when since param is missing", %{conn: conn} do
+      conn = get(conn, "/notes/changes")
+      assert json_response(conn, 400)
+    end
+  end
+end

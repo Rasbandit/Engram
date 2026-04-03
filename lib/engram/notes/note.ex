@@ -21,7 +21,7 @@ defmodule Engram.Notes.Note do
 
   def changeset(note, attrs) do
     note
-    |> cast(attrs, [:path, :title, :content, :folder, :tags, :mtime, :user_id])
+    |> cast(attrs, [:path, :title, :content, :folder, :tags, :version, :content_hash, :mtime, :user_id, :deleted_at])
     |> validate_required([:path, :user_id])
     |> unique_constraint([:user_id, :path])
   end

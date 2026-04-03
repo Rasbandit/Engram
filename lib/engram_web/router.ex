@@ -14,5 +14,15 @@ defmodule EngramWeb.Router do
   # Authenticated API endpoints
   scope "/", EngramWeb do
     pipe_through [:api, EngramWeb.Plugs.Auth]
+
+    # Notes CRUD
+    post "/notes", NotesController, :upsert
+    get "/notes/changes", NotesController, :changes
+    get "/notes/*path", NotesController, :show
+    delete "/notes/*path", NotesController, :delete
+
+    # Metadata
+    get "/tags", TagsController, :index
+    get "/folders", FoldersController, :index
   end
 end

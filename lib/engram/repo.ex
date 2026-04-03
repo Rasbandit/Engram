@@ -22,7 +22,14 @@ defmodule Engram.Repo do
         # Drop to engram_app role so RLS policies are enforced.
         # Superusers bypass RLS even with FORCE — SET LOCAL ROLE scopes to this transaction.
         query!("SET LOCAL ROLE engram_app")
-        fun.()
+        result = fun.()
+        # In Ecto Sandbox (tests), this transaction runs as a savepoint. PostgreSQL's
+        # SET LOCAL is scoped to the full outer transaction, so RELEASE SAVEPOINT
+        # would leak `engram_app` into the sandbox transaction. Resetting the role
+        # INSIDE the transaction ensures the last SET LOCAL that persists is DEFAULT.
+        # In production this runs inside a real transaction and is harmless.
+        query!("RESET ROLE")
+        result
       end)
     after
       Process.delete(:engram_tenant)

@@ -17,6 +17,7 @@ defmodule Engram.Factory do
       folder: "test",
       tags: [],
       version: 1,
+      content_hash: :crypto.hash(:sha256, "# Test note content") |> Base.encode16(case: :lower),
       user: build(:user)
     }
   end
