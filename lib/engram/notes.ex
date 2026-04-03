@@ -19,6 +19,7 @@ defmodule Engram.Notes do
     path = attrs["path"] || attrs[:path]
     content = attrs["content"] || attrs[:content] || ""
     mtime = attrs["mtime"] || attrs[:mtime]
+    client_version = attrs["version"] || attrs[:version]
 
     with {:ok, path} <- validate_path(path) do
       sanitized_path = PathSanitizer.sanitize(path)
@@ -29,7 +30,7 @@ defmodule Engram.Notes do
 
       now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-      attrs = %{
+      note_attrs = %{
         path: sanitized_path,
         content: content,
         title: title,
@@ -42,7 +43,7 @@ defmodule Engram.Notes do
         updated_at: now
       }
 
-      changeset = Note.changeset(%Note{}, attrs)
+      changeset = Note.changeset(%Note{}, note_attrs)
 
       result =
         Repo.with_tenant(user.id, fn ->
@@ -54,12 +55,16 @@ defmodule Engram.Notes do
               end
 
             existing ->
-              existing
-              |> Note.changeset(Map.put(attrs, :version, existing.version + 1))
-              |> Repo.update()
-              |> case do
-                {:ok, updated} -> {:ok, {existing.content_hash, updated}}
-                {:error, changeset} -> {:error, changeset}
+              if client_version != nil and client_version != existing.version do
+                {:conflict, existing}
+              else
+                existing
+                |> Note.changeset(Map.put(note_attrs, :version, existing.version + 1))
+                |> Repo.update()
+                |> case do
+                  {:ok, updated} -> {:ok, {existing.content_hash, updated}}
+                  {:error, changeset} -> {:error, changeset}
+                end
               end
           end
         end)
@@ -72,6 +77,9 @@ defmodule Engram.Notes do
 
           broadcast_change(user.id, "upsert", note.path)
           {:ok, note}
+
+        {:ok, {:conflict, existing}} ->
+          {:error, :version_conflict, existing}
 
         {:ok, {:error, changeset}} ->
           {:error, changeset}
