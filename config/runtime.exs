@@ -48,6 +48,10 @@ if config_env() != :test do
   if System.get_env("QDRANT_COLLECTION") do
     config :engram, :qdrant_collection, System.get_env("QDRANT_COLLECTION")
   end
+
+  if System.get_env("JINA_URL") do
+    config :engram, :jina_url, System.get_env("JINA_URL")
+  end
 end
 
 if config_env() == :prod do
