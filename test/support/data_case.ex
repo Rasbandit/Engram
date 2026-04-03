@@ -24,6 +24,7 @@ defmodule Engram.DataCase do
       import Ecto.Changeset
       import Ecto.Query
       import Engram.DataCase
+      import Engram.Factory
     end
   end
 
