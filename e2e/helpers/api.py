@@ -207,42 +207,42 @@ class ApiClient:
 
 
 def register_user(base_url: str, email: str, password: str) -> str:
-    """Register a user, log in, create an API key, and return the key string.
+    """Register a user, create an API key, and return the key string.
 
-    Follows the same pattern as backend/test_plan.sh:
-    1. POST /register (form data) → 303 redirect
-    2. POST /login (form data) → session cookie
-    3. POST /settings/keys → extract engram_... key from HTML
+    Uses the Elixir/Phoenix JSON API:
+    1. POST /users/register (JSON) → JWT token
+    2. POST /api-keys (JSON, Bearer JWT) → raw API key
     """
     base = base_url.rstrip("/")
-    s = requests.Session()
 
-    # Register
-    resp = s.post(
-        f"{base}/register",
-        data={"email": email, "password": password, "display_name": f"E2E {email}"},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        allow_redirects=False,
+    # Register — returns JWT
+    resp = requests.post(
+        f"{base}/users/register",
+        json={"email": email, "password": password},
         timeout=10,
     )
-    if resp.status_code not in (303, 400):
-        raise RuntimeError(f"Registration failed: HTTP {resp.status_code}")
+    if resp.status_code == 422:
+        # Already registered — login instead
+        resp = requests.post(
+            f"{base}/users/login",
+            json={"email": email, "password": password},
+            timeout=10,
+        )
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"Registration/login failed: HTTP {resp.status_code}\n{resp.text[:500]}"
+        )
 
-    # Login (in case registration redirected without setting cookie properly)
-    resp = s.post(
-        f"{base}/login",
-        data={"email": email, "password": password},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        allow_redirects=True,
-        timeout=10,
-    )
+    data = resp.json()
+    jwt = data.get("token")
+    if not jwt:
+        raise RuntimeError(f"No token in response: {data}")
 
-    # Create API key
-    resp = s.post(
-        f"{base}/settings/keys",
-        data={"name": "e2e-test-key"},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        allow_redirects=True,
+    # Create API key using JWT
+    resp = requests.post(
+        f"{base}/api-keys",
+        json={"name": "e2e-test-key"},
+        headers={"Authorization": f"Bearer {jwt}"},
         timeout=10,
     )
     if resp.status_code != 200:
@@ -250,13 +250,9 @@ def register_user(base_url: str, email: str, password: str) -> str:
             f"API key creation failed: HTTP {resp.status_code}\n{resp.text[:500]}"
         )
 
-    # Extract API key from HTML response (pattern: engram_<alphanum>)
-    match = re.search(r"engram_[A-Za-z0-9_-]+", resp.text)
-    if not match:
-        raise RuntimeError(
-            f"Could not extract API key from response:\n{resp.text[:500]}"
-        )
+    api_key = resp.json().get("key")
+    if not api_key:
+        raise RuntimeError(f"No key in response: {resp.json()}")
 
-    api_key = match.group(0)
     logger.info("Registered user %s, API key: %s...", email, api_key[:20])
     return api_key

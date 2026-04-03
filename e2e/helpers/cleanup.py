@@ -34,10 +34,10 @@ def cleanup_test_data(email_pattern: str = "e2e-%@test.local") -> None:
         raise ValueError(f"Unsafe email pattern rejected: {email_pattern!r}")
 
     # Use psql -v to pass the pattern as a variable, then reference it with :'pat'
+    # Elixir schema: notes.user_id and api_keys.user_id are integer (not text)
     sql = (
         "DELETE FROM api_keys WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat'); "
-        "DELETE FROM notes WHERE user_id IN (SELECT id::text FROM users WHERE email LIKE :'pat'); "
-        "DELETE FROM attachments WHERE user_id IN (SELECT id::text FROM users WHERE email LIKE :'pat'); "
+        "DELETE FROM notes WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat'); "
         "DELETE FROM users WHERE email LIKE :'pat';"
     )
 

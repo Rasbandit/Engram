@@ -113,10 +113,13 @@ class CdpClient:
         """Read the lastSync timestamp string."""
         return await self.evaluate(f"{ENGINE_PATH}.lastSync")
 
-    async def check_sse_connected(self) -> bool:
-        """Check if the plugin's SSE stream is connected."""
+    async def check_stream_connected(self) -> bool:
+        """Check if the plugin's real-time stream (WebSocket channel) is connected."""
         result = await self.evaluate(f"{PLUGIN_PATH}.sseConnected")
         return result is True
+
+    # Backward compat alias
+    check_sse_connected = check_stream_connected
 
     async def set_conflict_resolution(self, mode: str) -> None:
         """Set the plugin's conflictResolution setting.
@@ -229,27 +232,31 @@ class CdpClient:
     # Resilience testing helpers
     # ------------------------------------------------------------------
 
-    async def disconnect_sse(self) -> None:
-        """Disconnect the SSE stream (simulates network drop)."""
+    async def disconnect_stream(self) -> None:
+        """Disconnect the real-time stream (simulates network drop)."""
         await self.evaluate(f"{PLUGIN_PATH}.noteStream.disconnect()")
-        logger.info("SSE disconnected on CDP port %d", self.port)
+        logger.info("Stream disconnected on CDP port %d", self.port)
 
-    async def reconnect_sse(self) -> None:
-        """Reconnect the SSE stream after a disconnect.
+    # Backward compat alias
+    disconnect_sse = disconnect_stream
 
-        NOTE: connect() is fire-and-forget — it calls startStream() which
-        enters a blocking while(true) read loop. Do NOT use await_promise=True
-        or the CDP call will hang forever.
+    async def reconnect_stream(self) -> None:
+        """Reconnect the real-time stream after a disconnect.
+
+        For WebSocket channels, connect() opens a new WebSocket and re-joins.
         """
         await self.evaluate(f"{PLUGIN_PATH}.noteStream.connect()")
-        logger.info("SSE reconnect initiated on CDP port %d", self.port)
+        logger.info("Stream reconnect initiated on CDP port %d", self.port)
         # Wait for the connection to establish and trigger onStatusChange
         for _ in range(10):
             await asyncio.sleep(1)
-            if await self.check_sse_connected():
-                logger.info("SSE reconnected on CDP port %d", self.port)
+            if await self.check_stream_connected():
+                logger.info("Stream reconnected on CDP port %d", self.port)
                 return
-        logger.warning("SSE did not reconnect within 10s on CDP port %d", self.port)
+        logger.warning("Stream did not reconnect within 10s on CDP port %d", self.port)
+
+    # Backward compat alias
+    reconnect_sse = reconnect_stream
 
     async def simulate_offline(self) -> None:
         """Override API methods to throw, simulating network failure.
