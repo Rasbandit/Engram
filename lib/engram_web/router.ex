@@ -18,6 +18,7 @@ defmodule EngramWeb.Router do
     pipe_through [:api, EngramWeb.Plugs.Auth]
 
     # Notes CRUD
+    post "/notes/rename", NotesController, :rename
     post "/notes", NotesController, :upsert
     get "/notes/changes", NotesController, :changes
     get "/notes/*path", NotesController, :show
@@ -35,5 +36,9 @@ defmodule EngramWeb.Router do
 
     # API key management
     post "/api-keys", AuthController, :create_api_key
+    delete "/api-keys/:id", AuthController, :revoke_api_key
+
+    # Remote logging stub (plugin pushes logs here)
+    post "/logs", LogsController, :ingest
   end
 end

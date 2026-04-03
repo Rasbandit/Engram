@@ -185,6 +185,7 @@ defmodule Engram.Notes do
           tags: note.tags,
           version: note.version,
           mtime: note.mtime,
+          content: note.content,
           deleted: not is_nil(note.deleted_at),
           updated_at: note.updated_at
         }

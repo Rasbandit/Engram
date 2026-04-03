@@ -87,13 +87,19 @@ defmodule Engram.Accounts do
   end
 
   def revoke_api_key(user, api_key_id) do
-    {:ok, _} =
+    result =
       Repo.with_tenant(user.id, fn ->
-        key = Repo.get_by!(ApiKey, id: api_key_id, user_id: user.id)
-        Repo.delete(key)
+        case Repo.get_by(ApiKey, id: api_key_id, user_id: user.id) do
+          nil -> {:error, :not_found}
+          key -> Repo.delete(key)
+        end
       end)
 
-    :ok
+    case result do
+      {:ok, {:ok, _}} -> :ok
+      {:ok, {:error, :not_found}} -> {:error, :not_found}
+      {:ok, {:error, changeset}} -> {:error, changeset}
+    end
   end
 
   defp hash_api_key(raw_key) do

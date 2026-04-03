@@ -43,6 +43,18 @@ defmodule EngramWeb.AuthController do
     end
   end
 
+  def revoke_api_key(conn, %{"id" => id}) do
+    user = conn.assigns.current_user
+
+    case Accounts.revoke_api_key(user, String.to_integer(id)) do
+      :ok ->
+        json(conn, %{deleted: true})
+
+      {:error, _} ->
+        conn |> put_status(404) |> json(%{error: "API key not found"})
+    end
+  end
+
   defp format_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
       Regex.replace(~r"%{(\w+)}", msg, fn _, key ->

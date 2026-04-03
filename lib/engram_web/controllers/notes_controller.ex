@@ -3,17 +3,25 @@ defmodule EngramWeb.NotesController do
 
   alias Engram.Notes
 
+  @max_note_bytes 10 * 1024 * 1024
+
   def upsert(conn, params) do
-    user = conn.assigns.current_user
+    content = params["content"] || params[:content] || ""
 
-    case Notes.upsert_note(user, params) do
-      {:ok, note} ->
-        json(conn, %{note: note_json(note)})
+    if byte_size(content) > @max_note_bytes do
+      conn |> put_status(413) |> json(%{error: "note exceeds maximum size of 10MB"})
+    else
+      user = conn.assigns.current_user
 
-      {:error, changeset} ->
-        conn
-        |> put_status(422)
-        |> json(%{errors: format_errors(changeset)})
+      case Notes.upsert_note(user, params) do
+        {:ok, note} ->
+          json(conn, %{note: note_json(note)})
+
+        {:error, changeset} ->
+          conn
+          |> put_status(422)
+          |> json(%{errors: format_errors(changeset)})
+      end
     end
   end
 
@@ -23,6 +31,15 @@ defmodule EngramWeb.NotesController do
 
     case Notes.get_note(user, path) do
       {:ok, note} -> json(conn, note_json(note))
+      {:error, :not_found} -> conn |> put_status(404) |> json(%{error: "not found"})
+    end
+  end
+
+  def rename(conn, %{"old_path" => old_path, "new_path" => new_path}) do
+    user = conn.assigns.current_user
+
+    case Notes.rename_note(user, old_path, new_path) do
+      {:ok, note} -> json(conn, %{note: note_json(note)})
       {:error, :not_found} -> conn |> put_status(404) |> json(%{error: "not found"})
     end
   end
@@ -63,7 +80,7 @@ defmodule EngramWeb.NotesController do
     %{
       path: note.path,
       title: note.title,
-      folder: note.folder,
+      folder: note.folder || "",
       tags: note.tags || [],
       version: note.version,
       content: note.content,
@@ -76,10 +93,11 @@ defmodule EngramWeb.NotesController do
     %{
       path: change.path,
       title: change.title,
-      folder: change.folder,
+      folder: change.folder || "",
       tags: change.tags || [],
       version: change.version,
       mtime: change.mtime,
+      content: change.content,
       deleted: change.deleted,
       updated_at: change.updated_at
     }
