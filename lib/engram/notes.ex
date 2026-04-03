@@ -238,6 +238,143 @@ defmodule Engram.Notes do
     {:ok, folders}
   end
 
+  @doc """
+  Returns tags with counts across all non-deleted notes for a user.
+  Uses Postgres unnest() to explode the tags array and group by tag.
+  """
+  @spec list_tags_with_counts(map()) :: {:ok, [%{name: String.t(), count: integer()}]}
+  def list_tags_with_counts(user) do
+    {:ok, rows} =
+      Repo.with_tenant(user.id, fn ->
+        Repo.all(
+          from(n in Note,
+            where: n.user_id == ^user.id and is_nil(n.deleted_at) and n.tags != ^[],
+            select: %{
+              name: fragment("unnest(?)", n.tags),
+              count: fragment("1")
+            }
+          )
+        )
+      end)
+
+    # Group and count in Elixir since unnest in select doesn't allow group_by directly
+    counts =
+      rows
+      |> Enum.group_by(& &1.name)
+      |> Enum.map(fn {name, items} -> %{name: name, count: length(items)} end)
+      |> Enum.sort_by(& &1.name)
+
+    {:ok, counts}
+  end
+
+  @doc """
+  Returns folders with note counts for a user. Includes root folder (empty string).
+  """
+  @spec list_folders_with_counts(map()) :: {:ok, [%{folder: String.t(), count: integer()}]}
+  def list_folders_with_counts(user) do
+    {:ok, rows} =
+      Repo.with_tenant(user.id, fn ->
+        Repo.all(
+          from(n in Note,
+            where: n.user_id == ^user.id and is_nil(n.deleted_at),
+            group_by: n.folder,
+            select: %{folder: n.folder, count: count(n.id)},
+            order_by: n.folder
+          )
+        )
+      end)
+
+    # Normalize nil folder to ""
+    rows = Enum.map(rows, fn r -> %{r | folder: r.folder || ""} end)
+
+    {:ok, rows}
+  end
+
+  @doc """
+  Returns all non-deleted notes in a specific folder for a user.
+  Pass "" for root-level notes.
+  """
+  @spec list_notes_in_folder(map(), String.t()) :: {:ok, [Note.t()]}
+  def list_notes_in_folder(user, folder) do
+    {:ok, notes} =
+      Repo.with_tenant(user.id, fn ->
+        query =
+          if folder == "" do
+            # Root-level notes have folder = nil or ""
+            from(n in Note,
+              where:
+                n.user_id == ^user.id and is_nil(n.deleted_at) and
+                  (is_nil(n.folder) or n.folder == ""),
+              order_by: n.title
+            )
+          else
+            from(n in Note,
+              where: n.user_id == ^user.id and is_nil(n.deleted_at) and n.folder == ^folder,
+              order_by: n.title
+            )
+          end
+
+        Repo.all(query)
+      end)
+
+    {:ok, notes}
+  end
+
+  @doc """
+  Renames a folder and all notes within it (including subfolders).
+  Rewrites path, folder, and title for each affected note.
+  Returns {:ok, count} with the number of notes affected.
+  """
+  @spec rename_folder(map(), String.t(), String.t()) :: {:ok, integer()}
+  def rename_folder(user, old_folder, new_folder) do
+    new_folder = String.trim_trailing(new_folder, "/")
+    old_prefix = old_folder <> "/"
+
+    {:ok, notes} =
+      Repo.with_tenant(user.id, fn ->
+        Repo.all(
+          from(n in Note,
+            where:
+              n.user_id == ^user.id and is_nil(n.deleted_at) and
+                (n.folder == ^old_folder or
+                   fragment("? LIKE ?", n.folder, ^(old_prefix <> "%"))),
+            select: n
+          )
+        )
+      end)
+
+    if notes == [] do
+      {:ok, 0}
+    else
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      Repo.with_tenant(user.id, fn ->
+        Enum.each(notes, fn note ->
+          new_note_folder =
+            if note.folder == old_folder do
+              new_folder
+            else
+              new_folder <> String.slice(note.folder, String.length(old_folder)..-1//1)
+            end
+
+          # Replace folder prefix in path
+          new_path = new_note_folder <> String.slice(note.path, String.length(note.folder)..-1//1)
+          new_title = Helpers.extract_title(note.content || "", new_path)
+
+          from(n in Note, where: n.id == ^note.id)
+          |> Repo.update_all(
+            set: [path: new_path, folder: new_note_folder, title: new_title, updated_at: now]
+          )
+
+          Oban.insert(Engram.Workers.EmbedNote.new_debounced(note.id))
+          broadcast_change(user.id, "upsert", new_path)
+        end)
+      end)
+
+      {:ok, length(notes)}
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------

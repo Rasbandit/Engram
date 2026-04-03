@@ -40,5 +40,8 @@ defmodule EngramWeb.Router do
 
     # Remote logging stub (plugin pushes logs here)
     post "/logs", LogsController, :ingest
+
+    # MCP endpoint (JSON-RPC 2.0 over HTTP POST)
+    post "/mcp", McpController, :handle
   end
 end

@@ -359,4 +359,198 @@ defmodule Engram.NotesTest do
       assert {:error, :not_found} = Notes.rename_note(other_user, "Test/Mine.md", "Test/Stolen.md")
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # list_tags_with_counts/1
+  # ---------------------------------------------------------------------------
+
+  describe "list_tags_with_counts/1" do
+    test "returns tags with correct counts", %{user: user} do
+      Notes.upsert_note(user, %{
+        "path" => "A.md",
+        "content" => "---\ntags: [health, fitness]\n---",
+        "mtime" => 1_000.0
+      })
+
+      Notes.upsert_note(user, %{
+        "path" => "B.md",
+        "content" => "---\ntags: [health, nutrition]\n---",
+        "mtime" => 1_000.0
+      })
+
+      {:ok, tags} = Notes.list_tags_with_counts(user)
+      health = Enum.find(tags, &(&1.name == "health"))
+      fitness = Enum.find(tags, &(&1.name == "fitness"))
+      nutrition = Enum.find(tags, &(&1.name == "nutrition"))
+
+      assert health.count == 2
+      assert fitness.count == 1
+      assert nutrition.count == 1
+    end
+
+    test "returns empty list when no notes", %{user: user} do
+      {:ok, tags} = Notes.list_tags_with_counts(user)
+      assert tags == []
+    end
+
+    test "excludes soft-deleted notes", %{user: user} do
+      Notes.upsert_note(user, %{
+        "path" => "Deleted.md",
+        "content" => "---\ntags: [ghost]\n---",
+        "mtime" => 1_000.0
+      })
+
+      Notes.delete_note(user, "Deleted.md")
+
+      {:ok, tags} = Notes.list_tags_with_counts(user)
+      refute Enum.any?(tags, &(&1.name == "ghost"))
+    end
+
+    test "excludes other user's tags", %{user: user, other_user: other_user} do
+      Notes.upsert_note(other_user, %{
+        "path" => "Secret.md",
+        "content" => "---\ntags: [secret]\n---",
+        "mtime" => 1_000.0
+      })
+
+      {:ok, tags} = Notes.list_tags_with_counts(user)
+      refute Enum.any?(tags, &(&1.name == "secret"))
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # list_folders_with_counts/1
+  # ---------------------------------------------------------------------------
+
+  describe "list_folders_with_counts/1" do
+    test "returns folders with correct counts", %{user: user} do
+      Notes.upsert_note(user, %{"path" => "Health/Note1.md", "content" => "x", "mtime" => 1_000.0})
+      Notes.upsert_note(user, %{"path" => "Health/Note2.md", "content" => "y", "mtime" => 1_000.0})
+      Notes.upsert_note(user, %{"path" => "Work/Note1.md", "content" => "z", "mtime" => 1_000.0})
+
+      {:ok, folders} = Notes.list_folders_with_counts(user)
+      health = Enum.find(folders, &(&1.folder == "Health"))
+      work = Enum.find(folders, &(&1.folder == "Work"))
+
+      assert health.count == 2
+      assert work.count == 1
+    end
+
+    test "includes root folder count", %{user: user} do
+      Notes.upsert_note(user, %{"path" => "Root.md", "content" => "x", "mtime" => 1_000.0})
+      Notes.upsert_note(user, %{"path" => "Health/Note.md", "content" => "y", "mtime" => 1_000.0})
+
+      {:ok, folders} = Notes.list_folders_with_counts(user)
+      # Root notes have folder = nil or ""
+      root = Enum.find(folders, &(&1.folder == "" || &1.folder == nil))
+      assert root != nil
+      assert root.count == 1
+    end
+
+    test "returns empty list when no notes", %{user: user} do
+      {:ok, folders} = Notes.list_folders_with_counts(user)
+      assert folders == []
+    end
+
+    test "excludes soft-deleted notes", %{user: user} do
+      Notes.upsert_note(user, %{"path" => "Ghost/Note.md", "content" => "x", "mtime" => 1_000.0})
+      Notes.delete_note(user, "Ghost/Note.md")
+
+      {:ok, folders} = Notes.list_folders_with_counts(user)
+      refute Enum.any?(folders, &(&1.folder == "Ghost"))
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # list_notes_in_folder/2
+  # ---------------------------------------------------------------------------
+
+  describe "list_notes_in_folder/2" do
+    test "returns notes in a specific folder", %{user: user} do
+      Notes.upsert_note(user, %{"path" => "Health/Note1.md", "content" => "# A", "mtime" => 1_000.0})
+      Notes.upsert_note(user, %{"path" => "Health/Note2.md", "content" => "# B", "mtime" => 1_000.0})
+      Notes.upsert_note(user, %{"path" => "Work/Note1.md", "content" => "# C", "mtime" => 1_000.0})
+
+      {:ok, notes} = Notes.list_notes_in_folder(user, "Health")
+      assert length(notes) == 2
+      paths = Enum.map(notes, & &1.path)
+      assert "Health/Note1.md" in paths
+      assert "Health/Note2.md" in paths
+    end
+
+    test "returns root-level notes with empty string", %{user: user} do
+      Notes.upsert_note(user, %{"path" => "Root.md", "content" => "# Root", "mtime" => 1_000.0})
+      Notes.upsert_note(user, %{"path" => "Health/Note.md", "content" => "# Health", "mtime" => 1_000.0})
+
+      {:ok, notes} = Notes.list_notes_in_folder(user, "")
+      assert length(notes) == 1
+      assert hd(notes).path == "Root.md"
+    end
+
+    test "returns empty list for non-existent folder", %{user: user} do
+      {:ok, notes} = Notes.list_notes_in_folder(user, "Nonexistent")
+      assert notes == []
+    end
+
+    test "excludes soft-deleted notes", %{user: user} do
+      Notes.upsert_note(user, %{"path" => "Health/Deleted.md", "content" => "x", "mtime" => 1_000.0})
+      Notes.delete_note(user, "Health/Deleted.md")
+
+      {:ok, notes} = Notes.list_notes_in_folder(user, "Health")
+      assert notes == []
+    end
+
+    test "excludes other user's notes", %{user: user, other_user: other_user} do
+      Notes.upsert_note(other_user, %{"path" => "Health/Secret.md", "content" => "x", "mtime" => 1_000.0})
+
+      {:ok, notes} = Notes.list_notes_in_folder(user, "Health")
+      assert notes == []
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # rename_folder/3
+  # ---------------------------------------------------------------------------
+
+  describe "rename_folder/3" do
+    test "renames folder for all notes in it", %{user: user} do
+      Notes.upsert_note(user, %{"path" => "Old/Note1.md", "content" => "# A", "mtime" => 1_000.0})
+      Notes.upsert_note(user, %{"path" => "Old/Note2.md", "content" => "# B", "mtime" => 1_000.0})
+
+      assert {:ok, 2} = Notes.rename_folder(user, "Old", "New")
+
+      {:ok, notes} = Notes.list_notes_in_folder(user, "New")
+      assert length(notes) == 2
+      paths = Enum.map(notes, & &1.path)
+      assert "New/Note1.md" in paths
+      assert "New/Note2.md" in paths
+
+      {:ok, old_notes} = Notes.list_notes_in_folder(user, "Old")
+      assert old_notes == []
+    end
+
+    test "renames subfolder notes too", %{user: user} do
+      Notes.upsert_note(user, %{"path" => "Parent/Child/Note.md", "content" => "# Deep", "mtime" => 1_000.0})
+      Notes.upsert_note(user, %{"path" => "Parent/Note.md", "content" => "# Shallow", "mtime" => 1_000.0})
+
+      assert {:ok, 2} = Notes.rename_folder(user, "Parent", "Renamed")
+
+      assert {:ok, _} = Notes.get_note(user, "Renamed/Note.md")
+      assert {:ok, _} = Notes.get_note(user, "Renamed/Child/Note.md")
+      assert {:error, :not_found} = Notes.get_note(user, "Parent/Note.md")
+    end
+
+    test "returns 0 when folder has no notes", %{user: user} do
+      assert {:ok, 0} = Notes.rename_folder(user, "Empty", "StillEmpty")
+    end
+
+    test "does not affect other user's notes", %{user: user, other_user: other_user} do
+      Notes.upsert_note(other_user, %{"path" => "Shared/Note.md", "content" => "# Other", "mtime" => 1_000.0})
+
+      assert {:ok, 0} = Notes.rename_folder(user, "Shared", "Renamed")
+
+      # Other user's note untouched
+      assert {:ok, _} = Notes.get_note(other_user, "Shared/Note.md")
+    end
+  end
 end
