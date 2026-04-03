@@ -22,6 +22,9 @@ config :engram, EngramWeb.Endpoint,
   pubsub_server: Engram.PubSub,
   live_view: [signing_salt: "tdOwl/mL"]
 
+# Embedder adapter (overridden per environment)
+config :engram, :embedder, Engram.Embedders.Voyage
+
 # Hammer rate limiting (ETS backend)
 config :hammer,
   backend: {Hammer.Backend.ETS, [

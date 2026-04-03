@@ -24,5 +24,8 @@ defmodule EngramWeb.Router do
     # Metadata
     get "/tags", TagsController, :index
     get "/folders", FoldersController, :index
+
+    # Search
+    post "/search", SearchController, :search
   end
 end

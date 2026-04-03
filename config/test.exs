@@ -20,8 +20,12 @@ config :engram, EngramWeb.Endpoint,
   secret_key_base: "JBTH+ZYHTDIRrr+N6s2ooO4ckeuJvolFrrF3N5KuC8vU75YeOgmr2beGWxrZq3Qi",
   server: false
 
-# Disable Oban queues/plugins in test — use Oban.Testing helpers instead
-config :engram, Oban, testing: :inline
+# Use mock embedder in tests — never hits Voyage AI
+config :engram, :embedder, Engram.MockEmbedder
+
+# Disable Oban queues/plugins in test — jobs must be triggered explicitly via perform_job/2
+# Use Oban.Testing.with_testing_mode(:inline, fn -> ... end) in tests that need inline execution
+config :engram, Oban, testing: :manual
 
 # JWT signing secret (Joken)
 config :joken, default_signer: "test-jwt-secret"

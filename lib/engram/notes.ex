@@ -8,6 +8,7 @@ defmodule Engram.Notes do
 
   alias Engram.Repo
   alias Engram.Notes.{Note, Helpers, PathSanitizer}
+  alias Engram.Workers.EmbedNote
 
   @doc """
   Creates or updates a note. Sanitizes path, extracts metadata, computes content_hash.
@@ -43,20 +44,32 @@ defmodule Engram.Notes do
 
       changeset = Note.changeset(%Note{}, attrs)
 
-      Repo.with_tenant(user.id, fn ->
-        case Repo.get_by(Note, user_id: user.id, path: sanitized_path) do
-          nil ->
-            Repo.insert!(changeset)
+      result =
+        Repo.with_tenant(user.id, fn ->
+          case Repo.get_by(Note, user_id: user.id, path: sanitized_path) do
+            nil ->
+              {nil, Repo.insert!(changeset)}
 
-          existing ->
-            existing
-            |> Note.changeset(Map.put(attrs, :version, existing.version + 1))
-            |> Repo.update!()
-        end
-      end)
-      |> case do
-        {:ok, note} -> {:ok, note}
-        {:error, _} = err -> err
+            existing ->
+              updated =
+                existing
+                |> Note.changeset(Map.put(attrs, :version, existing.version + 1))
+                |> Repo.update!()
+
+              {existing.content_hash, updated}
+          end
+        end)
+
+      case result do
+        {:ok, {prev_hash, note}} ->
+          if prev_hash != note.content_hash do
+            Oban.insert(EmbedNote.new_debounced(note.id))
+          end
+
+          {:ok, note}
+
+        {:error, _} = err ->
+          err
       end
     end
   end

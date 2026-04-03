@@ -54,6 +54,9 @@ defmodule Engram.MixProject do
       # Job queue
       {:oban, "~> 2.18"},
 
+      # Markdown parsing
+      {:earmark, "~> 1.4"},
+
       # HTTP client (Qdrant, Voyage AI)
       {:req, "~> 0.5"},
 
