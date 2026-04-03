@@ -30,6 +30,23 @@ defmodule EngramWeb.NotesController do
     end
   end
 
+  def append(conn, %{"path" => path, "text" => text}) do
+    user = conn.assigns.current_user
+
+    case Notes.get_note(user, path) do
+      {:ok, note} ->
+        content = String.trim_trailing(note.content, "\n") <> "\n" <> text
+
+        case Notes.upsert_note(user, %{"path" => path, "content" => content, "mtime" => note.mtime}) do
+          {:ok, updated} -> json(conn, %{note: note_json(updated)})
+          {:error, changeset} -> conn |> put_status(422) |> json(%{errors: format_errors(changeset)})
+        end
+
+      {:error, :not_found} ->
+        conn |> put_status(404) |> json(%{error: "not found"})
+    end
+  end
+
   def show(conn, %{"path" => path_parts}) do
     user = conn.assigns.current_user
     path = Enum.join(List.wrap(path_parts), "/")

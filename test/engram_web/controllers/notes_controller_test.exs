@@ -132,6 +132,35 @@ defmodule EngramWeb.NotesControllerTest do
   end
 
   # ---------------------------------------------------------------------------
+  # POST /notes/append
+  # ---------------------------------------------------------------------------
+
+  describe "POST /notes/append" do
+    test "appends text to an existing note", %{conn: conn} do
+      post(conn, "/notes", %{path: "Test/Append.md", content: "# Hello", mtime: 1_000.0})
+
+      conn2 = post(conn, "/notes/append", %{path: "Test/Append.md", text: "\nWorld!"})
+      assert %{"note" => note} = json_response(conn2, 200)
+      assert note["content"] =~ "# Hello"
+      assert note["content"] =~ "World!"
+    end
+
+    test "returns 404 when note doesn't exist", %{conn: conn} do
+      conn = post(conn, "/notes/append", %{path: "Nope/Missing.md", text: "stuff"})
+      assert json_response(conn, 404)
+    end
+
+    test "returns 401 without auth", %{conn: conn} do
+      conn =
+        conn
+        |> delete_req_header("authorization")
+        |> post("/notes/append", %{path: "a.md", text: "x"})
+
+      assert json_response(conn, 401)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # GET /notes/:path
   # ---------------------------------------------------------------------------
 
