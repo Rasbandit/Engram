@@ -10,6 +10,14 @@ defmodule Engram.Embedders.Voyage do
   @default_model "voyage-4-large"
 
   @impl true
+  def model_info do
+    %{
+      model: Application.get_env(:engram, :embed_model, @default_model),
+      dimensions: Application.get_env(:engram, :embed_dims, 1024)
+    }
+  end
+
+  @impl true
   def embed_texts(texts) when is_list(texts) do
     url = Application.get_env(:engram, :voyage_url, @default_url)
     model = Application.get_env(:engram, :embed_model, @default_model)

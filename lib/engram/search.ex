@@ -1,12 +1,14 @@
 defmodule Engram.Search do
   @moduledoc """
   Two-stage search: embed query → Qdrant similarity (4x candidates) →
-  optional Jina reranker (blend scores) → return top N results.
-  Falls back to vector-only if reranker is unavailable.
+  reranker (blend scores) → return top N results.
+
+  Both embedder and reranker are config-driven behaviours:
+  - `:embedder`  — Engram.Embedders.Voyage | .Ollama | any Engram.Embedder impl
+  - `:reranker`  — Engram.Rerankers.Jina | .None | any Engram.Reranker impl
   """
 
   alias Engram.Vector.Qdrant
-  alias Engram.Rerankers.Jina
 
   @min_candidates 20
 
@@ -14,7 +16,9 @@ defmodule Engram.Search do
 
   defp embedder, do: Application.get_env(:engram, :embedder, Engram.Embedders.Voyage)
 
-  defp reranker_enabled?, do: Application.get_env(:engram, :jina_url) != nil
+  defp reranker, do: Application.get_env(:engram, :reranker, Engram.Rerankers.None)
+
+  defp reranker_active?, do: reranker() != Engram.Rerankers.None
 
   @doc """
   Search notes for a user. Returns {:ok, results} where each result has:
@@ -30,8 +34,8 @@ defmodule Engram.Search do
     tags = Keyword.get(opts, :tags)
     folder = Keyword.get(opts, :folder)
 
-    # Fetch more candidates when reranking
-    fetch_limit = if reranker_enabled?(), do: max(limit * 4, @min_candidates), else: limit
+    # Fetch more candidates when reranking is active
+    fetch_limit = if reranker_active?(), do: max(limit * 4, @min_candidates), else: limit
 
     with {:ok, [vector]} <- embedder().embed_texts([query]) do
       search_opts =
@@ -40,11 +44,7 @@ defmodule Engram.Search do
         |> then(&if(folder, do: Keyword.put(&1, :folder, folder), else: &1))
 
       with {:ok, candidates} <- Qdrant.search(collection(), vector, search_opts) do
-        if candidates != [] and reranker_enabled?() do
-          Jina.rerank(query, candidates, limit)
-        else
-          {:ok, Enum.take(candidates, limit)}
-        end
+        reranker().rerank(query, candidates, limit)
       end
     end
   end

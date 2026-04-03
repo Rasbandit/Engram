@@ -98,10 +98,15 @@ defmodule Engram.SearchTest do
     end
 
     test "fetches 4x candidates when reranker is configured", %{bypass: bypass, user: user} do
-      # Configure a Jina bypass
+      # Configure Jina reranker via behaviour
       jina_bypass = Bypass.open()
+      Application.put_env(:engram, :reranker, Engram.Rerankers.Jina)
       Application.put_env(:engram, :jina_url, "http://localhost:#{jina_bypass.port}")
-      on_exit(fn -> Application.delete_env(:engram, :jina_url) end)
+
+      on_exit(fn ->
+        Application.put_env(:engram, :reranker, Engram.Rerankers.None)
+        Application.delete_env(:engram, :jina_url)
+      end)
 
       Engram.MockEmbedder
       |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
