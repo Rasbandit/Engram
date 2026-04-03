@@ -56,7 +56,8 @@ defmodule EngramWeb.Router do
     get "/attachments/*path", AttachmentsController, :show
     delete "/attachments/*path", AttachmentsController, :delete
 
-    # Remote logging stub (plugin pushes logs here)
+    # Remote logging
+    get "/logs", LogsController, :index
     post "/logs", LogsController, :ingest
 
     # MCP endpoint (JSON-RPC 2.0 over HTTP POST)
