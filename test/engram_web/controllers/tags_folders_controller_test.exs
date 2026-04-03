@@ -60,4 +60,83 @@ defmodule EngramWeb.TagsFoldersControllerTest do
       assert json_response(conn, 401)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # GET /folders/list?folder=
+  # ---------------------------------------------------------------------------
+
+  describe "GET /folders/list" do
+    test "returns notes in a specific folder", %{conn: conn} do
+      post(conn, "/notes", %{path: "Work/Alpha.md", content: "# Alpha", mtime: 1_000.0})
+      post(conn, "/notes", %{path: "Work/Beta.md", content: "# Beta", mtime: 1_000.0})
+      post(conn, "/notes", %{path: "Personal/Other.md", content: "# Other", mtime: 1_000.0})
+
+      conn2 = get(conn, "/folders/list", %{folder: "Work"})
+      body = json_response(conn2, 200)
+
+      assert length(body["notes"]) == 2
+      paths = Enum.map(body["notes"], & &1["path"])
+      assert "Work/Alpha.md" in paths
+      assert "Work/Beta.md" in paths
+    end
+
+    test "returns root-level notes when folder is empty string", %{conn: conn} do
+      post(conn, "/notes", %{path: "RootNote.md", content: "# Root", mtime: 1_000.0})
+      post(conn, "/notes", %{path: "Sub/Nested.md", content: "# Nested", mtime: 1_000.0})
+
+      conn2 = get(conn, "/folders/list", %{folder: ""})
+      body = json_response(conn2, 200)
+
+      paths = Enum.map(body["notes"], & &1["path"])
+      assert "RootNote.md" in paths
+      refute "Sub/Nested.md" in paths
+    end
+
+    test "returns empty list for nonexistent folder", %{conn: conn} do
+      conn = get(conn, "/folders/list", %{folder: "Nonexistent"})
+      body = json_response(conn, 200)
+      assert body["notes"] == []
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # POST /folders/rename
+  # ---------------------------------------------------------------------------
+
+  describe "POST /folders/rename" do
+    test "renames folder and all notes in it", %{conn: conn} do
+      post(conn, "/notes", %{path: "Old/A.md", content: "# A", mtime: 1_000.0})
+      post(conn, "/notes", %{path: "Old/B.md", content: "# B", mtime: 1_000.0})
+      post(conn, "/notes", %{path: "Other/C.md", content: "# C", mtime: 1_000.0})
+
+      conn2 =
+        post(conn, "/folders/rename", %{old_folder: "Old", new_folder: "New"})
+
+      assert %{"count" => 2} = json_response(conn2, 200)
+
+      # Old folder should be empty
+      conn3 = get(conn, "/folders/list", %{folder: "Old"})
+      assert json_response(conn3, 200)["notes"] == []
+
+      # New folder should have the notes
+      conn4 = get(conn, "/folders/list", %{folder: "New"})
+      paths = Enum.map(json_response(conn4, 200)["notes"], & &1["path"])
+      assert "New/A.md" in paths
+      assert "New/B.md" in paths
+    end
+
+    test "renames nested subfolders", %{conn: conn} do
+      post(conn, "/notes", %{path: "Parent/Child/Note.md", content: "# Deep", mtime: 1_000.0})
+
+      post(conn, "/folders/rename", %{old_folder: "Parent", new_folder: "Renamed"})
+
+      conn2 = get(conn, "/notes/Renamed/Child/Note.md")
+      assert json_response(conn2, 200)["content"] =~ "Deep"
+    end
+
+    test "returns count 0 for nonexistent folder", %{conn: conn} do
+      conn = post(conn, "/folders/rename", %{old_folder: "Ghost", new_folder: "New"})
+      assert %{"count" => 0} = json_response(conn, 200)
+    end
+  end
 end
