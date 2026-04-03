@@ -30,13 +30,43 @@ jobs:
       - name: Pre-cleanup stale resources
         run: |
           docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
+          docker rm -f engram-test-db 2>/dev/null || true
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Run unit tests (backend + E2E helpers)
+      - name: Start test database
         run: |
-          python3 -m pytest tests/ -v
-          python3 -m pytest e2e/unit_tests/ -v
+          docker run -d --name engram-test-db \
+            -e POSTGRES_USER=engram \
+            -e POSTGRES_PASSWORD=engram \
+            -e POSTGRES_DB=engram_test \
+            -p 5432:5432 \
+            --health-cmd "pg_isready -U engram" \
+            --health-interval 3s \
+            --health-timeout 3s \
+            --health-retries 10 \
+            postgres:16-alpine
+          for i in $(seq 1 30); do
+            if docker exec engram-test-db pg_isready -U engram > /dev/null 2>&1; then
+              echo "Test DB ready"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run Elixir unit tests
+        run: |
+          mix deps.get --only test
+          MIX_ENV=test mix ecto.create
+          MIX_ENV=test mix ecto.migrate
+          mix test
+
+      - name: Stop test database
+        if: always()
+        run: docker rm -f engram-test-db 2>/dev/null || true
+
+      - name: Run E2E helper unit tests
+        run: python3 -m pytest e2e/unit_tests/ -v
 
       - name: Start CI stack
         run: |
@@ -60,7 +90,7 @@ jobs:
 
       - name: Upload failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: integration-debug-${{ github.sha }}
           path: ci-artifacts/
@@ -93,10 +123,10 @@ jobs:
           pkill -9 Xvfb 2>/dev/null || true
           rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Checkout plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Rasbandit/Engram-obsidian-sync
           token: ${{ secrets.CROSS_REPO_PAT }}
@@ -158,7 +188,7 @@ jobs:
 
       - name: Upload failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: e2e-debug-${{ github.sha }}
           path: ci-artifacts/
