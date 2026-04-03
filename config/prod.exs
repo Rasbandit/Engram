@@ -1,17 +1,6 @@
 import Config
 
-# Force using SSL in production. This also sets the "strict-security-transport" header,
-# known as HSTS. If you have a health check endpoint, you may want to exclude it below.
-# Note `:force_ssl` is required to be set at compile-time.
-config :engram, EngramWeb.Endpoint,
-  force_ssl: [
-    rewrite_on: [:x_forwarded_proto],
-    exclude: [
-      paths: ["/health", "/health/deep"],
-      hosts: ["localhost", "127.0.0.1"]
-    ]
-  ]
-
+# TLS is terminated at the edge (Fly.io proxy / nginx) — no force_ssl in app.
 # Do not print debug messages in production
 config :logger, level: :info
 

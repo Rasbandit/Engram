@@ -9,6 +9,8 @@ defmodule EngramWeb.Router do
   scope "/", EngramWeb do
     pipe_through :api
     get "/health", HealthController, :index
+    post "/users/register", AuthController, :register
+    post "/users/login", AuthController, :login
   end
 
   # Authenticated API endpoints
@@ -30,5 +32,8 @@ defmodule EngramWeb.Router do
 
     # Current user (for WebSocket channel topic)
     get "/me", UsersController, :me
+
+    # API key management
+    post "/api-keys", AuthController, :create_api_key
   end
 end
