@@ -66,6 +66,72 @@ defmodule EngramWeb.NotesControllerTest do
   end
 
   # ---------------------------------------------------------------------------
+  # Version conflict (409)
+  # ---------------------------------------------------------------------------
+
+  describe "POST /notes version conflict" do
+    test "returns 409 when client version doesn't match server version", %{conn: conn} do
+      # Create note (version 1)
+      post(conn, "/notes", %{path: "Test/Conflict.md", content: "# v1", mtime: 1_000.0})
+
+      # Update note (version 2)
+      post(conn, "/notes", %{path: "Test/Conflict.md", content: "# v2", mtime: 2_000.0})
+
+      # Client still thinks it's version 1 — should get 409
+      conn2 =
+        post(conn, "/notes", %{
+          path: "Test/Conflict.md",
+          content: "# v1-modified",
+          mtime: 3_000.0,
+          version: 1
+        })
+
+      assert %{"error" => "version_conflict", "server_note" => server_note} =
+               json_response(conn2, 409)
+
+      assert server_note["path"] == "Test/Conflict.md"
+      assert server_note["version"] == 2
+      assert server_note["content"] == "# v2"
+    end
+
+    test "succeeds when client version matches server version", %{conn: conn} do
+      post(conn, "/notes", %{path: "Test/Match.md", content: "# v1", mtime: 1_000.0})
+
+      conn2 =
+        post(conn, "/notes", %{
+          path: "Test/Match.md",
+          content: "# v2",
+          mtime: 2_000.0,
+          version: 1
+        })
+
+      assert %{"note" => note} = json_response(conn2, 200)
+      assert note["version"] == 2
+    end
+
+    test "ignores version check on new note creation", %{conn: conn} do
+      conn =
+        post(conn, "/notes", %{
+          path: "Test/New.md",
+          content: "# New",
+          mtime: 1_000.0,
+          version: 1
+        })
+
+      assert %{"note" => note} = json_response(conn, 200)
+      assert note["version"] == 1
+    end
+
+    test "allows upsert without version param (backwards compatible)", %{conn: conn} do
+      post(conn, "/notes", %{path: "Test/NoVer.md", content: "# v1", mtime: 1_000.0})
+
+      conn2 = post(conn, "/notes", %{path: "Test/NoVer.md", content: "# v2", mtime: 2_000.0})
+      assert %{"note" => note} = json_response(conn2, 200)
+      assert note["version"] == 2
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # GET /notes/:path
   # ---------------------------------------------------------------------------
 

@@ -17,6 +17,11 @@ defmodule EngramWeb.NotesController do
         {:ok, note} ->
           json(conn, %{note: note_json(note)})
 
+        {:error, :version_conflict, server_note} ->
+          conn
+          |> put_status(409)
+          |> json(%{error: "version_conflict", server_note: note_json(server_note)})
+
         {:error, changeset} ->
           conn
           |> put_status(422)
