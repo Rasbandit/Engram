@@ -1,5 +1,7 @@
 # Environment
 .env
+.env.deploy
+.env.elixir
 
 # Python
 __pycache__/
@@ -7,6 +9,16 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+
+# Elixir/Phoenix
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+*.ez
+engram-*.tar
 
 # IDE
 .vscode/

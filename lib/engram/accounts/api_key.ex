@@ -1,0 +1,20 @@
+defmodule Engram.Accounts.ApiKey do
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  schema "api_keys" do
+    field :key_hash, :string
+    field :name, :string
+    field :last_used, :utc_datetime
+
+    belongs_to :user, Engram.Accounts.User
+
+    timestamps(type: :utc_datetime, updated_at: false)
+  end
+
+  def changeset(api_key, attrs) do
+    api_key
+    |> cast(attrs, [:key_hash, :name, :user_id])
+    |> validate_required([:key_hash, :user_id])
+  end
+end
