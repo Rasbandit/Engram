@@ -305,4 +305,58 @@ defmodule Engram.NotesTest do
       refute "Private Folder" in folders
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # rename_note/3
+  # ---------------------------------------------------------------------------
+
+  describe "rename_note/3" do
+    test "renames note to new path", %{user: user} do
+      Notes.upsert_note(user, %{
+        "path" => "Test/Original.md",
+        "content" => "# Original",
+        "mtime" => 1_000.0
+      })
+
+      assert {:ok, renamed} = Notes.rename_note(user, "Test/Original.md", "Test/Renamed.md")
+      assert renamed.path == "Test/Renamed.md"
+      assert renamed.title == "Original"
+    end
+
+    test "updates folder when path moves to different folder", %{user: user} do
+      Notes.upsert_note(user, %{
+        "path" => "Old Folder/Note.md",
+        "content" => "# Note",
+        "mtime" => 1_000.0
+      })
+
+      {:ok, renamed} = Notes.rename_note(user, "Old Folder/Note.md", "New Folder/Note.md")
+      assert renamed.folder == "New Folder"
+    end
+
+    test "sanitizes new path", %{user: user} do
+      Notes.upsert_note(user, %{
+        "path" => "Test/Clean.md",
+        "content" => "# Clean",
+        "mtime" => 1_000.0
+      })
+
+      {:ok, renamed} = Notes.rename_note(user, "Test/Clean.md", "Test/Dirty?.md")
+      assert renamed.path == "Test/Dirty.md"
+    end
+
+    test "returns not_found for nonexistent note", %{user: user} do
+      assert {:error, :not_found} = Notes.rename_note(user, "Nope/Missing.md", "Nope/New.md")
+    end
+
+    test "does not rename other user's note", %{user: user, other_user: other_user} do
+      Notes.upsert_note(user, %{
+        "path" => "Test/Mine.md",
+        "content" => "# Mine",
+        "mtime" => 1_000.0
+      })
+
+      assert {:error, :not_found} = Notes.rename_note(other_user, "Test/Mine.md", "Test/Stolen.md")
+    end
+  end
 end

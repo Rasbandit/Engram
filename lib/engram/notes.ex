@@ -96,6 +96,53 @@ defmodule Engram.Notes do
   end
 
   @doc """
+  Renames a note to a new path. Sanitizes the new path, updates folder and title.
+  Returns {:ok, updated_note} or {:error, :not_found}.
+  """
+  @spec rename_note(map(), String.t(), String.t()) :: {:ok, Note.t()} | {:error, :not_found}
+  def rename_note(user, old_path, new_path) do
+    new_path = PathSanitizer.sanitize(new_path)
+    new_folder = Helpers.extract_folder(new_path)
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    result =
+      Repo.with_tenant(user.id, fn ->
+        # Fetch current note for content (to derive title from new path)
+        case Repo.one(from(n in Note, where: n.user_id == ^user.id and n.path == ^old_path and is_nil(n.deleted_at))) do
+          nil ->
+            :not_found
+
+          note ->
+            new_title = Helpers.extract_title(note.content || "", new_path)
+
+            {count, _} =
+              from(n in Note, where: n.id == ^note.id)
+              |> Repo.update_all(
+                set: [path: new_path, folder: new_folder, title: new_title, updated_at: now]
+              )
+
+            if count == 1 do
+              {:ok, %{note | path: new_path, folder: new_folder, title: new_title, updated_at: now}}
+            else
+              :not_found
+            end
+        end
+      end)
+
+    case result do
+      {:ok, {:ok, note}} ->
+        Oban.insert(EmbedNote.new_debounced(note.id))
+        {:ok, note}
+
+      {:ok, :not_found} ->
+        {:error, :not_found}
+
+      _ ->
+        {:error, :not_found}
+    end
+  end
+
+  @doc """
   Soft-deletes a note. Idempotent — returns :ok even if note doesn't exist.
   """
   @spec delete_note(map(), String.t()) :: :ok

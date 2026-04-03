@@ -76,7 +76,7 @@ defmodule Engram.IndexingTest do
   # ---------------------------------------------------------------------------
 
   describe "delete_note_index/1" do
-    test "deletes chunks from Postgres and Qdrant", %{bypass: bypass, note: note, user: user} do
+    test "deletes chunks from Postgres and Qdrant", %{bypass: bypass, note: note} do
       # First index it
       Engram.MockEmbedder
       |> expect(:embed_texts, fn texts ->

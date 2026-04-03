@@ -12,6 +12,7 @@ defmodule Engram.Application do
       Engram.Repo,
       {DNSCluster, query: Application.get_env(:engram, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Engram.PubSub},
+      EngramWeb.Presence,
       {Oban, Application.fetch_env!(:engram, Oban)},
       EngramWeb.Endpoint
     ]
