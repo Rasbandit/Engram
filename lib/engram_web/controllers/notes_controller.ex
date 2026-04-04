@@ -120,7 +120,7 @@ defmodule EngramWeb.NotesController do
       folder: note.folder || "",
       tags: note.tags || [],
       version: note.version,
-      content: note.content,
+      content: note.content || "",
       mtime: note.mtime,
       updated_at: note.updated_at
     }
@@ -134,7 +134,7 @@ defmodule EngramWeb.NotesController do
       tags: change.tags || [],
       version: change.version,
       mtime: change.mtime,
-      content: change.content,
+      content: change.content || "",
       deleted: change.deleted,
       updated_at: change.updated_at
     }
