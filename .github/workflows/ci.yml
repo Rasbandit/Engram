@@ -100,7 +100,7 @@ jobs:
       # ------------------------------------------------------------------
       # E2E tests — full Obsidian sync cycle
       # Runs on: main push, workflow_dispatch, or plugin dispatch
-      # Reuses the CI stack already running (or starts it for dispatch)
+      # Reuses the CI stack image but restarts with fresh volumes
       # ------------------------------------------------------------------
       - name: Check if E2E should run
         id: e2e-gate
@@ -114,9 +114,13 @@ jobs:
             echo "⏭ E2E skipped (not main/dispatch)"
           fi
 
-      - name: Start CI stack (for dispatch — may already be running)
-        if: steps.e2e-gate.outputs.run == 'true' && github.event_name == 'repository_dispatch'
+      - name: Reset CI stack for E2E (fresh database)
+        if: steps.e2e-gate.outputs.run == 'true'
         run: |
+          echo "Tearing down CI stack to clear integration test state..."
+          docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
+          rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
+          echo "Starting CI stack with fresh volumes..."
           docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8100/health > /dev/null 2>&1; then
