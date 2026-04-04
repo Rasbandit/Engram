@@ -1307,10 +1307,8 @@ if [[ "$HAS_RL" == "true" ]]; then
         GOT_429=false
         # CI sets RATE_LIMIT_RPM=120. Separate user ensures clean counter.
         for i in $(seq 1 130); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$EP_SEARCH" \
-                -H "Authorization: Bearer $RATE_KEY" \
-                -H "Content-Type: application/json" \
-                -d '{"query": "test", "limit": 1}')
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$EP_TAGS" \
+                -H "Authorization: Bearer $RATE_KEY")
             if [[ "$STATUS" == "429" ]]; then
                 GOT_429=true
                 break
@@ -1325,10 +1323,8 @@ if [[ "$HAS_RL" == "true" ]]; then
 
         # Verify the 429 response body has a useful message
         if [[ "$GOT_429" == "true" ]]; then
-            RESP=$(curl -s -X POST "$EP_SEARCH" \
-                -H "Authorization: Bearer $RATE_KEY" \
-                -H "Content-Type: application/json" \
-                -d '{"query": "test", "limit": 1}')
+            RESP=$(curl -s "$EP_TAGS" \
+                -H "Authorization: Bearer $RATE_KEY")
             if echo "$RESP" | grep -qi "rate limit"; then
                 pass "429 response includes rate limit message"
             else
@@ -1668,8 +1664,8 @@ fi
 # Verify note entries have path + content_hash
 FIRST_HASH=$(echo "$BODY" | jq -r '.notes[0].content_hash // empty' 2>/dev/null || echo "")
 FIRST_PATH=$(echo "$BODY" | jq -r '.notes[0].path // empty' 2>/dev/null || echo "")
-if [[ "$FIRST_HASH" =~ ^[a-f0-9]{32}$ ]]; then
-    pass "Manifest note entry has valid MD5 hash: $FIRST_PATH"
+if [[ "$FIRST_HASH" =~ ^[a-f0-9]{64}$ ]]; then
+    pass "Manifest note entry has valid SHA256 hash: $FIRST_PATH"
 else
     fail "Manifest note entry has invalid hash: $FIRST_HASH"
 fi
