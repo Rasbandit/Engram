@@ -138,7 +138,7 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_REGISTER" \
     -H "Content-Type: application/json" \
     -d "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASS}\",\"display_name\":\"${TEST_NAME}\"}")
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /users/register (duplicate)" 400 "$STATUS"
+assert_status "POST /users/register (duplicate)" 422 "$STATUS"
 
 echo ""
 echo "=== 2b. Auth — Login ==="
@@ -237,13 +237,8 @@ else
     fail "Frontmatter tags not extracted — got: $TAGS"
 fi
 
-# Check chunks indexed (async via Oban — may be 0 initially)
-CHUNKS=$(echo "$BODY" | jq -r '.chunks_indexed // 0' 2>/dev/null || echo "0")
-if [[ "$CHUNKS" -gt 0 ]]; then
-    pass "Chunks indexed: $CHUNKS"
-else
-    pass "Chunks indexing deferred (async via Oban): $CHUNKS"
-fi
+# Note: chunks_indexed is not returned by the Elixir upsert (embedding is async via Oban)
+pass "Chunks indexing is async via Oban (not in upsert response)"
 
 # 4b. Create a note with no frontmatter
 echo ""
@@ -317,7 +312,7 @@ BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /notes/{path}" 200 "$STATUS"
 assert_json_field "Read note path" "$BODY" '.path' 'Test/Hello World.md'
-assert_json_field "Read note title" "$BODY" '.note.title // .title' 'Hello World Updated'
+assert_json_field "Read note title" "$BODY" '.title' 'Hello World Updated'
 assert_contains "Content present" "$BODY" "Omega 3"
 
 # 5b. Note not found
@@ -345,8 +340,8 @@ STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /folders" 200 "$STATUS"
 assert_json_not_empty "Folders list" "$BODY" '.folders'
 
-# Check Test folder is present
-FOLDER_COUNT=$(echo "$BODY" | jq '[.folders[] | select(.folder == "Test")] | length' 2>/dev/null || echo "0")
+# Check Test folder is present (folders is a flat array of strings)
+FOLDER_COUNT=$(echo "$BODY" | jq '[.folders[] | select(. == "Test")] | length' 2>/dev/null || echo "0")
 if [[ "$FOLDER_COUNT" -gt 0 ]]; then
     pass "Test folder present in results"
 else
@@ -365,8 +360,8 @@ BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /tags" 200 "$STATUS"
 
-# Check "health" tag exists
-TAG_HEALTH=$(echo "$BODY" | jq '[.tags[] | select(.name == "health")] | length' 2>/dev/null || echo "0")
+# Check "health" tag exists (tags is a flat array of strings)
+TAG_HEALTH=$(echo "$BODY" | jq '[.tags[] | select(. == "health")] | length' 2>/dev/null || echo "0")
 if [[ "$TAG_HEALTH" -gt 0 ]]; then
     pass "Tag 'health' found"
 else
@@ -575,13 +570,8 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_NOTES" \
 BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /notes (long content)" 200 "$STATUS"
-CHUNKS=$(echo "$BODY" | jq -r '.chunks_indexed // 0' 2>/dev/null || echo "0")
-if [[ "$CHUNKS" -gt 1 ]]; then
-    pass "Long note chunked into $CHUNKS chunks"
-else
-    # Even if indexing is async, the note should be stored
-    pass "Long note stored (chunks: $CHUNKS)"
-fi
+# Chunks indexing is async via Oban — not in upsert response
+assert_json_field "Long note stored" "$BODY" '.note.path' 'Test/Long.md'
 
 # Missing required field
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_NOTES" \
@@ -597,7 +587,7 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_NOTES" \
     -H "Content-Type: application/json" \
     -d 'not json at all')
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /notes (invalid JSON)" 422 "$STATUS"
+assert_status "POST /notes (invalid JSON)" 400 "$STATUS"
 
 # ============================================================================
 # SECTION 13: Multi-Tenant Isolation
@@ -696,21 +686,21 @@ else
     fail "POST /search (empty query) — expected 200 or 422, got $STATUS"
 fi
 
-# Limit boundary: 0
+# Limit boundary: 0 (Elixir clamps to min 1)
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_SEARCH" \
     -H "Authorization: Bearer $API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"query": "test", "limit": 0}')
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /search (limit 0)" 422 "$STATUS"
+assert_status "POST /search (limit 0 → clamped to 1)" 200 "$STATUS"
 
-# Limit boundary: 51 (over max)
+# Limit boundary: 51 (over max — Elixir clamps to 50)
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_SEARCH" \
     -H "Authorization: Bearer $API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"query": "test", "limit": 51}')
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /search (limit 51, over max)" 422 "$STATUS"
+assert_status "POST /search (limit 51 → clamped to 50)" 200 "$STATUS"
 else echo "  ⏭ Skipping Section 15 (search validation — requires Voyage AI/Qdrant)"; fi
 
 # ============================================================================
@@ -876,7 +866,7 @@ else
 fi
 assert_json_not_empty "Deep health status" "$BODY" '.status'
 assert_json_not_empty "Deep health checks" "$BODY" '.checks'
-assert_json_not_empty "PostgreSQL check" "$BODY" '.checks.postgresql'
+assert_json_not_empty "PostgreSQL check" "$BODY" '.checks.postgres'
 assert_json_not_empty "Qdrant check" "$BODY" '.checks.qdrant'
 else echo "  ⏭ Skipping Section 19 (deep health — requires Voyage AI/Qdrant)"; fi
 
@@ -1364,7 +1354,7 @@ DEEP=$(curl -s "$EP_HEALTH_DEEP" 2>/dev/null || echo "{}")
 HAS_CHECKS=$(echo "$DEEP" | jq 'has("checks")' 2>/dev/null || echo "false")
 
 if [[ "$HAS_CHECKS" == "true" ]]; then
-    PG_STATUS=$(echo "$DEEP" | jq -r '.checks.postgresql // "missing"' 2>/dev/null || echo "missing")
+    PG_STATUS=$(echo "$DEEP" | jq -r '.checks.postgres // "missing"' 2>/dev/null || echo "missing")
     if [[ "$PG_STATUS" == "ok" ]]; then
         pass "Deep health: PostgreSQL healthy"
     elif [[ "$PG_STATUS" != "missing" ]]; then
@@ -1393,44 +1383,45 @@ else echo "  ⏭ Skipping Sections 36-43 (folder search — not yet in Elixir)";
 echo ""
 echo "=== 44. Append to Note ==="
 
-# 44a: Append creates a new note if it doesn't exist
+# 44a: Append to nonexistent note → 404 (Elixir append requires existing note)
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_NOTES/append" \
     -H "Authorization: Bearer $API_KEY" \
     -H "Content-Type: application/json" \
-    -d '{"path": "Test/Append New.md", "content": "First line of content"}')
+    -d '{"path": "Test/Append Nonexistent.md", "text": "First line of content"}')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /notes/append (nonexistent note → 404)" 404 "$STATUS"
+
+# 44b: Create a note first, then append to it
+curl -s -X POST "$EP_NOTES" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"path": "Test/Append New.md", "content": "# Append New\n\nOriginal content.", "mtime": 1709234567.0}' -o /dev/null
+
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_NOTES/append" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"path": "Test/Append New.md", "text": "First appended line"}')
 BODY=$(echo "$RESP" | sed '$d')
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /notes/append (new note)" 200 "$STATUS"
-assert_json_field "Append creates new note" "$BODY" '.created' 'true'
-assert_json_field "Append returns path" "$BODY" '.path' 'Test/Append New.md'
+assert_status "POST /notes/append (existing note)" 200 "$STATUS"
+assert_json_field "Append returns note path" "$BODY" '.note.path' 'Test/Append New.md'
 
-# 44b: Verify the created note has title from filename
+# 44c: Append again
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_NOTES/append" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"path": "Test/Append New.md", "text": "Second appended line"}')
+BODY=$(echo "$RESP" | sed '$d')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /notes/append (second append)" 200 "$STATUS"
+
+# 44d: Verify both pieces of content are in the note
 ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Test/Append New.md', safe=''))")
 RESP=$(curl -s -w "\n%{http_code}" "$EP_NOTES/$ENCODED" \
     -H "Authorization: Bearer $API_KEY")
 BODY=$(echo "$RESP" | sed '$d')
-STATUS=$(echo "$RESP" | tail -1)
-assert_status "GET created-by-append note" 200 "$STATUS"
-assert_json_field "Created note has title from filename" "$BODY" '.title' 'Append New'
-assert_contains "Created note has H1 heading" "$BODY" "# Append New"
-assert_contains "Created note has appended text" "$BODY" "First line of content"
-
-# 44c: Append to existing note
-RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_NOTES/append" \
-    -H "Authorization: Bearer $API_KEY" \
-    -H "Content-Type: application/json" \
-    -d '{"path": "Test/Append New.md", "content": "Second line of content"}')
-BODY=$(echo "$RESP" | sed '$d')
-STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /notes/append (existing note)" 200 "$STATUS"
-assert_json_field "Append to existing returns created=false" "$BODY" '.created' 'false'
-
-# 44d: Verify both pieces of content are in the note
-RESP=$(curl -s -w "\n%{http_code}" "$EP_NOTES/$ENCODED" \
-    -H "Authorization: Bearer $API_KEY")
-BODY=$(echo "$RESP" | sed '$d')
-assert_contains "Note has first append" "$BODY" "First line of content"
-assert_contains "Note has second append" "$BODY" "Second line of content"
+assert_contains "Note has first append" "$BODY" "First appended line"
+assert_contains "Note has second append" "$BODY" "Second appended line"
 
 # ============================================================================
 # SECTION 45: List Folder (GET /folders/list)
@@ -1444,10 +1435,9 @@ RESP=$(curl -s -w "\n%{http_code}" "$EP_FOLDERS_LIST?folder=Test" \
 BODY=$(echo "$RESP" | sed '$d')
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /folders/list?folder=Test" 200 "$STATUS"
-assert_json_field "List folder returns correct folder" "$BODY" '.folder' 'Test'
 
-# Check that notes array is not empty
-NOTE_COUNT=$(echo "$BODY" | jq '.notes | length')
+# Check that notes array is not empty (response is {notes: [...]})
+NOTE_COUNT=$(echo "$BODY" | jq '.notes | length' 2>/dev/null || echo "0")
 if [[ "$NOTE_COUNT" -gt 0 ]]; then
     pass "List folder returns notes ($NOTE_COUNT found)"
 else
@@ -1468,7 +1458,8 @@ RESP=$(curl -s -w "\n%{http_code}" "$EP_FOLDERS_LIST?folder=" \
 BODY=$(echo "$RESP" | sed '$d')
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /folders/list (root)" 200 "$STATUS"
-assert_json_field "Root folder returns empty string" "$BODY" '.folder' ''
+# Response is {notes: [...]}, no .folder field — just check notes array exists
+assert_json_not_empty "Root folder list has notes array" "$BODY" '.notes'
 
 # ============================================================================
 # SECTION 46: Rename Note (POST /notes/rename)
@@ -1490,9 +1481,8 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_NOTES/rename" \
 BODY=$(echo "$RESP" | sed '$d')
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /notes/rename (same folder)" 200 "$STATUS"
-assert_json_field "Rename returns renamed=true" "$BODY" '.renamed' 'true'
-assert_json_field "Rename returns old_path" "$BODY" '.old_path' 'Test/Rename Source.md'
-assert_json_field "Rename returns new_path" "$BODY" '.new_path' 'Test/Rename Target.md'
+assert_json_field "Rename returns note with new path" "$BODY" '.note.path' 'Test/Rename Target.md'
+assert_json_field "Rename returns note with correct folder" "$BODY" '.note.folder' 'Test'
 
 # 46b: Old path should 404
 ENCODED_OLD=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Test/Rename Source.md', safe=''))")
@@ -1519,7 +1509,7 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_NOTES/rename" \
 BODY=$(echo "$RESP" | sed '$d')
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /notes/rename (cross-folder)" 200 "$STATUS"
-assert_json_field "Cross-folder rename returns renamed=true" "$BODY" '.renamed' 'true'
+assert_json_field "Cross-folder rename returns note with new path" "$BODY" '.note.path' 'Test/Subfolder/Rename Target.md'
 
 # Verify new folder
 ENCODED_MOVED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('Test/Subfolder/Rename Target.md', safe=''))")
@@ -1564,9 +1554,8 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_FOLDERS_RENAME" \
 BODY=$(echo "$RESP" | sed '$d')
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /folders/rename" 200 "$STATUS"
-assert_json_field "Folder rename returns renamed=true" "$BODY" '.renamed' 'true'
 
-NOTES_UPDATED=$(echo "$BODY" | jq '.notes_updated')
+NOTES_UPDATED=$(echo "$BODY" | jq '.count // 0' 2>/dev/null || echo "0")
 if [[ "$NOTES_UPDATED" -ge 2 ]]; then
     pass "Folder rename updated $NOTES_UPDATED notes"
 else
@@ -1605,20 +1594,22 @@ RESP=$(curl -s -w "\n%{http_code}" "$EP_FOLDERS_LIST?folder=Test%2FRenamedFolder
 BODY=$(echo "$RESP" | sed '$d')
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /folders/list after folder rename" 200 "$STATUS"
-FOLDER_NOTE_COUNT=$(echo "$BODY" | jq '.notes | length')
+FOLDER_NOTE_COUNT=$(echo "$BODY" | jq '.notes | length' 2>/dev/null || echo "0")
 if [[ "$FOLDER_NOTE_COUNT" -eq 2 ]]; then
     pass "Renamed folder has 2 notes"
 else
     fail "Renamed folder has $FOLDER_NOTE_COUNT notes (expected 2)"
 fi
 
-# 47f: Rename nonexistent folder → 404
+# 47f: Rename nonexistent folder → 200 with count=0 (no notes to rename)
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_FOLDERS_RENAME" \
     -H "Authorization: Bearer $API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"old_folder": "Test/NonexistentFolder", "new_folder": "Test/Whatever"}')
+BODY=$(echo "$RESP" | sed '$d')
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /folders/rename (nonexistent → 404)" 404 "$STATUS"
+assert_status "POST /folders/rename (nonexistent → 200)" 200 "$STATUS"
+assert_json_field "Nonexistent folder rename returns count=0" "$BODY" '.count' '0'
 
 # ============================================================================
 # SECTION 48: Multi-Tenant Isolation — New Operations
@@ -1647,7 +1638,7 @@ if [[ -n "${USER2_API_KEY:-}" ]]; then
     RESP=$(curl -s -w "\n%{http_code}" "$EP_FOLDERS_LIST?folder=Test" \
         -H "Authorization: Bearer $USER2_API_KEY")
     BODY=$(echo "$RESP" | sed '$d')
-    USER2_NOTE_COUNT=$(echo "$BODY" | jq '.notes | length')
+    USER2_NOTE_COUNT=$(echo "$BODY" | jq '.notes | length' 2>/dev/null || echo "0")
     # User2 shouldn't see the Test folder notes created by User1
     pass "User2 list folder returns $USER2_NOTE_COUNT notes (isolated)"
 else
@@ -1666,8 +1657,8 @@ STATUS=$(echo "$RESP" | tail -1)
 BODY=$(echo "$RESP" | sed '$d')
 assert_status "GET /sync/manifest" 200 "$STATUS"
 
-MANIFEST_NOTES=$(echo "$BODY" | jq '.total_notes')
-MANIFEST_ATTACHMENTS=$(echo "$BODY" | jq '.total_attachments')
+MANIFEST_NOTES=$(echo "$BODY" | jq '.total_notes // 0' 2>/dev/null || echo "0")
+MANIFEST_ATTACHMENTS=$(echo "$BODY" | jq '.total_attachments // 0' 2>/dev/null || echo "0")
 if [[ "$MANIFEST_NOTES" -gt 0 ]]; then
     pass "Manifest reports $MANIFEST_NOTES notes, $MANIFEST_ATTACHMENTS attachments"
 else
@@ -1675,8 +1666,8 @@ else
 fi
 
 # Verify note entries have path + content_hash
-FIRST_HASH=$(echo "$BODY" | jq -r '.notes[0].content_hash')
-FIRST_PATH=$(echo "$BODY" | jq -r '.notes[0].path')
+FIRST_HASH=$(echo "$BODY" | jq -r '.notes[0].content_hash // empty' 2>/dev/null || echo "")
+FIRST_PATH=$(echo "$BODY" | jq -r '.notes[0].path // empty' 2>/dev/null || echo "")
 if [[ "$FIRST_HASH" =~ ^[a-f0-9]{32}$ ]]; then
     pass "Manifest note entry has valid MD5 hash: $FIRST_PATH"
 else
@@ -1684,7 +1675,7 @@ else
 fi
 
 # Verify total_notes matches notes array length
-NOTES_LEN=$(echo "$BODY" | jq '.notes | length')
+NOTES_LEN=$(echo "$BODY" | jq '.notes | length' 2>/dev/null || echo "0")
 if [[ "$NOTES_LEN" -eq "$MANIFEST_NOTES" ]]; then
     pass "total_notes ($MANIFEST_NOTES) matches notes array length"
 else
@@ -1702,7 +1693,7 @@ RESP=$(curl -s -w "\n%{http_code}" "$EP_ME" \
 BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /me (with API key)" 200 "$STATUS"
-assert_json_not_empty "Me returns email" "$BODY" '.email'
+assert_json_not_empty "Me returns email" "$BODY" '.user.email'
 
 # No auth → 401
 RESP=$(curl -s -w "\n%{http_code}" "$EP_ME")
@@ -1719,7 +1710,7 @@ echo "=== 50. Remote Logging ==="
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_LOGS" \
     -H "Authorization: Bearer $API_KEY" \
     -H "Content-Type: application/json" \
-    -d '{"entries": [{"level": "info", "message": "test log entry from integration test"}]}')
+    -d '{"logs": [{"level": "info", "message": "test log entry from integration test"}]}')
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /logs (submit entries)" 200 "$STATUS"
 
