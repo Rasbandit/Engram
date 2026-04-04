@@ -43,33 +43,38 @@ defmodule Engram.AccountsTest do
 
     test "rejects wrong password" do
       Accounts.register_user(%{email: "auth2@test.com", password: "password123"})
-      assert {:error, :invalid_credentials} = Accounts.authenticate_user("auth2@test.com", "wrong")
+
+      assert {:error, :invalid_credentials} =
+               Accounts.authenticate_user("auth2@test.com", "wrong")
     end
 
     test "rejects unknown email" do
-      assert {:error, :invalid_credentials} = Accounts.authenticate_user("nobody@test.com", "password123")
+      assert {:error, :invalid_credentials} =
+               Accounts.authenticate_user("nobody@test.com", "password123")
     end
 
     test "unknown email takes comparable time to wrong password (timing attack protection)" do
       Accounts.register_user(%{email: "timing@test.com", password: "password123"})
 
       # Wrong password (does real hash verification)
-      {wrong_pw_time, _} = :timer.tc(fn ->
-        Accounts.authenticate_user("timing@test.com", "wrongpassword")
-      end)
+      {wrong_pw_time, _} =
+        :timer.tc(fn ->
+          Accounts.authenticate_user("timing@test.com", "wrongpassword")
+        end)
 
       # Unknown email (should also do dummy hash work via no_user_verify)
-      {unknown_time, _} = :timer.tc(fn ->
-        Accounts.authenticate_user("nonexistent@test.com", "password123")
-      end)
+      {unknown_time, _} =
+        :timer.tc(fn ->
+          Accounts.authenticate_user("nonexistent@test.com", "password123")
+        end)
 
       # Argon2 hashing takes ~100-400ms. If unknown email skips hash work,
       # it'll be <10ms (just a DB query). Require at least 50% of real hash time.
       min_expected = div(wrong_pw_time, 2)
 
       assert unknown_time > min_expected,
-        "unknown email took #{unknown_time}µs vs wrong password #{wrong_pw_time}µs — " <>
-        "missing Argon2.no_user_verify/0"
+             "unknown email took #{unknown_time}µs vs wrong password #{wrong_pw_time}µs — " <>
+               "missing Argon2.no_user_verify/0"
     end
   end
 
@@ -109,6 +114,69 @@ defmodule Engram.AccountsTest do
       {:ok, _raw, api_key} = Accounts.create_api_key(user, "to revoke")
       assert :ok = Accounts.revoke_api_key(user, api_key.id)
       assert Accounts.list_api_keys(user) == []
+    end
+  end
+
+  describe "find_or_create_by_clerk_id/2" do
+    test "returns existing user when clerk_id matches" do
+      {:ok, user} =
+        Accounts.register_user(%{email: "existing@test.com", password: "password123"})
+
+      # Manually set clerk_id (simulating a previous Clerk login)
+      user
+      |> Ecto.Changeset.change(%{clerk_id: "clerk_user_abc"})
+      |> Engram.Repo.update!(skip_tenant_check: true)
+
+      assert {:ok, found} =
+               Accounts.find_or_create_by_clerk_id("clerk_user_abc", %{
+                 email: "existing@test.com"
+               })
+
+      assert found.id == user.id
+      assert found.clerk_id == "clerk_user_abc"
+    end
+
+    test "links clerk_id to existing user matched by email" do
+      {:ok, user} =
+        Accounts.register_user(%{email: "link@test.com", password: "password123"})
+
+      assert {:ok, linked} =
+               Accounts.find_or_create_by_clerk_id("clerk_user_link", %{
+                 email: "link@test.com"
+               })
+
+      assert linked.id == user.id
+      assert linked.clerk_id == "clerk_user_link"
+    end
+
+    test "creates new user when no clerk_id or email match" do
+      assert {:ok, created} =
+               Accounts.find_or_create_by_clerk_id("clerk_user_new", %{
+                 email: "brand_new@test.com"
+               })
+
+      assert created.clerk_id == "clerk_user_new"
+      assert created.email == "brand_new@test.com"
+      assert created.password_hash == nil
+    end
+
+    test "returns existing clerk user even if email changed in Clerk" do
+      {:ok, user} =
+        Accounts.register_user(%{email: "old@test.com", password: "password123"})
+
+      user
+      |> Ecto.Changeset.change(%{clerk_id: "clerk_stable"})
+      |> Engram.Repo.update!(skip_tenant_check: true)
+
+      # Clerk now reports a different email, but clerk_id is the same
+      assert {:ok, found} =
+               Accounts.find_or_create_by_clerk_id("clerk_stable", %{
+                 email: "new@test.com"
+               })
+
+      assert found.id == user.id
+      # clerk_id lookup takes precedence — email is NOT updated
+      assert found.email == "old@test.com"
     end
   end
 

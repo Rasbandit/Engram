@@ -61,6 +61,15 @@ if config_env() != :test do
   end
 end
 
+# Clerk auth (JWKS for JWT verification)
+if clerk_jwks_url = System.get_env("CLERK_JWKS_URL") do
+  config :engram, :clerk_jwks_url, clerk_jwks_url
+end
+
+if clerk_issuer = System.get_env("CLERK_ISSUER") do
+  config :engram, :clerk_issuer, clerk_issuer
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
