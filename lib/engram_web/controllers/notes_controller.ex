@@ -20,7 +20,7 @@ defmodule EngramWeb.NotesController do
         {:error, :version_conflict, server_note} ->
           conn
           |> put_status(409)
-          |> json(%{error: "version_conflict", server_note: note_json(server_note)})
+          |> json(%{error: "version_conflict", server_note: conflict_json(server_note)})
 
         {:error, changeset} ->
           conn
@@ -93,7 +93,7 @@ defmodule EngramWeb.NotesController do
 
         json(conn, %{
           changes: Enum.map(changes, &change_json/1),
-          server_time: DateTime.utc_now() |> DateTime.to_iso8601()
+          server_time: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
         })
 
       {:error, _} ->
@@ -108,6 +108,10 @@ defmodule EngramWeb.NotesController do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  defp conflict_json(note) do
+    note_json(note) |> Map.put(:baseContent, note.content)
+  end
 
   defp note_json(note) do
     %{

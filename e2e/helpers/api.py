@@ -171,7 +171,7 @@ class ApiClient:
         """POST /logs. Returns HTTP status code."""
         resp = self.session.post(
             f"{self.base_url}/logs",
-            json={"entries": entries},
+            json={"logs": entries},
             timeout=10,
         )
         return resp.status_code

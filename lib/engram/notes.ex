@@ -148,6 +148,7 @@ defmodule Engram.Notes do
     case result do
       {:ok, {:ok, note}} ->
         Oban.insert(EmbedNote.new_debounced(note.id))
+        broadcast_change(user.id, "delete", old_path)
         broadcast_change(user.id, "upsert", note.path)
         {:ok, note}
 
@@ -164,11 +165,13 @@ defmodule Engram.Notes do
   """
   @spec delete_note(map(), String.t()) :: :ok
   def delete_note(user, path) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
     Repo.with_tenant(user.id, fn ->
       from(n in Note,
         where: n.user_id == ^user.id and n.path == ^path and is_nil(n.deleted_at)
       )
-      |> Repo.update_all(set: [deleted_at: DateTime.utc_now() |> DateTime.truncate(:second)])
+      |> Repo.update_all(set: [deleted_at: now, updated_at: now])
     end)
 
     broadcast_change(user.id, "delete", path)
@@ -185,7 +188,7 @@ defmodule Engram.Notes do
       Repo.with_tenant(user.id, fn ->
         Repo.all(
           from(n in Note,
-            where: n.user_id == ^user.id and n.updated_at > ^since,
+            where: n.user_id == ^user.id and n.updated_at >= ^since,
             order_by: [asc: n.updated_at]
           )
         )

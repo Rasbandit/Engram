@@ -33,23 +33,24 @@ def cleanup_test_data(email_pattern: str = "e2e-%@test.local") -> None:
     if not _SAFE_EMAIL_PATTERN.match(email_pattern):
         raise ValueError(f"Unsafe email pattern rejected: {email_pattern!r}")
 
-    # Use psql -v to pass the pattern as a variable, then reference it with :'pat'
+    # Pattern is validated by _SAFE_EMAIL_PATTERN above, safe to interpolate.
+    # psql -c does not expand :variable substitution, so we use a parameterized
+    # query via psql's stdin with \set + :'var' quoting.
     # Elixir schema: notes.user_id and api_keys.user_id are integer (not text)
-    sql = (
-        "DELETE FROM api_keys WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat'); "
-        "DELETE FROM notes WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat'); "
-        "DELETE FROM users WHERE email LIKE :'pat';"
+    sql_script = (
+        f"\\set pat '{email_pattern}'\n"
+        "DELETE FROM api_keys WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
+        "DELETE FROM notes WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
+        "DELETE FROM users WHERE email LIKE :'pat';\n"
     )
 
     cmd = [
-        "docker", "exec", CI_POSTGRES_CONTAINER,
+        "docker", "exec", "-i", CI_POSTGRES_CONTAINER,
         "psql", "-U", "engram", "-d", "engram",
-        "-v", f"pat={email_pattern}",
-        "-c", sql,
     ]
 
     logger.info("Running cleanup SQL on %s (pattern: %s)", CI_POSTGRES_CONTAINER, email_pattern)
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(cmd, input=sql_script, capture_output=True, text=True, timeout=30)
 
     if result.returncode != 0:
         logger.error("Cleanup SQL failed: %s", result.stderr)
