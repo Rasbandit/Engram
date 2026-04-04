@@ -10,19 +10,19 @@ defmodule EngramWeb.TagsFoldersControllerTest do
 
   describe "GET /tags" do
     test "returns unique tags for user", %{conn: conn} do
-      post(conn, "/notes", %{
+      post(conn, "/api/notes", %{
         path: "A.md",
         content: "---\ntags: [health, fitness]\n---",
         mtime: 1_000.0
       })
 
-      post(conn, "/notes", %{
+      post(conn, "/api/notes", %{
         path: "B.md",
         content: "---\ntags: [health, nutrition]\n---",
         mtime: 1_000.0
       })
 
-      conn = get(conn, "/tags")
+      conn = get(conn, "/api/tags")
       assert %{"tags" => tags} = json_response(conn, 200)
       assert "health" in tags
       assert "fitness" in tags
@@ -33,7 +33,7 @@ defmodule EngramWeb.TagsFoldersControllerTest do
     test "returns 401 without auth" do
       conn =
         build_conn()
-        |> get("/tags")
+        |> get("/api/tags")
 
       assert json_response(conn, 401)
     end
@@ -41,11 +41,11 @@ defmodule EngramWeb.TagsFoldersControllerTest do
 
   describe "GET /folders" do
     test "returns unique folders for user", %{conn: conn} do
-      post(conn, "/notes", %{path: "Folder A/Note.md", content: "x", mtime: 1_000.0})
-      post(conn, "/notes", %{path: "Folder B/Note.md", content: "x", mtime: 1_000.0})
-      post(conn, "/notes", %{path: "Folder A/Other.md", content: "x", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Folder A/Note.md", content: "x", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Folder B/Note.md", content: "x", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Folder A/Other.md", content: "x", mtime: 1_000.0})
 
-      conn = get(conn, "/folders")
+      conn = get(conn, "/api/folders")
       assert %{"folders" => folders} = json_response(conn, 200)
       assert "Folder A" in folders
       assert "Folder B" in folders
@@ -55,7 +55,7 @@ defmodule EngramWeb.TagsFoldersControllerTest do
     test "returns 401 without auth" do
       conn =
         build_conn()
-        |> get("/folders")
+        |> get("/api/folders")
 
       assert json_response(conn, 401)
     end
@@ -67,11 +67,11 @@ defmodule EngramWeb.TagsFoldersControllerTest do
 
   describe "GET /folders/list" do
     test "returns notes in a specific folder", %{conn: conn} do
-      post(conn, "/notes", %{path: "Work/Alpha.md", content: "# Alpha", mtime: 1_000.0})
-      post(conn, "/notes", %{path: "Work/Beta.md", content: "# Beta", mtime: 1_000.0})
-      post(conn, "/notes", %{path: "Personal/Other.md", content: "# Other", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Work/Alpha.md", content: "# Alpha", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Work/Beta.md", content: "# Beta", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Personal/Other.md", content: "# Other", mtime: 1_000.0})
 
-      conn2 = get(conn, "/folders/list", %{folder: "Work"})
+      conn2 = get(conn, "/api/folders/list", %{folder: "Work"})
       body = json_response(conn2, 200)
 
       assert length(body["notes"]) == 2
@@ -81,10 +81,10 @@ defmodule EngramWeb.TagsFoldersControllerTest do
     end
 
     test "returns root-level notes when folder is empty string", %{conn: conn} do
-      post(conn, "/notes", %{path: "RootNote.md", content: "# Root", mtime: 1_000.0})
-      post(conn, "/notes", %{path: "Sub/Nested.md", content: "# Nested", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "RootNote.md", content: "# Root", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Sub/Nested.md", content: "# Nested", mtime: 1_000.0})
 
-      conn2 = get(conn, "/folders/list", %{folder: ""})
+      conn2 = get(conn, "/api/folders/list", %{folder: ""})
       body = json_response(conn2, 200)
 
       paths = Enum.map(body["notes"], & &1["path"])
@@ -93,7 +93,7 @@ defmodule EngramWeb.TagsFoldersControllerTest do
     end
 
     test "returns empty list for nonexistent folder", %{conn: conn} do
-      conn = get(conn, "/folders/list", %{folder: "Nonexistent"})
+      conn = get(conn, "/api/folders/list", %{folder: "Nonexistent"})
       body = json_response(conn, 200)
       assert body["notes"] == []
     end
@@ -105,37 +105,37 @@ defmodule EngramWeb.TagsFoldersControllerTest do
 
   describe "POST /folders/rename" do
     test "renames folder and all notes in it", %{conn: conn} do
-      post(conn, "/notes", %{path: "Old/A.md", content: "# A", mtime: 1_000.0})
-      post(conn, "/notes", %{path: "Old/B.md", content: "# B", mtime: 1_000.0})
-      post(conn, "/notes", %{path: "Other/C.md", content: "# C", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Old/A.md", content: "# A", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Old/B.md", content: "# B", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Other/C.md", content: "# C", mtime: 1_000.0})
 
       conn2 =
-        post(conn, "/folders/rename", %{old_folder: "Old", new_folder: "New"})
+        post(conn, "/api/folders/rename", %{old_folder: "Old", new_folder: "New"})
 
       assert %{"count" => 2} = json_response(conn2, 200)
 
       # Old folder should be empty
-      conn3 = get(conn, "/folders/list", %{folder: "Old"})
+      conn3 = get(conn, "/api/folders/list", %{folder: "Old"})
       assert json_response(conn3, 200)["notes"] == []
 
       # New folder should have the notes
-      conn4 = get(conn, "/folders/list", %{folder: "New"})
+      conn4 = get(conn, "/api/folders/list", %{folder: "New"})
       paths = Enum.map(json_response(conn4, 200)["notes"], & &1["path"])
       assert "New/A.md" in paths
       assert "New/B.md" in paths
     end
 
     test "renames nested subfolders", %{conn: conn} do
-      post(conn, "/notes", %{path: "Parent/Child/Note.md", content: "# Deep", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Parent/Child/Note.md", content: "# Deep", mtime: 1_000.0})
 
-      post(conn, "/folders/rename", %{old_folder: "Parent", new_folder: "Renamed"})
+      post(conn, "/api/folders/rename", %{old_folder: "Parent", new_folder: "Renamed"})
 
-      conn2 = get(conn, "/notes/Renamed/Child/Note.md")
+      conn2 = get(conn, "/api/notes/Renamed/Child/Note.md")
       assert json_response(conn2, 200)["content"] =~ "Deep"
     end
 
     test "returns count 0 for nonexistent folder", %{conn: conn} do
-      conn = post(conn, "/folders/rename", %{old_folder: "Ghost", new_folder: "New"})
+      conn = post(conn, "/api/folders/rename", %{old_folder: "Ghost", new_folder: "New"})
       assert %{"count" => 0} = json_response(conn, 200)
     end
   end

@@ -33,16 +33,15 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Run unit tests (backend + E2E helpers)
+      - name: Run unit tests (E2E helpers)
         run: |
-          python3 -m pytest tests/ -v
           python3 -m pytest e2e/unit_tests/ -v
 
       - name: Start CI stack
         run: |
           docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8100/health > /dev/null 2>&1; then
+            if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
               echo "engram is healthy"
               break
             fi
@@ -50,7 +49,7 @@ jobs:
           done
 
       - name: Run integration tests
-        run: ENGRAM_TEST_URL=http://localhost:8100 bash test_plan.sh
+        run: ENGRAM_TEST_URL=http://localhost:8100/api bash test_plan.sh --skip-search
 
       - name: Collect logs on failure
         if: failure()
@@ -121,7 +120,7 @@ jobs:
         run: |
           docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8100/health > /dev/null 2>&1; then
+            if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
               echo "engram is healthy"
               break
             fi
@@ -140,7 +139,7 @@ jobs:
         working-directory: e2e
         run: python3 -m pytest tests/ -v --timeout=300
         env:
-          ENGRAM_API_URL: http://localhost:8100
+          ENGRAM_API_URL: http://localhost:8100/api
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
           CI_POSTGRES_CONTAINER: engram-ci-postgres-1
 

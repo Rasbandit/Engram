@@ -115,7 +115,7 @@ ssh "${SERVER}" "docker run -d \
 REMOTE_HOST="${SERVER#*@}"
 echo "--- Waiting for API to start..."
 sleep 3
-if curl -sf "http://${REMOTE_HOST}:8000/health" > /dev/null 2>&1; then
+if curl -sf "http://${REMOTE_HOST}:8000/api/health" > /dev/null 2>&1; then
   echo "--- engram healthy"
 else
   echo "!!! engram health check failed — check logs on remote server"

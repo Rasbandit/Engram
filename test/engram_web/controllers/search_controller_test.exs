@@ -45,7 +45,7 @@ defmodule EngramWeb.SearchControllerTest do
         |> Plug.Conn.send_resp(200, Jason.encode!(qdrant_result))
       end)
 
-      conn = post(conn, "/search", %{query: "iron panel"})
+      conn = post(conn, "/api/search", %{query: "iron panel"})
       assert %{"results" => results} = json_response(conn, 200)
       assert length(results) == 1
       assert hd(results)["score"] == 0.95
@@ -66,12 +66,12 @@ defmodule EngramWeb.SearchControllerTest do
         |> Plug.Conn.send_resp(200, ~s({"result": []}))
       end)
 
-      conn = post(conn, "/search", %{query: "test", limit: 10})
+      conn = post(conn, "/api/search", %{query: "test", limit: 10})
       assert %{"results" => []} = json_response(conn, 200)
     end
 
     test "returns 422 when query is missing", %{conn: conn} do
-      conn = post(conn, "/search", %{})
+      conn = post(conn, "/api/search", %{})
       assert json_response(conn, 422)
     end
 
@@ -89,7 +89,7 @@ defmodule EngramWeb.SearchControllerTest do
         |> Plug.Conn.send_resp(200, ~s({"result": []}))
       end)
 
-      conn = post(conn, "/search", %{query: "test", limit: 999})
+      conn = post(conn, "/api/search", %{query: "test", limit: 999})
       assert json_response(conn, 200)
     end
 
@@ -97,7 +97,7 @@ defmodule EngramWeb.SearchControllerTest do
       conn =
         conn
         |> delete_req_header("authorization")
-        |> post("/search", %{query: "test"})
+        |> post("/api/search", %{query: "test"})
 
       assert json_response(conn, 401)
     end
@@ -110,7 +110,7 @@ defmodule EngramWeb.SearchControllerTest do
         Plug.Conn.send_resp(c, 500, ~s({"status":{"error":"Qdrant internal"}}))
       end)
 
-      conn = post(conn, "/search", %{query: "test"})
+      conn = post(conn, "/api/search", %{query: "test"})
       body = json_response(conn, 500)
       # Must NOT contain internal Elixir terms or adapter details
       refute String.contains?(body["error"], "Qdrant")
@@ -128,7 +128,7 @@ defmodule EngramWeb.SearchControllerTest do
         |> Plug.Conn.send_resp(200, ~s({"result": []}))
       end)
 
-      conn = post(conn, "/search", %{query: "nothing here"})
+      conn = post(conn, "/api/search", %{query: "nothing here"})
       assert %{"results" => []} = json_response(conn, 200)
     end
   end

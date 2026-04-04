@@ -17,10 +17,12 @@ name: engram-ci
 
 services:
   engram:
-    build: ./api
+    build: .
     ports:
       - "8100:8000"
     environment:
+      PORT: "8000"
+      SECRET_KEY_BASE: "ci-test-secret-base-not-for-production-at-least-64-bytes-long-enough-for-phoenix"
       DATABASE_URL: postgresql://engram:engram@postgres:5432/engram
       OLLAMA_URL: http://10.0.20.214:11434
       QDRANT_URL: http://qdrant:6333
@@ -33,6 +35,12 @@ services:
       LOG_LEVEL: WARNING
       REDIS_URL: redis://redis:6379/0
       RATE_LIMIT_RPM: "120"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8000'"]
+      start_period: 10s
+      interval: 3s
+      timeout: 3s
+      retries: 10
     depends_on:
       postgres:
         condition: service_healthy

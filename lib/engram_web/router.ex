@@ -9,8 +9,9 @@ defmodule EngramWeb.Router do
     }
   end
 
-  # Public endpoints (no auth required)
-  scope "/", EngramWeb do
+  # All API routes under /api prefix
+  scope "/api", EngramWeb do
+    # Public endpoints (no auth required)
     pipe_through :api
     get "/health", HealthController, :index
     get "/health/deep", HealthController, :deep
@@ -18,8 +19,8 @@ defmodule EngramWeb.Router do
     post "/users/login", AuthController, :login
   end
 
-  # Authenticated API endpoints
-  scope "/", EngramWeb do
+  scope "/api", EngramWeb do
+    # Authenticated API endpoints
     pipe_through [:api, EngramWeb.Plugs.Auth]
 
     # Notes CRUD

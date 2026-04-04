@@ -34,7 +34,7 @@ defmodule EngramWeb.McpControllerTest do
 
   # Helper to make JSON-RPC calls
   defp jsonrpc(conn, method, params \\ %{}) do
-    post(conn, "/mcp", %{
+    post(conn, "/api/mcp", %{
       "jsonrpc" => "2.0",
       "id" => 1,
       "method" => method,
@@ -99,14 +99,14 @@ defmodule EngramWeb.McpControllerTest do
     end
 
     test "missing jsonrpc field returns -32600", %{conn: conn} do
-      conn = post(conn, "/mcp", %{"id" => 1, "method" => "initialize"})
+      conn = post(conn, "/api/mcp", %{"id" => 1, "method" => "initialize"})
       resp = json_response(conn, 200)
 
       assert resp["error"]["code"] == -32600
     end
 
     test "notification (no id) returns 202", %{conn: conn} do
-      conn = post(conn, "/mcp", %{"jsonrpc" => "2.0", "method" => "notifications/initialized"})
+      conn = post(conn, "/api/mcp", %{"jsonrpc" => "2.0", "method" => "notifications/initialized"})
       assert conn.status == 202
     end
 
@@ -122,7 +122,7 @@ defmodule EngramWeb.McpControllerTest do
       conn = build_conn()
 
       conn =
-        post(conn, "/mcp", %{
+        post(conn, "/api/mcp", %{
           "jsonrpc" => "2.0",
           "id" => 1,
           "method" => "initialize"

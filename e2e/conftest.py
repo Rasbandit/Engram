@@ -29,7 +29,7 @@ from helpers.obsidian import ObsidianInstance
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-API_URL = os.environ.get("ENGRAM_API_URL", "http://localhost:8100")
+API_URL = os.environ.get("ENGRAM_API_URL", "http://localhost:8100/api")
 PLUGIN_SRC = Path(os.environ.get("ENGRAM_PLUGIN_SRC", Path(__file__).parent.parent / "plugin"))
 OBSIDIAN_BIN = Path.home() / "Applications" / "Obsidian.AppImage"
 
