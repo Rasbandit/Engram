@@ -22,6 +22,7 @@ services:
       - "8100:8000"
     environment:
       PORT: "8000"
+      SECRET_KEY_BASE: "ci-test-secret-base-not-for-production-at-least-64-bytes-long-enough-for-phoenix"
       DATABASE_URL: postgresql://engram:engram@postgres:5432/engram
       OLLAMA_URL: http://10.0.20.214:11434
       QDRANT_URL: http://qdrant:6333
