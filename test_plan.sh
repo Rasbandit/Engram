@@ -31,7 +31,7 @@ if [[ "${1:-}" == "--both" ]]; then
     wait_healthy() {
         local max_wait=30 i=0
         while [[ $i -lt $max_wait ]]; do
-            if curl -sf "http://localhost:8000/health" > /dev/null 2>&1; then
+            if curl -sf "http://localhost:8000/api/health" > /dev/null 2>&1; then
                 return 0
             fi
             sleep 1
@@ -97,7 +97,7 @@ if [[ "${1:-}" == "--both" ]]; then
     fi
 fi
 
-BASE="${ENGRAM_TEST_URL:-http://localhost:8000}"
+BASE="${ENGRAM_TEST_URL:-http://localhost:8000/api}"
 PASS=0
 FAIL=0
 ERRORS=""

@@ -20,7 +20,7 @@ defmodule EngramWeb.AttachmentsControllerTest do
   describe "POST /attachments" do
     test "uploads an attachment and returns metadata", %{conn: conn} do
       conn =
-        post(conn, "/attachments", %{
+        post(conn, "/api/attachments", %{
           path: "photos/test.png",
           content_base64: @sample_base64,
           mtime: 1_709_234_567.0
@@ -36,7 +36,7 @@ defmodule EngramWeb.AttachmentsControllerTest do
 
     test "auto-detects MIME type from extension", %{conn: conn} do
       conn =
-        post(conn, "/attachments", %{
+        post(conn, "/api/attachments", %{
           path: "docs/readme.pdf",
           content_base64: @sample_base64,
           mtime: 1_000.0
@@ -48,7 +48,7 @@ defmodule EngramWeb.AttachmentsControllerTest do
 
     test "defaults to application/octet-stream for unknown extension", %{conn: conn} do
       conn =
-        post(conn, "/attachments", %{
+        post(conn, "/api/attachments", %{
           path: "files/data.xyz",
           content_base64: @sample_base64,
           mtime: 1_000.0
@@ -60,7 +60,7 @@ defmodule EngramWeb.AttachmentsControllerTest do
 
     test "allows explicit MIME type override", %{conn: conn} do
       conn =
-        post(conn, "/attachments", %{
+        post(conn, "/api/attachments", %{
           path: "files/custom.bin",
           content_base64: @sample_base64,
           mime_type: "text/plain",
@@ -72,14 +72,14 @@ defmodule EngramWeb.AttachmentsControllerTest do
     end
 
     test "upserts — replaces content on same path", %{conn: conn} do
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/upsert.png",
         content_base64: @sample_base64,
         mtime: 1_000.0
       })
 
       conn2 =
-        post(conn, "/attachments", %{
+        post(conn, "/api/attachments", %{
           path: "photos/upsert.png",
           content_base64: @updated_base64,
           mtime: 2_000.0
@@ -90,17 +90,17 @@ defmodule EngramWeb.AttachmentsControllerTest do
     end
 
     test "undeletes a previously soft-deleted attachment", %{conn: conn} do
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/revive.png",
         content_base64: @sample_base64,
         mtime: 1_000.0
       })
 
-      delete(conn, "/attachments/photos/revive.png")
+      delete(conn, "/api/attachments/photos/revive.png")
 
       # Re-upload should undelete
       conn3 =
-        post(conn, "/attachments", %{
+        post(conn, "/api/attachments", %{
           path: "photos/revive.png",
           content_base64: @updated_base64,
           mtime: 3_000.0
@@ -109,13 +109,13 @@ defmodule EngramWeb.AttachmentsControllerTest do
       assert %{"attachment" => _} = json_response(conn3, 200)
 
       # Should be readable again
-      conn4 = get(conn, "/attachments/photos/revive.png")
+      conn4 = get(conn, "/api/attachments/photos/revive.png")
       assert json_response(conn4, 200)
     end
 
     test "rejects invalid base64", %{conn: conn} do
       conn =
-        post(conn, "/attachments", %{
+        post(conn, "/api/attachments", %{
           path: "bad.png",
           content_base64: "not-valid-base64!!!",
           mtime: 1_000.0
@@ -128,7 +128,7 @@ defmodule EngramWeb.AttachmentsControllerTest do
       huge = Base.encode64(:crypto.strong_rand_bytes(5 * 1024 * 1024 + 1))
 
       conn =
-        post(conn, "/attachments", %{
+        post(conn, "/api/attachments", %{
           path: "huge.bin",
           content_base64: huge,
           mtime: 1_000.0
@@ -141,7 +141,7 @@ defmodule EngramWeb.AttachmentsControllerTest do
       conn =
         conn
         |> delete_req_header("authorization")
-        |> post("/attachments", %{path: "nope.png", content_base64: @sample_base64, mtime: 1.0})
+        |> post("/api/attachments", %{path: "nope.png", content_base64: @sample_base64, mtime: 1.0})
 
       assert json_response(conn, 401)
     end
@@ -153,13 +153,13 @@ defmodule EngramWeb.AttachmentsControllerTest do
 
   describe "GET /attachments/*path" do
     test "returns attachment with base64 content", %{conn: conn} do
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/download.png",
         content_base64: @sample_base64,
         mtime: 1_000.0
       })
 
-      conn2 = get(conn, "/attachments/photos/download.png")
+      conn2 = get(conn, "/api/attachments/photos/download.png")
       body = json_response(conn2, 200)
 
       assert body["path"] == "photos/download.png"
@@ -169,20 +169,20 @@ defmodule EngramWeb.AttachmentsControllerTest do
     end
 
     test "returns 404 for nonexistent attachment", %{conn: conn} do
-      conn = get(conn, "/attachments/nope/missing.png")
+      conn = get(conn, "/api/attachments/nope/missing.png")
       assert json_response(conn, 404)
     end
 
     test "returns 404 for soft-deleted attachment", %{conn: conn} do
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/deleted.png",
         content_base64: @sample_base64,
         mtime: 1_000.0
       })
 
-      delete(conn, "/attachments/photos/deleted.png")
+      delete(conn, "/api/attachments/photos/deleted.png")
 
-      conn3 = get(conn, "/attachments/photos/deleted.png")
+      conn3 = get(conn, "/api/attachments/photos/deleted.png")
       assert json_response(conn3, 404)
     end
   end
@@ -193,31 +193,31 @@ defmodule EngramWeb.AttachmentsControllerTest do
 
   describe "DELETE /attachments/*path" do
     test "soft-deletes an attachment", %{conn: conn} do
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/todelete.png",
         content_base64: @sample_base64,
         mtime: 1_000.0
       })
 
-      conn2 = delete(conn, "/attachments/photos/todelete.png")
+      conn2 = delete(conn, "/api/attachments/photos/todelete.png")
       assert %{"deleted" => true, "path" => "photos/todelete.png"} = json_response(conn2, 200)
     end
 
     test "idempotent — deleting already-deleted returns 200", %{conn: conn} do
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/double.png",
         content_base64: @sample_base64,
         mtime: 1_000.0
       })
 
-      delete(conn, "/attachments/photos/double.png")
+      delete(conn, "/api/attachments/photos/double.png")
 
-      conn3 = delete(conn, "/attachments/photos/double.png")
+      conn3 = delete(conn, "/api/attachments/photos/double.png")
       assert %{"deleted" => true} = json_response(conn3, 200)
     end
 
     test "deleting nonexistent returns 200 (idempotent)", %{conn: conn} do
-      conn = delete(conn, "/attachments/photos/ghost.png")
+      conn = delete(conn, "/api/attachments/photos/ghost.png")
       assert %{"deleted" => true} = json_response(conn, 200)
     end
   end
@@ -228,13 +228,13 @@ defmodule EngramWeb.AttachmentsControllerTest do
 
   describe "GET /attachments/changes" do
     test "returns changes since timestamp", %{conn: conn} do
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/change1.png",
         content_base64: @sample_base64,
         mtime: 1_000.0
       })
 
-      conn2 = get(conn, "/attachments/changes", %{since: "2020-01-01T00:00:00Z"})
+      conn2 = get(conn, "/api/attachments/changes", %{since: "2020-01-01T00:00:00Z"})
       body = json_response(conn2, 200)
 
       assert is_list(body["changes"])
@@ -250,15 +250,15 @@ defmodule EngramWeb.AttachmentsControllerTest do
     end
 
     test "includes deleted attachments in changes", %{conn: conn} do
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/del-change.png",
         content_base64: @sample_base64,
         mtime: 1_000.0
       })
 
-      delete(conn, "/attachments/photos/del-change.png")
+      delete(conn, "/api/attachments/photos/del-change.png")
 
-      conn3 = get(conn, "/attachments/changes", %{since: "2020-01-01T00:00:00Z"})
+      conn3 = get(conn, "/api/attachments/changes", %{since: "2020-01-01T00:00:00Z"})
       body = json_response(conn3, 200)
 
       deleted = Enum.find(body["changes"], &(&1["path"] == "photos/del-change.png"))
@@ -266,20 +266,20 @@ defmodule EngramWeb.AttachmentsControllerTest do
     end
 
     test "returns empty for future timestamp", %{conn: conn} do
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/future.png",
         content_base64: @sample_base64,
         mtime: 1_000.0
       })
 
-      conn2 = get(conn, "/attachments/changes", %{since: "2099-01-01T00:00:00Z"})
+      conn2 = get(conn, "/api/attachments/changes", %{since: "2099-01-01T00:00:00Z"})
       body = json_response(conn2, 200)
 
       assert body["changes"] == []
     end
 
     test "returns 400 for invalid timestamp", %{conn: conn} do
-      conn = get(conn, "/attachments/changes", %{since: "not-a-date"})
+      conn = get(conn, "/api/attachments/changes", %{since: "not-a-date"})
       assert json_response(conn, 400)
     end
   end
@@ -291,7 +291,7 @@ defmodule EngramWeb.AttachmentsControllerTest do
   describe "multi-tenant isolation" do
     test "user B cannot read user A's attachment", %{conn: conn} do
       # Upload as user A (default setup user)
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/secret.png",
         content_base64: @sample_base64,
         mtime: 1_000.0
@@ -306,12 +306,12 @@ defmodule EngramWeb.AttachmentsControllerTest do
         |> put_req_header("authorization", "Bearer #{api_key_b}")
 
       # User B should not see user A's attachment
-      conn_b_get = get(conn_b, "/attachments/photos/secret.png")
+      conn_b_get = get(conn_b, "/api/attachments/photos/secret.png")
       assert json_response(conn_b_get, 404)
     end
 
     test "user B's changes don't include user A's attachments", %{conn: conn} do
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/private.png",
         content_base64: @sample_base64,
         mtime: 1_000.0
@@ -324,7 +324,7 @@ defmodule EngramWeb.AttachmentsControllerTest do
         build_conn()
         |> put_req_header("authorization", "Bearer #{api_key_b}")
 
-      conn_b_changes = get(conn_b, "/attachments/changes", %{since: "2020-01-01T00:00:00Z"})
+      conn_b_changes = get(conn_b, "/api/attachments/changes", %{since: "2020-01-01T00:00:00Z"})
       body = json_response(conn_b_changes, 200)
 
       assert body["changes"] == []

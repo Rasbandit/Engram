@@ -10,7 +10,7 @@ defmodule EngramWeb.StorageControllerTest do
 
   describe "GET /user/storage" do
     test "returns zero usage for new user", %{conn: conn} do
-      conn = get(conn, "/user/storage")
+      conn = get(conn, "/api/user/storage")
       body = json_response(conn, 200)
 
       assert body["used_bytes"] == 0
@@ -22,13 +22,13 @@ defmodule EngramWeb.StorageControllerTest do
     test "reflects uploaded attachment size", %{conn: conn} do
       content = String.duplicate("x", 1000)
 
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/big.png",
         content_base64: Base.encode64(content),
         mtime: 1_000.0
       })
 
-      conn2 = get(conn, "/user/storage")
+      conn2 = get(conn, "/api/user/storage")
       body = json_response(conn2, 200)
 
       assert body["used_bytes"] == 1000
@@ -36,15 +36,15 @@ defmodule EngramWeb.StorageControllerTest do
     end
 
     test "excludes deleted attachments from usage", %{conn: conn} do
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/del.png",
         content_base64: Base.encode64("data"),
         mtime: 1_000.0
       })
 
-      delete(conn, "/attachments/photos/del.png")
+      delete(conn, "/api/attachments/photos/del.png")
 
-      conn2 = get(conn, "/user/storage")
+      conn2 = get(conn, "/api/user/storage")
       body = json_response(conn2, 200)
 
       assert body["used_bytes"] == 0
@@ -55,7 +55,7 @@ defmodule EngramWeb.StorageControllerTest do
       conn =
         conn
         |> delete_req_header("authorization")
-        |> get("/user/storage")
+        |> get("/api/user/storage")
 
       assert json_response(conn, 401)
     end
