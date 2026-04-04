@@ -1280,7 +1280,7 @@ echo "=== 34. Rate Limiting ==="
 # Rate limiting is enforced in the Elixir backend.
 # Only test when the deep health check shows rate limiting is active.
 DEEP_HEALTH=$(curl -s "$EP_HEALTH_DEEP" 2>/dev/null || echo "{}")
-HAS_RL=$(echo "$DEEP_HEALTH" | jq 'has("checks")' 2>/dev/null || echo "false")
+HAS_RL=$(echo "$DEEP_HEALTH" | jq '.checks | has("rate_limiter")' 2>/dev/null || echo "false")
 
 if [[ "$HAS_RL" == "true" ]]; then
     # Create a SEPARATE user for rate limit testing to avoid polluting the main
