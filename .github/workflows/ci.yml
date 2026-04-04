@@ -99,23 +99,9 @@ jobs:
 
       # ------------------------------------------------------------------
       # E2E tests — full Obsidian sync cycle
-      # Runs on: main push, workflow_dispatch, or plugin dispatch
-      # Reuses the CI stack image but restarts with fresh volumes
+      # Runs on every push. Restarts CI stack with fresh volumes.
       # ------------------------------------------------------------------
-      - name: Check if E2E should run
-        id: e2e-gate
-        run: |
-          if [[ "${{ github.event_name }}" == "repository_dispatch" ]] || \
-             [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || \
-             [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "⏭ E2E skipped (not main/dispatch)"
-          fi
-
       - name: Reset CI stack for E2E (fresh database)
-        if: steps.e2e-gate.outputs.run == 'true'
         run: |
           echo "Tearing down CI stack to clear integration test state..."
           docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
@@ -131,7 +117,6 @@ jobs:
           done
 
       - name: Checkout plugin
-        if: steps.e2e-gate.outputs.run == 'true'
         uses: actions/checkout@v6
         with:
           repository: Rasbandit/Engram-obsidian-sync
@@ -140,12 +125,10 @@ jobs:
           ref: ${{ github.event.client_payload.plugin_ref || 'main' }}
 
       - name: Build plugin
-        if: steps.e2e-gate.outputs.run == 'true'
         working-directory: plugin-src
         run: npm ci && npm run build
 
       - name: Verify plugin build
-        if: steps.e2e-gate.outputs.run == 'true'
         run: |
           for f in plugin-src/main.js plugin-src/manifest.json; do
             if [ ! -f "$f" ]; then
@@ -156,7 +139,6 @@ jobs:
           echo "Plugin build OK: $(ls -la plugin-src/main.js)"
 
       - name: Check Ollama reachability
-        if: steps.e2e-gate.outputs.run == 'true'
         run: |
           if ! curl -sf http://10.0.20.214:11434/api/tags > /dev/null 2>&1; then
             echo "WARNING: Ollama on FastRaid not reachable — embedding tests may fail"
@@ -165,7 +147,6 @@ jobs:
           fi
 
       - name: Run E2E tests
-        if: steps.e2e-gate.outputs.run == 'true'
         working-directory: e2e
         run: python3 -m pytest tests/ -v --timeout=300
         env:

@@ -133,7 +133,7 @@ defmodule EngramWeb.LogsControllerTest do
       assert Map.has_key?(entry, "platform")
     end
 
-    test "multi-tenant isolation — user B cannot see user A's logs", %{conn: conn} do
+    test "multi-tenant isolation — user B cannot see user A's logs", %{conn: _conn} do
       user_b = insert(:user)
       {:ok, api_key_b, _} = Engram.Accounts.create_api_key(user_b, "b-key")
 
