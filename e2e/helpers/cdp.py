@@ -115,7 +115,7 @@ class CdpClient:
 
     async def check_stream_connected(self) -> bool:
         """Check if the plugin's real-time stream (WebSocket channel) is connected."""
-        result = await self.evaluate(f"{PLUGIN_PATH}.sseConnected")
+        result = await self.evaluate(f"{PLUGIN_PATH}.isLiveConnected()")
         return result is True
 
     # Backward compat alias

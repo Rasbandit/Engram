@@ -86,7 +86,7 @@ defmodule EngramWeb.NotesControllerTest do
           version: 1
         })
 
-      assert %{"error" => "version_conflict", "server_note" => server_note} =
+      assert %{"conflict" => true, "server_note" => server_note} =
                json_response(conn2, 409)
 
       assert server_note["path"] == "Test/Conflict.md"

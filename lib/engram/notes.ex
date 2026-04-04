@@ -28,7 +28,7 @@ defmodule Engram.Notes do
       tags = Helpers.extract_tags(content)
       hash = content_hash(content)
 
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      now = DateTime.utc_now()
 
       note_attrs = %{
         path: sanitized_path,
@@ -119,7 +119,7 @@ defmodule Engram.Notes do
   def rename_note(user, old_path, new_path) do
     new_path = PathSanitizer.sanitize(new_path)
     new_folder = Helpers.extract_folder(new_path)
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.utc_now()
 
     result =
       Repo.with_tenant(user.id, fn ->
@@ -165,7 +165,7 @@ defmodule Engram.Notes do
   """
   @spec delete_note(map(), String.t()) :: :ok
   def delete_note(user, path) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.utc_now()
 
     Repo.with_tenant(user.id, fn ->
       from(n in Note,
@@ -188,7 +188,7 @@ defmodule Engram.Notes do
       Repo.with_tenant(user.id, fn ->
         Repo.all(
           from(n in Note,
-            where: n.user_id == ^user.id and n.updated_at >= ^since,
+            where: n.user_id == ^user.id and n.updated_at > ^since,
             order_by: [asc: n.updated_at]
           )
         )
@@ -364,7 +364,7 @@ defmodule Engram.Notes do
     if notes == [] do
       {:ok, 0}
     else
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      now = DateTime.utc_now()
       old_len = String.length(old_folder)
 
       # Build bulk updates — compute new paths/folders/titles in Elixir,
