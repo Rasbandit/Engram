@@ -131,4 +131,37 @@ defmodule Engram.Vector.QdrantTest do
       assert {:error, _} = Qdrant.search("test_col", [0.1], user_id: "1", limit: 5)
     end
   end
+
+  describe "authentication" do
+    test "sends api-key header when QDRANT_API_KEY is set", %{bypass: bypass} do
+      System.put_env("QDRANT_API_KEY", "test-qdrant-key")
+      on_exit(fn -> System.delete_env("QDRANT_API_KEY") end)
+
+      Bypass.expect_once(bypass, "PUT", "/collections/test_col", fn conn ->
+        api_key = Plug.Conn.get_req_header(conn, "api-key")
+        assert api_key == ["test-qdrant-key"]
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": true}))
+      end)
+
+      assert :ok = Qdrant.ensure_collection("test_col", 1024)
+    end
+
+    test "does not send api-key header when env var is not set", %{bypass: bypass} do
+      System.delete_env("QDRANT_API_KEY")
+
+      Bypass.expect_once(bypass, "PUT", "/collections/test_col", fn conn ->
+        api_key = Plug.Conn.get_req_header(conn, "api-key")
+        assert api_key == []
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": true}))
+      end)
+
+      assert :ok = Qdrant.ensure_collection("test_col", 1024)
+    end
+  end
 end
