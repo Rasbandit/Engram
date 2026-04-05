@@ -42,6 +42,7 @@ defmodule EngramWeb.Endpoint do
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
+    body_reader: {EngramWeb.Plugs.CacheRawBody, :read_body, []},
     json_decoder: Phoenix.json_library(),
     length: 11_000_000
 

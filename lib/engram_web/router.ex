@@ -10,6 +10,13 @@ defmodule EngramWeb.Router do
     }
   end
 
+  # Stripe webhooks — no auth, raw body for signature verification
+  scope "/webhooks", EngramWeb do
+    pipe_through :api
+
+    post "/stripe", WebhookController, :stripe
+  end
+
   # All API routes under /api prefix
   scope "/api", EngramWeb do
     # Public endpoints (no auth required)
