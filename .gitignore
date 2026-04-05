@@ -37,3 +37,4 @@ priv/static/app/
 
 .env*
 frontend/.vite/
+.worktrees/
