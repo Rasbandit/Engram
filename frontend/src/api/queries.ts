@@ -88,7 +88,7 @@ export function useMe() {
 
 // Billing types
 export interface BillingStatus {
-  tier: 'trial' | 'starter' | 'pro'
+  tier: 'none' | 'trial' | 'starter' | 'pro'
   active: boolean
   trial_days_remaining: number
   subscription: {

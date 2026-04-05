@@ -5,9 +5,9 @@ defmodule Engram.BillingTest do
   alias Engram.Billing.Subscription
 
   describe "tier/1" do
-    test "returns :trial for user with no subscription" do
+    test "returns :none for user with no subscription" do
       user = insert(:user)
-      assert Billing.tier(user) == :trial
+      assert Billing.tier(user) == :none
     end
 
     test "returns tier atom for user with active subscription" do
@@ -16,16 +16,28 @@ defmodule Engram.BillingTest do
       assert Billing.tier(user) == :starter
     end
 
-    test "returns :trial for user with canceled subscription" do
+    test "returns tier atom for user with trialing subscription" do
+      user = insert(:user)
+      insert(:subscription, user: user, tier: "starter", status: "trialing")
+      assert Billing.tier(user) == :starter
+    end
+
+    test "returns :none for user with canceled subscription" do
       user = insert(:user)
       insert(:subscription, user: user, tier: "starter", status: "canceled")
-      assert Billing.tier(user) == :trial
+      assert Billing.tier(user) == :none
     end
   end
 
   describe "active?/1" do
-    test "returns true for user in trial period" do
+    test "returns false for user with no subscription" do
       user = insert(:user)
+      assert Billing.active?(user) == false
+    end
+
+    test "returns true for user with trialing subscription" do
+      user = insert(:user)
+      insert(:subscription, user: user, status: "trialing")
       assert Billing.active?(user) == true
     end
 
@@ -41,14 +53,9 @@ defmodule Engram.BillingTest do
       assert Billing.active?(user) == true
     end
 
-    test "returns false for user with canceled subscription past trial" do
-      user = insert(:user, inserted_at: DateTime.add(DateTime.utc_now(), -30, :day))
+    test "returns false for user with canceled subscription" do
+      user = insert(:user)
       insert(:subscription, user: user, status: "canceled")
-      assert Billing.active?(user) == false
-    end
-
-    test "returns false for user with expired trial and no subscription" do
-      user = insert(:user, inserted_at: DateTime.add(DateTime.utc_now(), -30, :day))
       assert Billing.active?(user) == false
     end
   end
@@ -68,14 +75,22 @@ defmodule Engram.BillingTest do
   end
 
   describe "trial_days_remaining/1" do
-    test "returns days remaining in trial" do
+    test "returns days remaining for trialing subscription" do
       user = insert(:user)
+      period_end = DateTime.add(DateTime.utc_now(), 5, :day)
+      insert(:subscription, user: user, status: "trialing", current_period_end: period_end)
       days = Billing.trial_days_remaining(user)
-      assert days >= 13 and days <= 14
+      assert days >= 4 and days <= 5
     end
 
-    test "returns 0 for expired trial" do
-      user = insert(:user, inserted_at: DateTime.add(DateTime.utc_now(), -30, :day))
+    test "returns 0 for user with no subscription" do
+      user = insert(:user)
+      assert Billing.trial_days_remaining(user) == 0
+    end
+
+    test "returns 0 for user with active (non-trial) subscription" do
+      user = insert(:user)
+      insert(:subscription, user: user, status: "active")
       assert Billing.trial_days_remaining(user) == 0
     end
   end
@@ -101,7 +116,7 @@ defmodule Engram.BillingTest do
       assert sub.stripe_customer_id == "cus_test123"
       assert sub.stripe_subscription_id == "sub_test123"
       assert sub.tier == "starter"
-      assert sub.status == "active"
+      assert sub.status == "trialing"
     end
 
     test "updates subscription from customer.subscription.updated" do

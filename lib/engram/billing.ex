@@ -7,27 +7,35 @@ defmodule Engram.Billing do
   alias Engram.Repo
   alias Engram.Billing.Subscription
 
-  @trial_days 14
+  @trial_days 7
 
   # ── Tier & Status Queries ──────────────────────────────────────
 
+  @doc """
+  Returns the user's effective tier as an atom.
+  Users without a subscription (or with a canceled one) are :none.
+  """
   def tier(user) do
     case get_subscription(user) do
       %Subscription{status: status, tier: tier} when status in ~w(active past_due trialing) ->
         String.to_existing_atom(tier)
 
       _ ->
-        :trial
+        :none
     end
   end
 
+  @doc """
+  Returns true if the user has an active, past_due, or trialing subscription.
+  Users must start a trial (with card on file) via Stripe Checkout before syncing.
+  """
   def active?(user) do
     case get_subscription(user) do
       %Subscription{status: status} when status in ~w(active past_due trialing) ->
         true
 
       _ ->
-        in_trial?(user)
+        false
     end
   end
 
@@ -38,15 +46,25 @@ defmodule Engram.Billing do
     )
   end
 
+  @doc "Returns remaining trial days from the Stripe subscription, or 0."
   def trial_days_remaining(user) do
-    elapsed = DateTime.diff(DateTime.utc_now(), user.inserted_at, :day)
-    max(@trial_days - elapsed, 0)
-  end
+    case get_subscription(user) do
+      %Subscription{status: "trialing", current_period_end: period_end}
+      when not is_nil(period_end) ->
+        days = DateTime.diff(period_end, DateTime.utc_now(), :day)
+        max(days, 0)
 
-  defp in_trial?(user), do: trial_days_remaining(user) > 0
+      _ ->
+        0
+    end
+  end
 
   # ── Checkout Session ───────────────────────────────────────────
 
+  @doc """
+  Creates a Stripe Checkout Session. Includes a 7-day trial with card collection
+  so the user can try before being charged.
+  """
   def create_checkout_session(user, tier) when tier in ~w(starter pro) do
     price_id = price_id_for(tier)
 
@@ -56,6 +74,8 @@ defmodule Engram.Billing do
       customer_email: user.email,
       client_reference_id: to_string(user.id),
       metadata: %{"tier" => tier},
+      subscription_data: %{trial_period_days: @trial_days},
+      payment_method_collection: "always",
       success_url: success_url(),
       cancel_url: cancel_url()
     }
@@ -104,7 +124,7 @@ defmodule Engram.Billing do
       stripe_customer_id: customer_id,
       stripe_subscription_id: subscription_id,
       tier: tier,
-      status: "active"
+      status: "trialing"
     }
 
     %Subscription{}

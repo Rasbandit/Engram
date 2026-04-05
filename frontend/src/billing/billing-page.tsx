@@ -2,6 +2,7 @@ import { useBillingStatus } from '../api/queries'
 import { api } from '../api/client'
 
 const TIER_LABELS = {
+  none: 'No Plan',
   trial: 'Free Trial',
   starter: 'Starter',
   pro: 'Pro',
@@ -11,8 +12,11 @@ export default function BillingPage() {
   const { data: billing, isLoading } = useBillingStatus()
 
   if (isLoading || !billing) {
-    return <p className="text-gray-500">Loading billing info…</p>
+    return <p className="text-gray-500">Loading billing info...</p>
   }
+
+  const needsSubscription = billing.tier === 'none'
+  const isTrial = billing.subscription?.status === 'trialing'
 
   return (
     <article className="mx-auto max-w-2xl space-y-8">
@@ -26,11 +30,16 @@ export default function BillingPage() {
           </span>
         </header>
 
-        {billing.tier === 'trial' && (
+        {needsSubscription && (
           <p className="text-sm text-gray-600">
-            {billing.trial_days_remaining > 0
-              ? `${billing.trial_days_remaining} days remaining in your free trial.`
-              : 'Your free trial has expired. Subscribe to continue using Engram.'}
+            Choose a plan below to start your 7-day free trial. A card is required but you
+            won't be charged until the trial ends.
+          </p>
+        )}
+
+        {isTrial && billing.trial_days_remaining > 0 && (
+          <p className="text-sm text-gray-600">
+            {billing.trial_days_remaining} days remaining in your free trial.
           </p>
         )}
 
@@ -50,9 +59,10 @@ export default function BillingPage() {
         )}
       </section>
 
-      {billing.tier === 'trial' && (
+      {needsSubscription && (
         <section className="space-y-4">
           <h2 className="text-lg font-semibold text-gray-800">Choose a Plan</h2>
+          <p className="text-sm text-gray-500">Both plans include a 7-day free trial.</p>
           <ul className="grid gap-4 sm:grid-cols-2">
             <PlanCard
               name="Starter"
@@ -113,7 +123,7 @@ function PlanCard({
         onClick={handleCheckout}
         className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
       >
-        Subscribe to {name}
+        Start free trial
       </button>
     </li>
   )

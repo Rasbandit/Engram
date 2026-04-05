@@ -12,20 +12,17 @@ export default function AppLayout() {
 
   return (
     <>
-      {billing?.tier === 'trial' && billing.trial_days_remaining > 0 && billing.trial_days_remaining <= 7 && (
-        <aside className="bg-amber-50 px-4 py-2 text-center text-sm text-amber-800" role="alert">
-          {billing.trial_days_remaining} days left in your trial.{' '}
+      {billing?.tier === 'none' && (
+        <aside className="bg-blue-50 px-4 py-2 text-center text-sm text-blue-800" role="alert">
+          Start a free trial to sync your notes.{' '}
           <Link to="/billing" className="font-medium underline">
             Choose a plan
           </Link>
         </aside>
       )}
-      {billing && !billing.active && (
-        <aside className="bg-red-50 px-4 py-2 text-center text-sm text-red-800" role="alert">
-          Your trial has expired.{' '}
-          <Link to="/billing" className="font-medium underline">
-            Subscribe to continue
-          </Link>
+      {billing?.subscription?.status === 'trialing' && billing.trial_days_remaining > 0 && billing.trial_days_remaining <= 3 && (
+        <aside className="bg-amber-50 px-4 py-2 text-center text-sm text-amber-800" role="alert">
+          {billing.trial_days_remaining} days left in your trial.
         </aside>
       )}
       <div className="flex h-screen flex-col">
