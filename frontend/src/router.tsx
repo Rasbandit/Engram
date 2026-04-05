@@ -4,12 +4,9 @@ import SignInPage from './auth/sign-in'
 import SignUpPage from './auth/sign-up'
 import AppLayout from './layout/app-layout'
 import Dashboard from './viewer/dashboard'
+import NotePage from './viewer/note-page'
 
-// Placeholders — replaced in Tasks 7-8
-function NotePage() {
-  return <h2 className="text-lg font-semibold text-gray-700">Note viewer — coming in Task 7</h2>
-}
-
+// Placeholder — replaced in Task 8
 function SearchPage() {
   return <h2 className="text-lg font-semibold text-gray-700">Search — coming in Task 8</h2>
 }
