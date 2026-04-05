@@ -118,8 +118,6 @@ class CdpClient:
         result = await self.evaluate(f"{PLUGIN_PATH}.isLiveConnected()")
         return result is True
 
-    # Backward compat alias
-    check_sse_connected = check_stream_connected
 
     async def set_conflict_resolution(self, mode: str) -> None:
         """Set the plugin's conflictResolution setting.
@@ -237,8 +235,6 @@ class CdpClient:
         await self.evaluate(f"{PLUGIN_PATH}.noteStream.disconnect()")
         logger.info("Stream disconnected on CDP port %d", self.port)
 
-    # Backward compat alias
-    disconnect_sse = disconnect_stream
 
     async def reconnect_stream(self) -> None:
         """Reconnect the real-time stream after a disconnect.
@@ -255,8 +251,6 @@ class CdpClient:
                 return
         logger.warning("Stream did not reconnect within 10s on CDP port %d", self.port)
 
-    # Backward compat alias
-    reconnect_sse = reconnect_stream
 
     async def simulate_offline(self) -> None:
         """Override API methods to throw, simulating network failure.

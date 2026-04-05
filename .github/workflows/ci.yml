@@ -46,7 +46,7 @@ jobs:
             -e POSTGRES_USER=engram \
             -e POSTGRES_PASSWORD=engram \
             -e POSTGRES_DB=engram_test \
-            -p 5432:5432 \
+            -p 5434:5432 \
             --health-cmd "pg_isready -U engram" \
             --health-interval 3s \
             --health-timeout 3s \
@@ -64,6 +64,8 @@ jobs:
         run: docker compose -f docker-compose.ci.yml -p engram-ci build &
 
       - name: Run Elixir unit tests
+        env:
+          DATABASE_URL: postgresql://engram:engram@localhost:5434/engram_test
         run: |
           mix deps.get --only test
           MIX_ENV=test mix ecto.create
