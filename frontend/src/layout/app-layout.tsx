@@ -1,10 +1,12 @@
 import { UserButton } from '@clerk/clerk-react'
 import { useState } from 'react'
 import { Link, Outlet } from 'react-router'
+import { useChannel } from '../api/use-channel'
 import FolderTree from '../viewer/folder-tree'
 
 export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  useChannel()
 
   return (
     <div className="flex h-screen flex-col">
