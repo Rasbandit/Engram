@@ -18,10 +18,10 @@ defmodule EngramWeb.MissingFeaturesTest do
 
   describe "POST /notes/rename" do
     test "renames a note and returns updated metadata", %{conn: conn} do
-      post(conn, "/notes", %{path: "Test/Original.md", content: "# Original", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Test/Original.md", content: "# Original", mtime: 1_000.0})
 
       conn2 =
-        post(conn, "/notes/rename", %{
+        post(conn, "/api/notes/rename", %{
           old_path: "Test/Original.md",
           new_path: "Test/Renamed.md"
         })
@@ -33,7 +33,7 @@ defmodule EngramWeb.MissingFeaturesTest do
 
     test "returns 404 for nonexistent source", %{conn: conn} do
       conn =
-        post(conn, "/notes/rename", %{
+        post(conn, "/api/notes/rename", %{
           old_path: "Nope/Missing.md",
           new_path: "Nope/New.md"
         })
@@ -42,26 +42,26 @@ defmodule EngramWeb.MissingFeaturesTest do
     end
 
     test "old path returns 404 after rename", %{conn: conn} do
-      post(conn, "/notes", %{path: "Test/MoveSrc.md", content: "# Move", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Test/MoveSrc.md", content: "# Move", mtime: 1_000.0})
 
-      post(conn, "/notes/rename", %{
+      post(conn, "/api/notes/rename", %{
         old_path: "Test/MoveSrc.md",
         new_path: "Test/MoveDst.md"
       })
 
-      conn2 = get(conn, "/notes/Test/MoveSrc.md")
+      conn2 = get(conn, "/api/notes/Test/MoveSrc.md")
       assert json_response(conn2, 404)
     end
 
     test "new path is readable after rename", %{conn: conn} do
-      post(conn, "/notes", %{path: "Test/Src.md", content: "# Content Here", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Test/Src.md", content: "# Content Here", mtime: 1_000.0})
 
-      post(conn, "/notes/rename", %{
+      post(conn, "/api/notes/rename", %{
         old_path: "Test/Src.md",
         new_path: "New Folder/Dst.md"
       })
 
-      conn2 = get(conn, "/notes/New Folder/Dst.md")
+      conn2 = get(conn, "/api/notes/New Folder/Dst.md")
       body = json_response(conn2, 200)
       assert body["content"] =~ "Content Here"
       assert body["folder"] == "New Folder"
@@ -71,7 +71,7 @@ defmodule EngramWeb.MissingFeaturesTest do
       conn =
         conn
         |> delete_req_header("authorization")
-        |> post("/notes/rename", %{old_path: "a.md", new_path: "b.md"})
+        |> post("/api/notes/rename", %{old_path: "a.md", new_path: "b.md"})
 
       assert json_response(conn, 401)
     end
@@ -86,7 +86,7 @@ defmodule EngramWeb.MissingFeaturesTest do
       huge_content = String.duplicate("x", 10 * 1024 * 1024 + 1)
 
       conn =
-        post(conn, "/notes", %{
+        post(conn, "/api/notes", %{
           path: "Test/Huge.md",
           content: huge_content,
           mtime: 1_000.0
@@ -108,7 +108,7 @@ defmodule EngramWeb.MissingFeaturesTest do
         |> put_req_header("origin", "app://obsidian")
         |> put_req_header("access-control-request-method", "POST")
         |> put_req_header("access-control-request-headers", "authorization,content-type")
-        |> options("/notes")
+        |> options("/api/notes")
 
       assert conn.status == 200
       assert get_resp_header(conn, "access-control-allow-origin") != []
@@ -119,7 +119,7 @@ defmodule EngramWeb.MissingFeaturesTest do
       conn =
         conn
         |> put_req_header("origin", "app://obsidian")
-        |> get("/health")
+        |> get("/api/health")
 
       assert get_resp_header(conn, "access-control-allow-origin") != []
     end
@@ -134,14 +134,14 @@ defmodule EngramWeb.MissingFeaturesTest do
       # Create a second key to revoke
       {:ok, temp_key, temp_api_key} = Engram.Accounts.create_api_key(user, "temp-key")
 
-      conn2 = delete(conn, "/api-keys/#{temp_api_key.id}")
+      conn2 = delete(conn, "/api/api-keys/#{temp_api_key.id}")
       assert json_response(conn2, 200)
 
       # Revoked key should be rejected
       conn3 =
         build_conn()
         |> put_req_header("authorization", "Bearer #{temp_key}")
-        |> get("/tags")
+        |> get("/api/tags")
 
       assert json_response(conn3, 401)
     end
@@ -150,7 +150,7 @@ defmodule EngramWeb.MissingFeaturesTest do
       conn =
         conn
         |> delete_req_header("authorization")
-        |> delete("/api-keys/999")
+        |> delete("/api/api-keys/999")
 
       assert json_response(conn, 401)
     end

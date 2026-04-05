@@ -2,13 +2,13 @@ defmodule EngramWeb.HealthControllerTest do
   use EngramWeb.ConnCase, async: true
 
   test "GET /health returns 200 with status ok", %{conn: conn} do
-    conn = get(conn, "/health")
+    conn = get(conn, "/api/health")
     assert json_response(conn, 200) == %{"status" => "ok"}
   end
 
   describe "GET /health/deep" do
     test "returns status and checks map", %{conn: conn} do
-      conn = get(conn, "/health/deep")
+      conn = get(conn, "/api/health/deep")
       body = json_response(conn, conn.status)
 
       assert body["status"] in ["ok", "degraded"]
@@ -18,7 +18,7 @@ defmodule EngramWeb.HealthControllerTest do
     end
 
     test "postgres check is ok when DB is running", %{conn: conn} do
-      conn = get(conn, "/health/deep")
+      conn = get(conn, "/api/health/deep")
       body = json_response(conn, conn.status)
 
       assert body["checks"]["postgres"] == "ok"

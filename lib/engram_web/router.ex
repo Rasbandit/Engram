@@ -3,14 +3,23 @@ defmodule EngramWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+
     plug :put_secure_browser_headers, %{
       "x-content-type-options" => "nosniff",
       "x-frame-options" => "DENY"
     }
   end
 
-  # Public endpoints (no auth required)
-  scope "/", EngramWeb do
+  # Stripe webhooks — no auth, raw body for signature verification
+  scope "/webhooks", EngramWeb do
+    pipe_through :api
+
+    post "/stripe", WebhookController, :stripe
+  end
+
+  # All API routes under /api prefix
+  scope "/api", EngramWeb do
+    # Public endpoints (no auth required)
     pipe_through :api
     get "/health", HealthController, :index
     get "/health/deep", HealthController, :deep
@@ -18,8 +27,8 @@ defmodule EngramWeb.Router do
     post "/users/login", AuthController, :login
   end
 
-  # Authenticated API endpoints
-  scope "/", EngramWeb do
+  scope "/api", EngramWeb do
+    # Authenticated API endpoints
     pipe_through [:api, EngramWeb.Plugs.Auth]
 
     # Notes CRUD
@@ -62,5 +71,19 @@ defmodule EngramWeb.Router do
 
     # MCP endpoint (JSON-RPC 2.0 over HTTP POST)
     post "/mcp", McpController, :handle
+
+    # Billing
+    get "/billing/status", BillingController, :status
+    post "/billing/checkout-session", BillingController, :create_checkout
+    get "/billing/portal", BillingController, :customer_portal
+  end
+
+  # SPA fallback — serves React app for all /app and /share routes.
+  # Plug.Static in endpoint.ex serves actual asset files first;
+  # only non-file requests reach these catch-all routes.
+  scope "/", EngramWeb do
+    get "/app", SpaController, :index
+    get "/app/*path", SpaController, :index
+    get "/share/*path", SpaController, :index
   end
 end

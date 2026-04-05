@@ -53,12 +53,38 @@ if config_env() != :test do
   case System.get_env("RERANKER_BACKEND", "none") do
     "jina" ->
       config :engram, :reranker, Engram.Rerankers.Jina
-      config :engram, :jina_url, System.get_env("JINA_URL") ||
-        raise "JINA_URL is required when RERANKER_BACKEND=jina"
+
+      config :engram,
+             :jina_url,
+             System.get_env("JINA_URL") ||
+               raise("JINA_URL is required when RERANKER_BACKEND=jina")
 
     _ ->
       config :engram, :reranker, Engram.Rerankers.None
   end
+end
+
+# Clerk auth (JWKS for JWT verification)
+if clerk_jwks_url = System.get_env("CLERK_JWKS_URL") do
+  config :engram, :clerk_jwks_url, clerk_jwks_url
+end
+
+if clerk_issuer = System.get_env("CLERK_ISSUER") do
+  config :engram, :clerk_issuer, clerk_issuer
+end
+
+# Stripe billing
+if stripe_key = System.get_env("STRIPE_SECRET_KEY") do
+  config :stripity_stripe, api_key: stripe_key
+end
+
+if stripe_webhook_secret = System.get_env("STRIPE_WEBHOOK_SECRET") do
+  config :engram, :stripe_webhook_secret, stripe_webhook_secret
+end
+
+if config_env() != :test do
+  config :engram, :stripe_starter_price_id, System.get_env("STRIPE_STARTER_PRICE_ID")
+  config :engram, :stripe_pro_price_id, System.get_env("STRIPE_PRO_PRICE_ID")
 end
 
 if config_env() == :prod do

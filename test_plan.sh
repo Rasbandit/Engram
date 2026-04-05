@@ -1917,12 +1917,54 @@ else
 fi
 
 # ============================================================================
+# SECTION 49: GET /me Endpoint
+# ============================================================================
+echo ""
+echo "=== 49. GET /me ==="
+
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/me" \
+    -H "Authorization: Bearer $API_KEY")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET /me (with API key)" 200 "$STATUS"
+assert_json_not_empty "Me returns email" "$BODY" '.user.email'
+
+# No auth → 401
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/me")
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET /me (no auth → 401)" 401 "$STATUS"
+
+# ============================================================================
+# SECTION 50: Remote Logging (POST /logs, GET /logs)
+# ============================================================================
+echo ""
+echo "=== 50. Remote Logging ==="
+
+# POST log entries
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/logs" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"logs": [{"level": "info", "message": "test log entry from integration test"}]}')
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /logs (submit entries)" 200 "$STATUS"
+
+# GET logs
+RESP=$(curl -s -w "\n%{http_code}" "$BASE/logs?level=info&limit=10" \
+    -H "Authorization: Bearer $API_KEY")
+STATUS=$(echo "$RESP" | tail -1)
+if [[ "$STATUS" == "200" ]]; then
+    pass "GET /logs (fetch entries) — HTTP 200"
+else
+    fail "GET /logs — expected 200, got $STATUS"
+fi
+
+# ============================================================================
 # SECTION 17: Cleanup — Delete test notes
 # ============================================================================
 echo ""
 echo "=== 17. Cleanup ==="
 
-for NOTE_PATH in "Test/Hello World.md" "Test/Empty.md" "Test/Special (Chars) & More!.md" "Test/Unicode.md" "Test/Long.md" "2. Knowledge Vault/Health/Supplements/Vitamin D.md" "Root Note.md" "Test/No Title Note.md" "Test/Comma Tags.md" "Test/Append New.md" "Test/Subfolder/Rename Target.md" "Test/RenamedFolder/Note1.md" "Test/RenamedFolder/Note2.md" "Test/RenamedFolder/Sub/Note3.md"; do
+for NOTE_PATH in "Test/Hello World.md" "Test/Empty.md" "Test/Special (Chars) & More!.md" "Test/Unicode.md" "Test/Long.md" "2. Knowledge Vault/Health/Supplements/Vitamin D.md" "Root Note.md" "Test/No Title Note.md" "Test/Comma Tags.md" "Test/Append New.md" "Test/Subfolder/Rename Target.md" "Test/RenamedFolder/Note1.md" "Test/RenamedFolder/Note2.md" "Test/RenamedFolder/Sub/Note3.md" "Test/Why do I resist feeling good.md" "Test/What A Great Day.md" "2. Knowledge/Sub Folder/Normal Note.md"; do
     ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$NOTE_PATH', safe=''))")
     curl -s -X DELETE "$BASE/notes/$ENCODED" \
         -H "Authorization: Bearer $API_KEY" -o /dev/null

@@ -98,7 +98,7 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             sleep 3
-            if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+            if curl -sf http://localhost:8000/api/health > /dev/null 2>&1; then
               echo "engram is healthy"
             else
               echo "Health check failed!"

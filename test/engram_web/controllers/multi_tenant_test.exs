@@ -15,13 +15,13 @@ defmodule EngramWeb.MultiTenantTest do
     conn2 = put_req_header(conn, "authorization", "Bearer #{key2}")
 
     # Seed user1 with notes
-    post(conn1, "/notes", %{
+    post(conn1, "/api/notes", %{
       path: "Folder A/Private.md",
       content: "---\ntags: [secret, private]\n---\n# User 1 Private",
       mtime: 1_000.0
     })
 
-    post(conn1, "/notes", %{
+    post(conn1, "/api/notes", %{
       path: "Folder B/Also Private.md",
       content: "---\ntags: [secret]\n---\n# Also Private",
       mtime: 1_000.0
@@ -36,12 +36,12 @@ defmodule EngramWeb.MultiTenantTest do
 
   describe "note read isolation" do
     test "user2 cannot read user1's note", %{conn2: conn2} do
-      conn = get(conn2, "/notes/Folder A/Private.md")
+      conn = get(conn2, "/api/notes/Folder A/Private.md")
       assert json_response(conn, 404)
     end
 
     test "user1 can read own note", %{conn1: conn1} do
-      conn = get(conn1, "/notes/Folder A/Private.md")
+      conn = get(conn1, "/api/notes/Folder A/Private.md")
       assert %{"path" => "Folder A/Private.md"} = json_response(conn, 200)
     end
   end
@@ -52,13 +52,13 @@ defmodule EngramWeb.MultiTenantTest do
 
   describe "folder isolation" do
     test "user2 sees no folders", %{conn2: conn2} do
-      conn = get(conn2, "/folders")
+      conn = get(conn2, "/api/folders")
       assert %{"folders" => folders} = json_response(conn, 200)
       assert folders == []
     end
 
     test "user1 sees own folders", %{conn1: conn1} do
-      conn = get(conn1, "/folders")
+      conn = get(conn1, "/api/folders")
       assert %{"folders" => folders} = json_response(conn, 200)
       folder_names = Enum.map(folders, & &1["folder"])
       assert "Folder A" in folder_names
@@ -72,13 +72,13 @@ defmodule EngramWeb.MultiTenantTest do
 
   describe "tag isolation" do
     test "user2 sees no tags", %{conn2: conn2} do
-      conn = get(conn2, "/tags")
+      conn = get(conn2, "/api/tags")
       assert %{"tags" => tags} = json_response(conn, 200)
       assert tags == []
     end
 
     test "user1 sees own tags", %{conn1: conn1} do
-      conn = get(conn1, "/tags")
+      conn = get(conn1, "/api/tags")
       assert %{"tags" => tags} = json_response(conn, 200)
       tag_names = Enum.map(tags, & &1["name"])
       assert "secret" in tag_names
@@ -92,13 +92,13 @@ defmodule EngramWeb.MultiTenantTest do
 
   describe "changes isolation" do
     test "user2 sees no changes", %{conn2: conn2} do
-      conn = get(conn2, "/notes/changes?since=2020-01-01T00:00:00Z")
+      conn = get(conn2, "/api/notes/changes?since=2020-01-01T00:00:00Z")
       assert %{"changes" => changes} = json_response(conn, 200)
       assert changes == []
     end
 
     test "user1 sees own changes", %{conn1: conn1} do
-      conn = get(conn1, "/notes/changes?since=2020-01-01T00:00:00Z")
+      conn = get(conn1, "/api/notes/changes?since=2020-01-01T00:00:00Z")
       assert %{"changes" => changes} = json_response(conn, 200)
       assert length(changes) >= 2
     end
@@ -111,28 +111,28 @@ defmodule EngramWeb.MultiTenantTest do
   describe "write isolation" do
     test "user2 cannot delete user1's note", %{conn1: conn1, conn2: conn2} do
       # User2 tries to delete user1's note (should be no-op since it's not visible)
-      delete(conn2, "/notes/Folder A/Private.md")
+      delete(conn2, "/api/notes/Folder A/Private.md")
 
       # User1's note should still be there
-      conn = get(conn1, "/notes/Folder A/Private.md")
+      conn = get(conn1, "/api/notes/Folder A/Private.md")
       assert json_response(conn, 200)
     end
 
     test "user2's note at same path doesn't conflict with user1", %{conn1: conn1, conn2: conn2} do
       # User2 creates a note with the same path
-      post(conn2, "/notes", %{
+      post(conn2, "/api/notes", %{
         path: "Folder A/Private.md",
         content: "# User 2's version",
         mtime: 2_000.0
       })
 
       # User1 still sees their own content
-      conn = get(conn1, "/notes/Folder A/Private.md")
+      conn = get(conn1, "/api/notes/Folder A/Private.md")
       body = json_response(conn, 200)
       assert body["content"] =~ "User 1 Private"
 
       # User2 sees their own content
-      conn2_read = get(conn2, "/notes/Folder A/Private.md")
+      conn2_read = get(conn2, "/api/notes/Folder A/Private.md")
       body2 = json_response(conn2_read, 200)
       assert body2["content"] =~ "User 2's version"
     end

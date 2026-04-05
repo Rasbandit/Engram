@@ -23,7 +23,10 @@ defmodule Engram.MCP.Handlers do
         |> Enum.map(fn {r, i} ->
           lines = ["## Result #{i} (score: #{Float.round(r.score, 3)})"]
           lines = if r[:title], do: lines ++ ["**Title:** #{r.title}"], else: lines
-          lines = if r[:heading_path], do: lines ++ ["**Section:** #{r.heading_path}"], else: lines
+
+          lines =
+            if r[:heading_path], do: lines ++ ["**Section:** #{r.heading_path}"], else: lines
+
           lines = if r[:source_path], do: lines ++ ["**Source:** #{r.source_path}"], else: lines
 
           lines =
@@ -135,12 +138,12 @@ defmodule Engram.MCP.Handlers do
           lines = ["| Rank | Folder | Notes |", "|------|--------|-------|"]
 
           lines =
-            lines ++
-              Enum.with_index(folder_counts, 1)
-              |> Enum.map(fn {{folder, count}, rank} ->
-                folder_name = if folder == "", do: "(root)", else: folder
-                "| #{rank} | #{folder_name} | #{count} |"
-              end)
+            (lines ++
+               Enum.with_index(folder_counts, 1))
+            |> Enum.map(fn {{folder, count}, rank} ->
+              folder_name = if folder == "", do: "(root)", else: folder
+              "| #{rank} | #{folder_name} | #{count} |"
+            end)
 
           Enum.join(lines, "\n")
         end
@@ -260,7 +263,11 @@ defmodule Engram.MCP.Handlers do
         else
           {new_content, count} = do_replace(note.content, find, replace, occurrence)
 
-          case Notes.upsert_note(user, %{"path" => path, "content" => new_content, "mtime" => now()}) do
+          case Notes.upsert_note(user, %{
+                 "path" => path,
+                 "content" => new_content,
+                 "mtime" => now()
+               }) do
             {:ok, _} -> "Replaced #{count} occurrence(s) in #{path}"
             {:error, _} -> "Failed to patch note: #{path}"
           end
@@ -324,7 +331,11 @@ defmodule Engram.MCP.Handlers do
 
           final_content = Enum.join(new_lines, "\n")
 
-          case Notes.upsert_note(user, %{"path" => path, "content" => final_content, "mtime" => now()}) do
+          case Notes.upsert_note(user, %{
+                 "path" => path,
+                 "content" => final_content,
+                 "mtime" => now()
+               }) do
             {:ok, _} -> "Section '#{heading}' updated in #{path}"
             {:error, _} -> "Failed to update section in #{path}"
           end
@@ -380,7 +391,8 @@ defmodule Engram.MCP.Handlers do
   end
 
   defp auto_place_folder(user, title, content) do
-    query = "#{title} #{String.slice(content, 0, 300)}" |> String.replace("\n", " ") |> String.trim()
+    query =
+      "#{title} #{String.slice(content, 0, 300)}" |> String.replace("\n", " ") |> String.trim()
 
     if query == "" do
       ""

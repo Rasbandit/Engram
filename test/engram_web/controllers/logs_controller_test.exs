@@ -15,7 +15,7 @@ defmodule EngramWeb.LogsControllerTest do
   describe "POST /logs" do
     test "ingests a batch of log entries", %{conn: conn} do
       conn =
-        post(conn, "/logs", %{
+        post(conn, "/api/logs", %{
           logs: [
             %{
               ts: "2026-04-03T01:00:00Z",
@@ -41,7 +41,7 @@ defmodule EngramWeb.LogsControllerTest do
     end
 
     test "accepts empty logs array", %{conn: conn} do
-      conn = post(conn, "/logs", %{logs: []})
+      conn = post(conn, "/api/logs", %{logs: []})
       assert %{"ok" => true, "count" => 0} = json_response(conn, 200)
     end
 
@@ -49,7 +49,7 @@ defmodule EngramWeb.LogsControllerTest do
       conn =
         conn
         |> delete_req_header("authorization")
-        |> post("/logs", %{logs: []})
+        |> post("/api/logs", %{logs: []})
 
       assert json_response(conn, 401)
     end
@@ -62,11 +62,29 @@ defmodule EngramWeb.LogsControllerTest do
   describe "GET /logs" do
     setup %{conn: conn} do
       # Seed some logs
-      post(conn, "/logs", %{
+      post(conn, "/api/logs", %{
         logs: [
-          %{ts: "2026-04-03T01:00:00Z", level: "info", category: "sync", message: "msg1", platform: "desktop"},
-          %{ts: "2026-04-03T01:01:00Z", level: "error", category: "sync", message: "msg2", platform: "desktop"},
-          %{ts: "2026-04-03T01:02:00Z", level: "info", category: "search", message: "msg3", platform: "mobile"}
+          %{
+            ts: "2026-04-03T01:00:00Z",
+            level: "info",
+            category: "sync",
+            message: "msg1",
+            platform: "desktop"
+          },
+          %{
+            ts: "2026-04-03T01:01:00Z",
+            level: "error",
+            category: "sync",
+            message: "msg2",
+            platform: "desktop"
+          },
+          %{
+            ts: "2026-04-03T01:02:00Z",
+            level: "info",
+            category: "search",
+            message: "msg3",
+            platform: "mobile"
+          }
         ]
       })
 
@@ -74,7 +92,7 @@ defmodule EngramWeb.LogsControllerTest do
     end
 
     test "returns all logs for user", %{conn: conn} do
-      conn = get(conn, "/logs")
+      conn = get(conn, "/api/logs")
       body = json_response(conn, 200)
 
       assert is_list(body["logs"])
@@ -82,7 +100,7 @@ defmodule EngramWeb.LogsControllerTest do
     end
 
     test "filters by level", %{conn: conn} do
-      conn = get(conn, "/logs", %{level: "error"})
+      conn = get(conn, "/api/logs", %{level: "error"})
       body = json_response(conn, 200)
 
       assert length(body["logs"]) == 1
@@ -90,7 +108,7 @@ defmodule EngramWeb.LogsControllerTest do
     end
 
     test "filters by category", %{conn: conn} do
-      conn = get(conn, "/logs", %{category: "search"})
+      conn = get(conn, "/api/logs", %{category: "search"})
       body = json_response(conn, 200)
 
       assert length(body["logs"]) == 1
@@ -98,7 +116,7 @@ defmodule EngramWeb.LogsControllerTest do
     end
 
     test "filters by since timestamp", %{conn: conn} do
-      conn = get(conn, "/logs", %{since: "2026-04-03T01:01:30Z"})
+      conn = get(conn, "/api/logs", %{since: "2026-04-03T01:01:30Z"})
       body = json_response(conn, 200)
 
       assert length(body["logs"]) == 1
@@ -106,7 +124,7 @@ defmodule EngramWeb.LogsControllerTest do
     end
 
     test "returns newest first", %{conn: conn} do
-      conn = get(conn, "/logs")
+      conn = get(conn, "/api/logs")
       body = json_response(conn, 200)
 
       messages = Enum.map(body["logs"], & &1["message"])
@@ -114,14 +132,14 @@ defmodule EngramWeb.LogsControllerTest do
     end
 
     test "respects limit parameter", %{conn: conn} do
-      conn = get(conn, "/logs", %{limit: "1"})
+      conn = get(conn, "/api/logs", %{limit: "1"})
       body = json_response(conn, 200)
 
       assert length(body["logs"]) == 1
     end
 
     test "log entries have expected fields", %{conn: conn} do
-      conn = get(conn, "/logs")
+      conn = get(conn, "/api/logs")
       body = json_response(conn, 200)
 
       entry = hd(body["logs"])
@@ -141,7 +159,7 @@ defmodule EngramWeb.LogsControllerTest do
         build_conn()
         |> put_req_header("authorization", "Bearer #{api_key_b}")
 
-      conn_b = get(conn_b, "/logs")
+      conn_b = get(conn_b, "/api/logs")
       body = json_response(conn_b, 200)
 
       assert body["logs"] == []

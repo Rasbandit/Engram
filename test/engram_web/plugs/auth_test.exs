@@ -1,5 +1,5 @@
 defmodule EngramWeb.Plugs.AuthTest do
-  use EngramWeb.ConnCase, async: true
+  use EngramWeb.ConnCase, async: false
 
   alias Engram.Accounts
   alias EngramWeb.Plugs.Auth
@@ -79,5 +79,82 @@ defmodule EngramWeb.Plugs.AuthTest do
 
     assert conn.status == 401
     assert conn.halted
+  end
+
+  describe "Clerk JWT authentication" do
+    setup do
+      {bypass, jwks_url} = Engram.ClerkHelpers.start_jwks_server()
+
+      Application.put_env(:engram, :clerk_jwks_url, jwks_url)
+      Application.put_env(:engram, :clerk_issuer, Engram.ClerkHelpers.issuer())
+
+      start_supervised!(
+        {Engram.Auth.ClerkStrategy, time_interval: 60_000, first_fetch_sync: true}
+      )
+
+      on_exit(fn ->
+        Application.delete_env(:engram, :clerk_jwks_url)
+        Application.delete_env(:engram, :clerk_issuer)
+      end)
+
+      %{bypass: bypass}
+    end
+
+    test "authenticates with valid Clerk JWT and creates user" do
+      claims =
+        Engram.ClerkHelpers.clerk_claims("clerk_new_user", email: "clerktest@example.com")
+
+      token = Engram.ClerkHelpers.sign_clerk_jwt(claims)
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{token}")
+        |> Auth.call([])
+
+      refute conn.halted
+      assert conn.assigns.current_user.clerk_id == "clerk_new_user"
+      assert conn.assigns.current_user.email == "clerktest@example.com"
+    end
+
+    test "authenticates with Clerk JWT and finds existing user by clerk_id" do
+      {:ok, user} =
+        Accounts.register_user(%{email: "existing_clerk@test.com", password: "password123"})
+
+      user
+      |> Ecto.Changeset.change(%{clerk_id: "clerk_existing"})
+      |> Engram.Repo.update!(skip_tenant_check: true)
+
+      claims =
+        Engram.ClerkHelpers.clerk_claims("clerk_existing", email: "existing_clerk@test.com")
+
+      token = Engram.ClerkHelpers.sign_clerk_jwt(claims)
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{token}")
+        |> Auth.call([])
+
+      refute conn.halted
+      assert conn.assigns.current_user.id == user.id
+    end
+
+    test "rejects invalid Clerk JWT" do
+      # Sign with wrong key
+      other_jwk = JOSE.JWK.generate_key({:rsa, 2048})
+      jws = %{"alg" => "RS256", "kid" => "bad-key"}
+      claims = Engram.ClerkHelpers.clerk_claims("bad_user")
+
+      {_alg, token} =
+        JOSE.JWK.sign(Jason.encode!(claims), jws, other_jwk)
+        |> JOSE.JWS.compact()
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{token}")
+        |> Auth.call([])
+
+      assert conn.status == 401
+      assert conn.halted
+    end
   end
 end

@@ -23,6 +23,7 @@ defmodule Engram.Repo.Migrations.AddRlsPolicies do
 
     # Set default privileges so future tables are also accessible
     execute "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO engram_app"
+
     execute "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO engram_app"
 
     # Enable RLS and create policies on tenant-scoped tables

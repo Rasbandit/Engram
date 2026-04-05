@@ -38,11 +38,13 @@ defmodule EngramWeb.SearchController do
 
   defp clamp_limit(nil), do: 5
   defp clamp_limit(n) when is_integer(n), do: n |> max(1) |> min(@max_search_limit)
+
   defp clamp_limit(n) when is_binary(n) do
     case Integer.parse(n) do
       {int, ""} -> clamp_limit(int)
       _ -> 5
     end
   end
+
   defp clamp_limit(_), do: 5
 end

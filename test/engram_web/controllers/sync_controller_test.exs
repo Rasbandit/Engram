@@ -10,7 +10,7 @@ defmodule EngramWeb.SyncControllerTest do
 
   describe "GET /sync/manifest" do
     test "returns empty manifest for new user", %{conn: conn} do
-      conn = get(conn, "/sync/manifest")
+      conn = get(conn, "/api/sync/manifest")
       body = json_response(conn, 200)
 
       assert body["notes"] == []
@@ -20,10 +20,10 @@ defmodule EngramWeb.SyncControllerTest do
     end
 
     test "includes notes with path and content_hash", %{conn: conn} do
-      post(conn, "/notes", %{path: "Test/A.md", content: "# Alpha", mtime: 1_000.0})
-      post(conn, "/notes", %{path: "Test/B.md", content: "# Beta", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Test/A.md", content: "# Alpha", mtime: 1_000.0})
+      post(conn, "/api/notes", %{path: "Test/B.md", content: "# Beta", mtime: 1_000.0})
 
-      conn2 = get(conn, "/sync/manifest")
+      conn2 = get(conn, "/api/sync/manifest")
       body = json_response(conn2, 200)
 
       assert body["total_notes"] == 2
@@ -34,13 +34,13 @@ defmodule EngramWeb.SyncControllerTest do
     end
 
     test "includes attachments with path and content_hash", %{conn: conn} do
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/img.png",
         content_base64: Base.encode64("binary data"),
         mtime: 1_000.0
       })
 
-      conn2 = get(conn, "/sync/manifest")
+      conn2 = get(conn, "/api/sync/manifest")
       body = json_response(conn2, 200)
 
       assert body["total_attachments"] == 1
@@ -50,18 +50,18 @@ defmodule EngramWeb.SyncControllerTest do
     end
 
     test "excludes deleted notes and attachments", %{conn: conn} do
-      post(conn, "/notes", %{path: "Test/Del.md", content: "# Del", mtime: 1_000.0})
-      delete(conn, "/notes/Test/Del.md")
+      post(conn, "/api/notes", %{path: "Test/Del.md", content: "# Del", mtime: 1_000.0})
+      delete(conn, "/api/notes/Test/Del.md")
 
-      post(conn, "/attachments", %{
+      post(conn, "/api/attachments", %{
         path: "photos/del.png",
         content_base64: Base.encode64("data"),
         mtime: 1_000.0
       })
 
-      delete(conn, "/attachments/photos/del.png")
+      delete(conn, "/api/attachments/photos/del.png")
 
-      conn2 = get(conn, "/sync/manifest")
+      conn2 = get(conn, "/api/sync/manifest")
       body = json_response(conn2, 200)
 
       assert body["total_notes"] == 0
@@ -72,7 +72,7 @@ defmodule EngramWeb.SyncControllerTest do
       conn =
         conn
         |> delete_req_header("authorization")
-        |> get("/sync/manifest")
+        |> get("/api/sync/manifest")
 
       assert json_response(conn, 401)
     end

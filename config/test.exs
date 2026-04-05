@@ -30,6 +30,9 @@ config :engram, Oban, testing: :manual
 # JWT signing secret (Joken)
 config :joken, default_signer: "test-jwt-secret"
 
+# joken_jwks: use Erlang's built-in httpc adapter (no hackney required in tests)
+config :tesla, JokenJwks.HttpFetcher, adapter: Tesla.Adapter.Httpc
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 
@@ -39,3 +42,15 @@ config :phoenix, :plug_init_mode, :runtime
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+# Clerk auth — disabled by default in tests.
+# Individual tests that need Clerk start their own ClerkStrategy via start_supervised!
+# and set these values in setup blocks.
+config :engram, :clerk_jwks_url, nil
+config :engram, :clerk_issuer, nil
+
+# Stripe — disabled in tests, use Mox
+config :stripity_stripe, api_key: "sk_test_fake"
+config :engram, :stripe_webhook_secret, "whsec_test_fake"
+config :engram, :stripe_starter_price_id, "price_starter_test"
+config :engram, :stripe_pro_price_id, "price_pro_test"

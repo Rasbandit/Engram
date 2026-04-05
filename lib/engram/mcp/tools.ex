@@ -202,8 +202,7 @@ defmodule Engram.MCP.Tools do
   defp append_to_note_def do
     %{
       name: "append_to_note",
-      description:
-        "Append text to an existing note, or create it if it doesn't exist.",
+      description: "Append text to an existing note, or create it if it doesn't exist.",
       inputSchema: %{
         "type" => "object",
         "properties" => %{
@@ -273,7 +272,8 @@ defmodule Engram.MCP.Tools do
   defp rename_note_def do
     %{
       name: "rename_note",
-      description: "Rename or move a note to a new path. Syncs to all connected Obsidian devices.",
+      description:
+        "Rename or move a note to a new path. Syncs to all connected Obsidian devices.",
       inputSchema: %{
         "type" => "object",
         "properties" => %{

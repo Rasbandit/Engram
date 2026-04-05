@@ -58,11 +58,12 @@ defmodule EngramWeb.SyncChannelTest do
 
   describe "push_note" do
     test "creates note and replies with note metadata", %{socket: socket} do
-      ref = push(socket, "push_note", %{
-        "path" => "Test/Hello.md",
-        "content" => "# Hello\n\nWorld.",
-        "mtime" => 1_000.0
-      })
+      ref =
+        push(socket, "push_note", %{
+          "path" => "Test/Hello.md",
+          "content" => "# Hello\n\nWorld.",
+          "mtime" => 1_000.0
+        })
 
       assert_reply ref, :ok, %{"note" => note, "indexing" => "queued"}
       assert note["path"] == "Test/Hello.md"
@@ -99,11 +100,12 @@ defmodule EngramWeb.SyncChannelTest do
     end
 
     test "sanitizes path in push_note", %{socket: socket} do
-      ref = push(socket, "push_note", %{
-        "path" => "Test/Dirty?.md",
-        "content" => "# Dirty",
-        "mtime" => 1_000.0
-      })
+      ref =
+        push(socket, "push_note", %{
+          "path" => "Test/Dirty?.md",
+          "content" => "# Dirty",
+          "mtime" => 1_000.0
+        })
 
       assert_reply ref, :ok, %{"note" => note}
       assert note["path"] == "Test/Dirty.md"
@@ -166,10 +168,11 @@ defmodule EngramWeb.SyncChannelTest do
         "mtime" => 1_000.0
       })
 
-      ref = push(socket, "rename_note", %{
-        "old_path" => "Test/Original.md",
-        "new_path" => "Test/Renamed.md"
-      })
+      ref =
+        push(socket, "rename_note", %{
+          "old_path" => "Test/Original.md",
+          "new_path" => "Test/Renamed.md"
+        })
 
       assert_reply ref, :ok, %{"note" => note}
       assert note["path"] == "Test/Renamed.md"
@@ -194,10 +197,11 @@ defmodule EngramWeb.SyncChannelTest do
     end
 
     test "returns error for nonexistent source", %{socket: socket} do
-      ref = push(socket, "rename_note", %{
-        "old_path" => "Nope/Missing.md",
-        "new_path" => "Nope/New.md"
-      })
+      ref =
+        push(socket, "rename_note", %{
+          "old_path" => "Nope/Missing.md",
+          "new_path" => "Nope/New.md"
+        })
 
       assert_reply ref, :error, %{"reason" => _}
     end

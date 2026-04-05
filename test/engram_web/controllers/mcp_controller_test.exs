@@ -13,7 +13,8 @@ defmodule EngramWeb.McpControllerTest do
     # Seed some notes for read tool tests
     Engram.Notes.upsert_note(user, %{
       "path" => "Health/Supplements.md",
-      "content" => "---\ntags: [health, supplements]\n---\n# Supplements\n\n## Shopping List\n\n- Omega 3\n- Vitamin D\n\n## Notes\n\nTake with food.",
+      "content" =>
+        "---\ntags: [health, supplements]\n---\n# Supplements\n\n## Shopping List\n\n- Omega 3\n- Vitamin D\n\n## Notes\n\nTake with food.",
       "mtime" => 1_000.0
     })
 
@@ -34,7 +35,7 @@ defmodule EngramWeb.McpControllerTest do
 
   # Helper to make JSON-RPC calls
   defp jsonrpc(conn, method, params \\ %{}) do
-    post(conn, "/mcp", %{
+    post(conn, "/api/mcp", %{
       "jsonrpc" => "2.0",
       "id" => 1,
       "method" => method,
@@ -99,14 +100,16 @@ defmodule EngramWeb.McpControllerTest do
     end
 
     test "missing jsonrpc field returns -32600", %{conn: conn} do
-      conn = post(conn, "/mcp", %{"id" => 1, "method" => "initialize"})
+      conn = post(conn, "/api/mcp", %{"id" => 1, "method" => "initialize"})
       resp = json_response(conn, 200)
 
       assert resp["error"]["code"] == -32600
     end
 
     test "notification (no id) returns 202", %{conn: conn} do
-      conn = post(conn, "/mcp", %{"jsonrpc" => "2.0", "method" => "notifications/initialized"})
+      conn =
+        post(conn, "/api/mcp", %{"jsonrpc" => "2.0", "method" => "notifications/initialized"})
+
       assert conn.status == 202
     end
 
@@ -122,7 +125,7 @@ defmodule EngramWeb.McpControllerTest do
       conn = build_conn()
 
       conn =
-        post(conn, "/mcp", %{
+        post(conn, "/api/mcp", %{
           "jsonrpc" => "2.0",
           "id" => 1,
           "method" => "initialize"
@@ -204,10 +207,11 @@ defmodule EngramWeb.McpControllerTest do
 
   describe "write_note tool" do
     test "creates a new note", %{conn: conn} do
-      conn = call_tool(conn, "write_note", %{
-        "path" => "New/Note.md",
-        "content" => "# New Note\n\nContent here."
-      })
+      conn =
+        call_tool(conn, "write_note", %{
+          "path" => "New/Note.md",
+          "content" => "# New Note\n\nContent here."
+        })
 
       text = tool_text(conn)
       assert text =~ "Note saved: New/Note.md"
@@ -220,25 +224,29 @@ defmodule EngramWeb.McpControllerTest do
 
   describe "append_to_note tool" do
     test "appends to existing note", %{conn: conn} do
-      conn = call_tool(conn, "append_to_note", %{
-        "path" => "Health/Supplements.md",
-        "text" => "\n## New Section\n\nAppended content."
-      })
+      conn =
+        call_tool(conn, "append_to_note", %{
+          "path" => "Health/Supplements.md",
+          "text" => "\n## New Section\n\nAppended content."
+        })
 
       text = tool_text(conn)
       assert text =~ "Note appended to: Health/Supplements.md"
 
       # Verify content was appended
-      conn = call_tool(build_authed(conn), "get_note", %{"source_path" => "Health/Supplements.md"})
+      conn =
+        call_tool(build_authed(conn), "get_note", %{"source_path" => "Health/Supplements.md"})
+
       assert tool_text(conn) =~ "Appended content."
       assert tool_text(conn) =~ "Take with food."
     end
 
     test "creates note if missing", %{conn: conn} do
-      conn = call_tool(conn, "append_to_note", %{
-        "path" => "New/Appended.md",
-        "text" => "Some text."
-      })
+      conn =
+        call_tool(conn, "append_to_note", %{
+          "path" => "New/Appended.md",
+          "text" => "Some text."
+        })
 
       text = tool_text(conn)
       assert text =~ "Note created: New/Appended.md"
@@ -252,16 +260,19 @@ defmodule EngramWeb.McpControllerTest do
 
   describe "patch_note tool" do
     test "replaces first occurrence", %{conn: conn} do
-      conn = call_tool(conn, "patch_note", %{
-        "path" => "Health/Supplements.md",
-        "find" => "Omega 3",
-        "replace" => "Fish Oil"
-      })
+      conn =
+        call_tool(conn, "patch_note", %{
+          "path" => "Health/Supplements.md",
+          "find" => "Omega 3",
+          "replace" => "Fish Oil"
+        })
 
       text = tool_text(conn)
       assert text =~ "Replaced 1 occurrence(s)"
 
-      conn = call_tool(build_authed(conn), "get_note", %{"source_path" => "Health/Supplements.md"})
+      conn =
+        call_tool(build_authed(conn), "get_note", %{"source_path" => "Health/Supplements.md"})
+
       assert tool_text(conn) =~ "Fish Oil"
       refute tool_text(conn) =~ "Omega 3"
     end
@@ -269,7 +280,8 @@ defmodule EngramWeb.McpControllerTest do
     test "replaces all occurrences with -1", %{conn: conn} do
       # First add duplicate text
       Engram.Notes.upsert_note(
-        conn.assigns[:current_user] || hd(Engram.Repo.all(Engram.Accounts.User, skip_tenant_check: true)),
+        conn.assigns[:current_user] ||
+          hd(Engram.Repo.all(Engram.Accounts.User, skip_tenant_check: true)),
         %{
           "path" => "Test/Dupes.md",
           "content" => "foo bar foo baz foo",
@@ -277,34 +289,37 @@ defmodule EngramWeb.McpControllerTest do
         }
       )
 
-      conn = call_tool(conn, "patch_note", %{
-        "path" => "Test/Dupes.md",
-        "find" => "foo",
-        "replace" => "qux",
-        "occurrence" => -1
-      })
+      conn =
+        call_tool(conn, "patch_note", %{
+          "path" => "Test/Dupes.md",
+          "find" => "foo",
+          "replace" => "qux",
+          "occurrence" => -1
+        })
 
       text = tool_text(conn)
       assert text =~ "Replaced 3 occurrence(s)"
     end
 
     test "returns error when text not found", %{conn: conn} do
-      conn = call_tool(conn, "patch_note", %{
-        "path" => "Health/Supplements.md",
-        "find" => "nonexistent text",
-        "replace" => "something"
-      })
+      conn =
+        call_tool(conn, "patch_note", %{
+          "path" => "Health/Supplements.md",
+          "find" => "nonexistent text",
+          "replace" => "something"
+        })
 
       text = tool_text(conn)
       assert text =~ "Text not found"
     end
 
     test "returns error when note not found", %{conn: conn} do
-      conn = call_tool(conn, "patch_note", %{
-        "path" => "Missing/Note.md",
-        "find" => "x",
-        "replace" => "y"
-      })
+      conn =
+        call_tool(conn, "patch_note", %{
+          "path" => "Missing/Note.md",
+          "find" => "x",
+          "replace" => "y"
+        })
 
       text = tool_text(conn)
       assert text == "Note not found: Missing/Note.md"
@@ -313,16 +328,19 @@ defmodule EngramWeb.McpControllerTest do
 
   describe "update_section tool" do
     test "replaces section content under heading", %{conn: conn} do
-      conn = call_tool(conn, "update_section", %{
-        "path" => "Health/Supplements.md",
-        "heading" => "Shopping List",
-        "content" => "- Fish Oil\n- Magnesium"
-      })
+      conn =
+        call_tool(conn, "update_section", %{
+          "path" => "Health/Supplements.md",
+          "heading" => "Shopping List",
+          "content" => "- Fish Oil\n- Magnesium"
+        })
 
       text = tool_text(conn)
       assert text =~ "Section 'Shopping List' updated"
 
-      conn = call_tool(build_authed(conn), "get_note", %{"source_path" => "Health/Supplements.md"})
+      conn =
+        call_tool(build_authed(conn), "get_note", %{"source_path" => "Health/Supplements.md"})
+
       result = tool_text(conn)
       assert result =~ "Fish Oil"
       assert result =~ "Magnesium"
@@ -334,22 +352,24 @@ defmodule EngramWeb.McpControllerTest do
     end
 
     test "returns error when heading not found", %{conn: conn} do
-      conn = call_tool(conn, "update_section", %{
-        "path" => "Health/Supplements.md",
-        "heading" => "Nonexistent Heading",
-        "content" => "new stuff"
-      })
+      conn =
+        call_tool(conn, "update_section", %{
+          "path" => "Health/Supplements.md",
+          "heading" => "Nonexistent Heading",
+          "content" => "new stuff"
+        })
 
       text = tool_text(conn)
       assert text =~ "Heading not found"
     end
 
     test "returns error when note not found", %{conn: conn} do
-      conn = call_tool(conn, "update_section", %{
-        "path" => "Missing/Note.md",
-        "heading" => "Test",
-        "content" => "x"
-      })
+      conn =
+        call_tool(conn, "update_section", %{
+          "path" => "Missing/Note.md",
+          "heading" => "Test",
+          "content" => "x"
+        })
 
       text = tool_text(conn)
       assert text == "Note not found: Missing/Note.md"
@@ -358,27 +378,31 @@ defmodule EngramWeb.McpControllerTest do
 
   describe "create_note tool" do
     test "creates note with explicit folder", %{conn: conn} do
-      conn = call_tool(conn, "create_note", %{
-        "title" => "New Health Note",
-        "content" => "Some health content.",
-        "suggested_folder" => "Health"
-      })
+      conn =
+        call_tool(conn, "create_note", %{
+          "title" => "New Health Note",
+          "content" => "Some health content.",
+          "suggested_folder" => "Health"
+        })
 
       text = tool_text(conn)
       assert text =~ "Note created: Health/New Health Note.md"
 
-      conn = call_tool(build_authed(conn), "get_note", %{"source_path" => "Health/New Health Note.md"})
+      conn =
+        call_tool(build_authed(conn), "get_note", %{"source_path" => "Health/New Health Note.md"})
+
       result = tool_text(conn)
       assert result =~ "# New Health Note"
       assert result =~ "Some health content."
     end
 
     test "creates note with H1 prefix when content lacks one", %{conn: conn} do
-      conn = call_tool(conn, "create_note", %{
-        "title" => "No Heading",
-        "content" => "Just body text.",
-        "suggested_folder" => "Work"
-      })
+      conn =
+        call_tool(conn, "create_note", %{
+          "title" => "No Heading",
+          "content" => "Just body text.",
+          "suggested_folder" => "Work"
+        })
 
       assert tool_text(conn) =~ "Note created:"
 
@@ -387,11 +411,12 @@ defmodule EngramWeb.McpControllerTest do
     end
 
     test "preserves existing H1 in content", %{conn: conn} do
-      conn = call_tool(conn, "create_note", %{
-        "title" => "Has Heading",
-        "content" => "# Custom Title\n\nBody.",
-        "suggested_folder" => "Work"
-      })
+      conn =
+        call_tool(conn, "create_note", %{
+          "title" => "Has Heading",
+          "content" => "# Custom Title\n\nBody.",
+          "suggested_folder" => "Work"
+        })
 
       conn = call_tool(build_authed(conn), "get_note", %{"source_path" => "Work/Has Heading.md"})
       result = tool_text(conn)
@@ -403,10 +428,11 @@ defmodule EngramWeb.McpControllerTest do
 
   describe "rename_note tool" do
     test "renames note to new path", %{conn: conn} do
-      conn = call_tool(conn, "rename_note", %{
-        "old_path" => "Health/Exercise.md",
-        "new_path" => "Health/Workout.md"
-      })
+      conn =
+        call_tool(conn, "rename_note", %{
+          "old_path" => "Health/Exercise.md",
+          "new_path" => "Health/Workout.md"
+        })
 
       text = tool_text(conn)
       assert text =~ "Note renamed: Health/Exercise.md -> Health/Workout.md"
@@ -420,10 +446,11 @@ defmodule EngramWeb.McpControllerTest do
     end
 
     test "returns error for missing note", %{conn: conn} do
-      conn = call_tool(conn, "rename_note", %{
-        "old_path" => "Missing/Note.md",
-        "new_path" => "Missing/New.md"
-      })
+      conn =
+        call_tool(conn, "rename_note", %{
+          "old_path" => "Missing/Note.md",
+          "new_path" => "Missing/New.md"
+        })
 
       assert tool_text(conn) == "Note not found: Missing/Note.md"
     end
@@ -431,10 +458,11 @@ defmodule EngramWeb.McpControllerTest do
 
   describe "rename_folder tool" do
     test "renames folder and all notes in it", %{conn: conn} do
-      conn = call_tool(conn, "rename_folder", %{
-        "old_folder" => "Health",
-        "new_folder" => "Wellness"
-      })
+      conn =
+        call_tool(conn, "rename_folder", %{
+          "old_folder" => "Health",
+          "new_folder" => "Wellness"
+        })
 
       text = tool_text(conn)
       assert text =~ "Folder renamed: Health -> Wellness (2 notes updated)"

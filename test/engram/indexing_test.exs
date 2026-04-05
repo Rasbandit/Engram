@@ -15,6 +15,7 @@ defmodule Engram.IndexingTest do
     on_exit(fn -> Application.delete_env(:engram, :qdrant_url) end)
 
     user = insert(:user)
+
     {:ok, note} =
       Notes.upsert_note(user, %{
         "path" => "Health/Iron Panel.md",
@@ -102,7 +103,12 @@ defmodule Engram.IndexingTest do
 
       # Postgres chunks should be gone
       import Ecto.Query
-      chunks = Engram.Repo.all(from(c in Engram.Notes.Chunk, where: c.note_id == ^note.id), skip_tenant_check: true)
+
+      chunks =
+        Engram.Repo.all(from(c in Engram.Notes.Chunk, where: c.note_id == ^note.id),
+          skip_tenant_check: true
+        )
+
       assert chunks == []
     end
   end

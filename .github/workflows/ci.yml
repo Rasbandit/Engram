@@ -86,7 +86,7 @@ jobs:
         run: |
           docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8100/health > /dev/null 2>&1; then
+            if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
               echo "engram is healthy"
               break
             fi
@@ -95,7 +95,7 @@ jobs:
 
       - name: Run integration tests
         if: github.event_name != 'repository_dispatch'
-        run: ENGRAM_TEST_URL=http://localhost:8100 bash test_plan.sh --skip-search
+        run: ENGRAM_TEST_URL=http://localhost:8100/api bash test_plan.sh --skip-search
 
       # ------------------------------------------------------------------
       # E2E tests — full Obsidian sync cycle
@@ -109,7 +109,7 @@ jobs:
           echo "Starting CI stack with fresh volumes..."
           docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8100/health > /dev/null 2>&1; then
+            if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
               echo "engram is healthy"
               break
             fi
@@ -150,7 +150,7 @@ jobs:
         working-directory: e2e
         run: python3 -m pytest tests/ -v --timeout=300
         env:
-          ENGRAM_API_URL: http://localhost:8100
+          ENGRAM_API_URL: http://localhost:8100/api
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
           CI_POSTGRES_CONTAINER: engram-ci-postgres-1
 
