@@ -314,6 +314,22 @@ class CdpClient:
         result = await self.evaluate(f"{ENGINE_PATH}.queue.size")
         return result if isinstance(result, int) else 0
 
+    async def get_queue_entries(self) -> list[dict]:
+        """Dump queue entries for diagnostics (path, action, timestamp)."""
+        result = await self.evaluate(
+            f"JSON.stringify({ENGINE_PATH}.queue.all().map("
+            f"e => ({{path: e.path, action: e.action, kind: e.kind, ts: e.timestamp}})))"
+        )
+        if isinstance(result, str):
+            import json as _json
+            return _json.loads(result)
+        return []
+
+    async def clear_queue(self) -> None:
+        """Clear the offline queue (for test isolation)."""
+        await self.evaluate(f"{ENGINE_PATH}.queue.entries.clear()")
+        logger.info("Queue cleared on CDP port %d", self.port)
+
     async def get_offline_status(self) -> bool:
         """Read whether the engine is in offline mode."""
         result = await self.evaluate(f"{ENGINE_PATH}.offline")
