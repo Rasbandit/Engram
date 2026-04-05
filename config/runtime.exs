@@ -82,8 +82,10 @@ if stripe_webhook_secret = System.get_env("STRIPE_WEBHOOK_SECRET") do
   config :engram, :stripe_webhook_secret, stripe_webhook_secret
 end
 
-config :engram, :stripe_starter_price_id, System.get_env("STRIPE_STARTER_PRICE_ID")
-config :engram, :stripe_pro_price_id, System.get_env("STRIPE_PRO_PRICE_ID")
+if config_env() != :test do
+  config :engram, :stripe_starter_price_id, System.get_env("STRIPE_STARTER_PRICE_ID")
+  config :engram, :stripe_pro_price_id, System.get_env("STRIPE_PRO_PRICE_ID")
+end
 
 if config_env() == :prod do
   database_url =
