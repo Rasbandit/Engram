@@ -19,10 +19,11 @@ defmodule EngramWeb.MarketingControllerTest do
       assert body =~ "Start Free Trial"
     end
 
-    test "includes marketing layout with nav", %{conn: conn} do
+    test "includes marketing layout with nav and stylesheet", %{conn: conn} do
       conn = get(conn, "/")
       body = html_response(conn, 200)
 
+      assert body =~ ~s(href="/css/marketing.css")
       assert body =~ ~s(href="/pricing")
       assert body =~ ~s(href="/docs")
       assert body =~ ~s(href="/app/sign-in")
