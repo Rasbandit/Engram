@@ -112,6 +112,9 @@ defmodule Engram.Attachments do
           {:error, :not_found} -> {:ok, nil}
           {:error, reason} -> {:error, {:storage, reason}}
         end
+
+      {:error, _} = err ->
+        err
     end
   end
 
