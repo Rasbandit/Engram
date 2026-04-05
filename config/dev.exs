@@ -19,7 +19,7 @@ config :engram, Engram.Repo,
 config :engram, EngramWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
-  http: [ip: {127, 0, 0, 1}],
+  http: [ip: {0, 0, 0, 0}],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
@@ -53,6 +53,9 @@ config :engram, EngramWeb.Endpoint,
 
 # JWT signing secret (Joken)
 config :joken, default_signer: "dev-jwt-secret-not-for-production"
+
+# joken_jwks: use Erlang's built-in httpc adapter (hackney not in deps)
+config :tesla, JokenJwks.HttpFetcher, adapter: Tesla.Adapter.Httpc
 
 # Enable dev routes for dashboard and mailbox
 config :engram, dev_routes: true
