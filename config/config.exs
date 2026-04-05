@@ -29,6 +29,9 @@ config :engram, :websocket_check_origin, false
 # Embedder adapter (overridden per environment)
 config :engram, :embedder, Engram.Embedders.Voyage
 
+# Storage adapter (database = BYTEA in Postgres, s3 = MinIO/Tigris)
+config :engram, :storage, Engram.Storage.Database
+
 # Hammer rate limiting (ETS backend)
 config :hammer,
   backend:

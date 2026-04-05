@@ -2,12 +2,18 @@ defmodule Engram.Attachments do
   @moduledoc """
   Attachments context — CRUD for binary file attachments.
   All operations are tenant-scoped via Repo.with_tenant/2.
+
+  Binary storage is delegated to the configured storage adapter
+  (Database for BYTEA in Postgres, S3 for MinIO/Tigris).
   """
 
   import Ecto.Query
 
   alias Engram.Repo
   alias Engram.Attachments.Attachment
+  alias Engram.Storage
+
+  defp storage, do: Application.get_env(:engram, :storage, Storage.Database)
 
   @doc """
   Upserts an attachment. Decodes base64 content, detects MIME type, computes hash.
@@ -27,21 +33,33 @@ defmodule Engram.Attachments do
       else
         mime = explicit_mime || detect_mime(path)
         hash = :crypto.hash(:md5, binary) |> Base.encode16(case: :lower)
+        key = Storage.key(user.id, path)
+        backend = storage()
 
-        Repo.with_tenant(user.id, fn ->
-          existing =
-            Repo.one(from(a in Attachment, where: a.path == ^path and a.user_id == ^user.id))
+        # For S3 backend, store binary externally first
+        if backend != Storage.Database do
+          case backend.put(key, binary, content_type: mime) do
+            :ok -> :ok
+            {:error, reason} -> throw({:storage_error, reason})
+          end
+        end
 
-          changeset_attrs = %{
+        changeset_attrs =
+          %{
             path: path,
-            content: binary,
             content_hash: hash,
             mime_type: mime,
             size_bytes: size,
             mtime: mtime,
             user_id: user.id,
+            storage_key: key,
             deleted_at: nil
           }
+          |> maybe_include_content(backend, binary)
+
+        Repo.with_tenant(user.id, fn ->
+          existing =
+            Repo.one(from(a in Attachment, where: a.path == ^path and a.user_id == ^user.id))
 
           case existing do
             nil ->
@@ -58,27 +76,58 @@ defmodule Engram.Attachments do
         |> unwrap_tenant()
       end
     end
+  catch
+    {:storage_error, reason} -> {:error, {:storage, reason}}
   end
 
   @doc """
   Gets an attachment by path. Returns nil for soft-deleted.
+  Fetches binary content from the configured storage backend.
   """
   def get_attachment(user, path) do
-    Repo.with_tenant(user.id, fn ->
-      Repo.one(
-        from(a in Attachment,
-          where: a.path == ^path and a.user_id == ^user.id and is_nil(a.deleted_at)
+    result =
+      Repo.with_tenant(user.id, fn ->
+        Repo.one(
+          from(a in Attachment,
+            where: a.path == ^path and a.user_id == ^user.id and is_nil(a.deleted_at)
+          )
         )
-      )
-    end)
-    |> unwrap_tenant()
+      end)
+      |> unwrap_tenant()
+
+    case result do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, %Attachment{content: content} = att} when not is_nil(content) ->
+        # Content already in the row (Database adapter)
+        {:ok, att}
+
+      {:ok, %Attachment{} = att} ->
+        # Content stored externally (S3 adapter) — fetch it
+        key = att.storage_key || Storage.key(user.id, path)
+
+        case storage().get(key) do
+          {:ok, binary} -> {:ok, %{att | content: binary}}
+          {:error, :not_found} -> {:ok, nil}
+          {:error, reason} -> {:error, {:storage, reason}}
+        end
+    end
   end
 
   @doc """
   Soft-deletes an attachment. Idempotent — returns :ok even if already deleted or nonexistent.
+  Also deletes from external storage if using S3 backend.
   """
   def delete_attachment(user, path) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
+    backend = storage()
+
+    # Delete from external storage (no-op for Database adapter)
+    if backend != Storage.Database do
+      key = Storage.key(user.id, path)
+      backend.delete(key)
+    end
 
     Repo.with_tenant(user.id, fn ->
       from(a in Attachment,
@@ -130,6 +179,12 @@ defmodule Engram.Attachments do
   end
 
   # -- Private helpers --
+
+  defp maybe_include_content(attrs, Storage.Database, binary) do
+    Map.put(attrs, :content, binary)
+  end
+
+  defp maybe_include_content(attrs, _s3_backend, _binary), do: attrs
 
   defp decode_base64(nil), do: {:error, :missing_content}
 

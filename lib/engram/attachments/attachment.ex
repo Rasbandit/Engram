@@ -11,6 +11,7 @@ defmodule Engram.Attachments.Attachment do
     field :mime_type, :string
     field :size_bytes, :integer
     field :mtime, :float
+    field :storage_key, :string
     field :deleted_at, :utc_datetime
 
     belongs_to :user, Engram.Accounts.User
@@ -28,9 +29,10 @@ defmodule Engram.Attachments.Attachment do
       :size_bytes,
       :mtime,
       :user_id,
+      :storage_key,
       :deleted_at
     ])
-    |> validate_required([:path, :user_id, :content])
+    |> validate_required([:path, :user_id])
     |> validate_number(:size_bytes, less_than_or_equal_to: @max_attachment_bytes)
     |> unique_constraint([:user_id, :path])
   end

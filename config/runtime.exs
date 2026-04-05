@@ -24,6 +24,26 @@ config :engram, EngramWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 if config_env() != :test do
+  # Storage backend — select adapter from STORAGE_BACKEND env var (s3 or database)
+  case System.get_env("STORAGE_BACKEND", "database") do
+    "s3" ->
+      config :engram, :storage, Engram.Storage.S3
+      config :engram, :storage_bucket, System.get_env("STORAGE_BUCKET", "engram-attachments")
+
+      config :ex_aws,
+        access_key_id: System.get_env("AWS_ACCESS_KEY_ID"),
+        secret_access_key: System.get_env("AWS_SECRET_ACCESS_KEY"),
+        region: System.get_env("AWS_REGION", "auto")
+
+      config :ex_aws, :s3,
+        scheme: System.get_env("S3_SCHEME", "https://"),
+        host: System.get_env("S3_HOST"),
+        port: String.to_integer(System.get_env("S3_PORT", "443"))
+
+    _ ->
+      config :engram, :storage, Engram.Storage.Database
+  end
+
   # Embedder — select adapter from EMBED_BACKEND env var (voyage or ollama)
   case System.get_env("EMBED_BACKEND", "voyage") do
     "ollama" ->
