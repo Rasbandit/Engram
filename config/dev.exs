@@ -24,7 +24,9 @@ config :engram, EngramWeb.Endpoint,
   code_reloader: true,
   debug_errors: true,
   secret_key_base: "hZXoe4bVk7sJkF6CT/1jG+/4X03lcdTECjUFOWwKSlF0KAecv1CROWuFYqrtzY3k",
-  watchers: []
+  watchers: [
+    npm: ["run", "dev", "--", "--clearScreen", "false", cd: Path.expand("../frontend", __DIR__)]
+  ]
 
 # ## SSL Support
 #
