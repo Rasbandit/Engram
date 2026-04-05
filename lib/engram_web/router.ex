@@ -89,6 +89,7 @@ defmodule EngramWeb.Router do
 
     get "/", MarketingController, :index
     get "/pricing", MarketingController, :pricing
+    get "/docs", MarketingController, :docs
   end
 
   # SPA fallback — serves React app for all /app and /share routes.

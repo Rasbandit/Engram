@@ -10,4 +10,8 @@ defmodule EngramWeb.MarketingController do
   def pricing(conn, _params) do
     render(conn, :pricing)
   end
+
+  def docs(conn, _params) do
+    render(conn, :docs)
+  end
 end
