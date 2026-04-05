@@ -85,3 +85,24 @@ export function useMe() {
     select: (data) => data.user,
   })
 }
+
+// Billing types
+export interface BillingStatus {
+  tier: 'none' | 'trial' | 'starter' | 'pro'
+  active: boolean
+  trial_days_remaining: number
+  subscription: {
+    status: string
+    tier: string
+    current_period_end: string
+  } | null
+}
+
+// Billing hooks
+
+export function useBillingStatus() {
+  return useQuery({
+    queryKey: ['billing', 'status'],
+    queryFn: () => api.get<BillingStatus>('/billing/status'),
+  })
+}

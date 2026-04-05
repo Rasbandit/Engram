@@ -32,4 +32,15 @@ defmodule Engram.Factory do
       user: build(:user)
     }
   end
+
+  def subscription_factory do
+    %Engram.Billing.Subscription{
+      stripe_customer_id: sequence(:stripe_customer_id, &"cus_test#{&1}"),
+      stripe_subscription_id: sequence(:stripe_sub_id, &"sub_test#{&1}"),
+      tier: "starter",
+      status: "active",
+      current_period_end: DateTime.add(DateTime.utc_now(), 30, :day),
+      user: build(:user)
+    }
+  end
 end
