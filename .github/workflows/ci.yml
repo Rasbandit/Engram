@@ -36,6 +36,8 @@ jobs:
           rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
 
       - uses: actions/checkout@v6
+        with:
+          clean: false  # Preserve _build/ and deps/ for incremental compilation
 
       # ------------------------------------------------------------------
       # Unit tests (Elixir + E2E helpers) — run while Docker builds
@@ -125,6 +127,7 @@ jobs:
           token: ${{ secrets.CROSS_REPO_PAT }}
           path: plugin-src
           ref: ${{ github.event.client_payload.plugin_ref || 'main' }}
+          clean: false  # Preserve node_modules between runs
 
       - name: Build plugin
         working-directory: plugin-src
@@ -157,7 +160,7 @@ jobs:
           CI_POSTGRES_CONTAINER: engram-ci-postgres-1
 
       # ------------------------------------------------------------------
-      # Cleanup + artifacts
+      # Cleanup — MUST kill everything, even on cancel/failure
       # ------------------------------------------------------------------
       - name: Collect logs on failure
         if: failure()
@@ -181,8 +184,18 @@ jobs:
       - name: Tear down
         if: always()
         run: |
+          # Kill ALL Obsidian processes (extracted binaries spawn children under /tmp)
+          pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
+          pkill -9 -f "appimage_extracted.*obsidian" 2>/dev/null || true
+          pkill -9 Xvfb 2>/dev/null || true
+          # Wait for processes to die before removing their dirs
+          sleep 1
+          # Remove e2e temp dirs
+          rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
+          # Tear down Docker stack
           docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
           docker rm -f engram-test-db 2>/dev/null || true
-          pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
-          pkill -9 Xvfb 2>/dev/null || true
-          rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
+          # Prune dangling images to reclaim disk (old CI builds)
+          docker image prune -f 2>/dev/null || true
+          # Clean up ci-artifacts from this run
+          rm -rf ci-artifacts/
