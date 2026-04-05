@@ -5,11 +5,7 @@ import SignUpPage from './auth/sign-up'
 import AppLayout from './layout/app-layout'
 import Dashboard from './viewer/dashboard'
 import NotePage from './viewer/note-page'
-
-// Placeholder — replaced in Task 8
-function SearchPage() {
-  return <h2 className="text-lg font-semibold text-gray-700">Search — coming in Task 8</h2>
-}
+import SearchPage from './viewer/search-page'
 
 export const router = createBrowserRouter(
   [
