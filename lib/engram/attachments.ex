@@ -30,9 +30,7 @@ defmodule Engram.Attachments do
 
         Repo.with_tenant(user.id, fn ->
           existing =
-            Repo.one(
-              from(a in Attachment, where: a.path == ^path and a.user_id == ^user.id)
-            )
+            Repo.one(from(a in Attachment, where: a.path == ^path and a.user_id == ^user.id))
 
           changeset_attrs = %{
             path: path,

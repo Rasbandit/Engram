@@ -1,0 +1,93 @@
+import { Link, useSearchParams } from 'react-router'
+import { useFolderNotes, type NoteSummary } from '../api/queries'
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+interface NoteRowProps {
+  note: NoteSummary
+}
+
+function NoteRow({ note }: NoteRowProps) {
+  return (
+    <article className="border-b border-gray-100 py-3 last:border-0">
+      <Link
+        to={`/note/${encodeURIComponent(note.path)}`}
+        className="block hover:text-blue-700"
+      >
+        <h3 className="text-sm font-medium text-gray-900">{note.title || note.path}</h3>
+      </Link>
+      <footer className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+        {note.folder && <span>{note.folder}</span>}
+        {note.tags.length > 0 && (
+          <ul className="flex gap-1" aria-label="Tags">
+            {note.tags.map((tag) => (
+              <li
+                key={tag}
+                className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600"
+              >
+                {tag}
+              </li>
+            ))}
+          </ul>
+        )}
+        <time dateTime={note.updated_at}>{formatDate(note.updated_at)}</time>
+      </footer>
+    </article>
+  )
+}
+
+function FolderNotes({ folder }: { folder: string }) {
+  const { data: notes, isLoading, isError } = useFolderNotes(folder)
+
+  if (isLoading) return <p className="text-sm text-gray-500">Loading…</p>
+  if (isError) return <p className="text-sm text-red-600">Failed to load notes.</p>
+  if (!notes || notes.length === 0) {
+    return <p className="text-sm text-gray-500">No notes in this folder.</p>
+  }
+
+  return (
+    <section aria-label={`Notes in ${folder}`}>
+      <ul role="list">
+        {notes.map((note) => (
+          <li key={note.path}>
+            <NoteRow note={note} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+export default function Dashboard() {
+  const [searchParams] = useSearchParams()
+  const folder = searchParams.get('folder') ?? ''
+
+  if (folder) {
+    return (
+      <>
+        <header className="mb-4">
+          <h2 className="text-base font-semibold text-gray-800">{folder}</h2>
+        </header>
+        <FolderNotes folder={folder} />
+      </>
+    )
+  }
+
+  return (
+    <section aria-label="Welcome" className="flex h-full flex-col items-center justify-center text-center">
+      <h2 className="text-xl font-semibold text-gray-800">Welcome to Engram</h2>
+      <p className="mt-2 text-sm text-gray-500">
+        Select a folder from the sidebar to browse your notes.
+      </p>
+      <p className="mt-1 text-sm text-gray-500">
+        Use <Link to="/search" className="text-blue-600 hover:underline">Search</Link> to find notes by keyword or semantic query.
+      </p>
+    </section>
+  )
+}

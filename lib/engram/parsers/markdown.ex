@@ -61,10 +61,11 @@ defmodule Engram.Parsers.Markdown do
 
     {sections, last_section, _offset} =
       Enum.reduce(lines, {[], %{heading_stack: [], lines: [], char_start: 0}, 0}, fn line,
-                                                                                      {done,
-                                                                                       current,
-                                                                                       pos} ->
-        line_len = byte_size(line) + 1  # +1 for the \n we split on
+                                                                                     {done,
+                                                                                      current,
+                                                                                      pos} ->
+        # +1 for the \n we split on
+        line_len = byte_size(line) + 1
 
         case Regex.run(heading_re, line, capture: :all_but_first) do
           [hashes, text] ->

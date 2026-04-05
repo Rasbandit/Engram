@@ -49,7 +49,10 @@ defmodule Engram.Rerankers.Jina do
     end
   rescue
     e ->
-      Logger.warning("Jina reranker exception: #{Exception.message(e)}, falling back to vector scores")
+      Logger.warning(
+        "Jina reranker exception: #{Exception.message(e)}, falling back to vector scores"
+      )
+
       {:ok, candidates |> Enum.sort_by(& &1.score, :desc) |> Enum.take(top_n)}
   end
 

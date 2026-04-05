@@ -124,7 +124,11 @@ defmodule Engram.Notes do
     result =
       Repo.with_tenant(user.id, fn ->
         # Fetch current note for content (to derive title from new path)
-        case Repo.one(from(n in Note, where: n.user_id == ^user.id and n.path == ^old_path and is_nil(n.deleted_at))) do
+        case Repo.one(
+               from(n in Note,
+                 where: n.user_id == ^user.id and n.path == ^old_path and is_nil(n.deleted_at)
+               )
+             ) do
           nil ->
             :not_found
 
@@ -138,7 +142,8 @@ defmodule Engram.Notes do
               )
 
             if count == 1 do
-              {:ok, %{note | path: new_path, folder: new_folder, title: new_title, updated_at: now}}
+              {:ok,
+               %{note | path: new_path, folder: new_folder, title: new_title, updated_at: now}}
             else
               :not_found
             end
@@ -242,7 +247,9 @@ defmodule Engram.Notes do
       Repo.with_tenant(user.id, fn ->
         Repo.all(
           from(n in Note,
-            where: n.user_id == ^user.id and is_nil(n.deleted_at) and n.folder != "" and not is_nil(n.folder),
+            where:
+              n.user_id == ^user.id and is_nil(n.deleted_at) and n.folder != "" and
+                not is_nil(n.folder),
             select: n.folder,
             distinct: true,
             order_by: n.folder
@@ -404,8 +411,14 @@ defmodule Engram.Notes do
   # Private
   # ---------------------------------------------------------------------------
 
-  defp validate_path(nil), do: {:error, Note.changeset(%Note{}, %{}) |> Ecto.Changeset.add_error(:path, "can't be blank")}
-  defp validate_path(""), do: {:error, Note.changeset(%Note{}, %{}) |> Ecto.Changeset.add_error(:path, "can't be blank")}
+  defp validate_path(nil),
+    do:
+      {:error, Note.changeset(%Note{}, %{}) |> Ecto.Changeset.add_error(:path, "can't be blank")}
+
+  defp validate_path(""),
+    do:
+      {:error, Note.changeset(%Note{}, %{}) |> Ecto.Changeset.add_error(:path, "can't be blank")}
+
   defp validate_path(path), do: {:ok, path}
 
   defp content_hash(content) do

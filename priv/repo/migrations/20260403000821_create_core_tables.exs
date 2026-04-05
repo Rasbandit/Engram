@@ -32,9 +32,9 @@ defmodule Engram.Repo.Migrations.CreateCoreTables do
     create index(:notes, [:user_id, :folder], name: :idx_notes_user_folder)
 
     create index(:notes, [:user_id, :deleted_at],
-      name: :idx_notes_user_deleted,
-      where: "deleted_at IS NOT NULL"
-    )
+             name: :idx_notes_user_deleted,
+             where: "deleted_at IS NOT NULL"
+           )
 
     # ── Chunks ─────────────────────────────────────────────────────
     create table(:chunks) do

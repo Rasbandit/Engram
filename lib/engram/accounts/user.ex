@@ -5,6 +5,7 @@ defmodule Engram.Accounts.User do
   schema "users" do
     field :email, :string
     field :password_hash, :string
+    field :clerk_id, :string
     field :display_name, :string
 
     # Virtual field — never persisted, used for registration/login

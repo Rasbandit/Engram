@@ -141,7 +141,11 @@ defmodule EngramWeb.AttachmentsControllerTest do
       conn =
         conn
         |> delete_req_header("authorization")
-        |> post("/api/attachments", %{path: "nope.png", content_base64: @sample_base64, mtime: 1.0})
+        |> post("/api/attachments", %{
+          path: "nope.png",
+          content_base64: @sample_base64,
+          mtime: 1.0
+        })
 
       assert json_response(conn, 401)
     end

@@ -17,8 +17,23 @@ defmodule Engram.Notes.Chunk do
 
   def changeset(chunk, attrs) do
     chunk
-    |> cast(attrs, [:position, :heading_path, :char_start, :char_end, :qdrant_point_id, :note_id, :user_id])
-    |> validate_required([:position, :char_start, :char_end, :qdrant_point_id, :note_id, :user_id])
+    |> cast(attrs, [
+      :position,
+      :heading_path,
+      :char_start,
+      :char_end,
+      :qdrant_point_id,
+      :note_id,
+      :user_id
+    ])
+    |> validate_required([
+      :position,
+      :char_start,
+      :char_end,
+      :qdrant_point_id,
+      :note_id,
+      :user_id
+    ])
     |> unique_constraint([:note_id, :position])
   end
 end

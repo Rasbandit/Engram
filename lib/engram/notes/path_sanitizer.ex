@@ -55,7 +55,10 @@ defmodule Engram.Notes.PathSanitizer do
       |> String.codepoints()
       |> Enum.reduce_while({"", 0}, fn cp, {acc, total} ->
         new_total = total + byte_size(cp)
-        if new_total <= max_bytes, do: {:cont, {acc <> cp, new_total}}, else: {:halt, {acc, total}}
+
+        if new_total <= max_bytes,
+          do: {:cont, {acc <> cp, new_total}},
+          else: {:halt, {acc, total}}
       end)
       |> elem(0)
     end

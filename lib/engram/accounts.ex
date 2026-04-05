@@ -38,6 +38,32 @@ defmodule Engram.Accounts do
 
   def get_user(id), do: Repo.get(User, id, skip_tenant_check: true)
 
+  # ── Clerk Auth ─────────────────────────────────────────────────
+
+  @doc """
+  Finds a user by Clerk ID, or links/creates one.
+
+  Priority: clerk_id match > email match (link clerk_id) > create new user.
+  """
+  def find_or_create_by_clerk_id(clerk_id, %{email: email}) do
+    case Repo.one(from(u in User, where: u.clerk_id == ^clerk_id), skip_tenant_check: true) do
+      %User{} = user ->
+        {:ok, user}
+
+      nil ->
+        case Repo.one(from(u in User, where: u.email == ^email), skip_tenant_check: true) do
+          %User{} = user ->
+            user
+            |> Ecto.Changeset.change(%{clerk_id: clerk_id})
+            |> Repo.update(skip_tenant_check: true)
+
+          nil ->
+            %User{clerk_id: clerk_id, email: email}
+            |> Repo.insert(skip_tenant_check: true)
+        end
+    end
+  end
+
   # ── JWT ─────────────────────────────────────────────────────────
 
   def generate_jwt(user) do

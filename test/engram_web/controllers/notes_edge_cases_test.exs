@@ -207,7 +207,9 @@ defmodule EngramWeb.NotesEdgeCasesTest do
       post(conn, "/api/notes", %{path: "Test/Shape.md", content: "# Shape", mtime: 1_000.0})
 
       conn2 = get(conn, "/api/notes/changes?since=2020-01-01T00:00:00Z")
-      assert %{"changes" => [change | _], "server_time" => server_time} = json_response(conn2, 200)
+
+      assert %{"changes" => [change | _], "server_time" => server_time} =
+               json_response(conn2, 200)
 
       assert Map.has_key?(change, "path")
       assert Map.has_key?(change, "title")
@@ -243,7 +245,12 @@ defmodule EngramWeb.NotesEdgeCasesTest do
 
   describe "delete idempotency" do
     test "deleting an already-deleted note returns 200", %{conn: conn} do
-      post(conn, "/api/notes", %{path: "Test/Double Delete.md", content: "# Double", mtime: 1_000.0})
+      post(conn, "/api/notes", %{
+        path: "Test/Double Delete.md",
+        content: "# Double",
+        mtime: 1_000.0
+      })
+
       delete(conn, "/api/notes/Test/Double Delete.md")
 
       conn2 = delete(conn, "/api/notes/Test/Double Delete.md")

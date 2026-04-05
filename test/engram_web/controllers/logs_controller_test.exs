@@ -64,9 +64,27 @@ defmodule EngramWeb.LogsControllerTest do
       # Seed some logs
       post(conn, "/api/logs", %{
         logs: [
-          %{ts: "2026-04-03T01:00:00Z", level: "info", category: "sync", message: "msg1", platform: "desktop"},
-          %{ts: "2026-04-03T01:01:00Z", level: "error", category: "sync", message: "msg2", platform: "desktop"},
-          %{ts: "2026-04-03T01:02:00Z", level: "info", category: "search", message: "msg3", platform: "mobile"}
+          %{
+            ts: "2026-04-03T01:00:00Z",
+            level: "info",
+            category: "sync",
+            message: "msg1",
+            platform: "desktop"
+          },
+          %{
+            ts: "2026-04-03T01:01:00Z",
+            level: "error",
+            category: "sync",
+            message: "msg2",
+            platform: "desktop"
+          },
+          %{
+            ts: "2026-04-03T01:02:00Z",
+            level: "info",
+            category: "search",
+            message: "msg3",
+            platform: "mobile"
+          }
         ]
       })
 
