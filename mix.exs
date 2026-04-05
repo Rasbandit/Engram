@@ -52,6 +52,9 @@ defmodule Engram.MixProject do
       {:joken_jwks, "~> 1.7"},
       {:argon2_elixir, "~> 4.1"},
 
+      # Payments
+      {:stripity_stripe, "~> 3.2"},
+
       # Job queue
       {:oban, "~> 2.18"},
 
