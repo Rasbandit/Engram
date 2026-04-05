@@ -1,5 +1,6 @@
 import { useAuth } from '@clerk/clerk-react'
 import { Navigate, Outlet } from 'react-router'
+import AuthTokenProvider from '../api/auth-token-provider'
 
 export default function AuthGuard() {
   const { isLoaded, isSignedIn } = useAuth()
@@ -12,5 +13,9 @@ export default function AuthGuard() {
     return <Navigate to="/sign-in" replace />
   }
 
-  return <Outlet />
+  return (
+    <AuthTokenProvider>
+      <Outlet />
+    </AuthTokenProvider>
+  )
 }
