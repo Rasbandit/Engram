@@ -47,6 +47,19 @@ defmodule EngramWeb do
     end
   end
 
+  def html do
+    quote do
+      use Phoenix.Component
+
+      import Phoenix.HTML, only: [raw: 1, html_escape: 1, safe_to_string: 1]
+
+      import Phoenix.Controller,
+        only: [get_csrf_token: 0, get_flash: 1, get_flash: 2]
+
+      unquote(verified_routes())
+    end
+  end
+
   def verified_routes do
     quote do
       use Phoenix.VerifiedRoutes,

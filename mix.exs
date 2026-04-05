@@ -41,6 +41,8 @@ defmodule Engram.MixProject do
     [
       # Phoenix
       {:phoenix, "~> 1.8.5"},
+      {:phoenix_html, "~> 4.1"},
+      {:phoenix_live_view, "~> 1.1"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
       {:postgrex, ">= 0.0.0"},
