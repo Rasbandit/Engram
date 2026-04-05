@@ -25,7 +25,9 @@ defmodule Engram.Factory do
 
   def api_key_factory do
     %Engram.Accounts.ApiKey{
-      key_hash: :crypto.hash(:sha256, "engram_" <> sequence(:key, &"key#{&1}")) |> Base.encode16(case: :lower),
+      key_hash:
+        :crypto.hash(:sha256, "engram_" <> sequence(:key, &"key#{&1}"))
+        |> Base.encode16(case: :lower),
       name: sequence(:key_name, &"Key #{&1}"),
       user: build(:user)
     }

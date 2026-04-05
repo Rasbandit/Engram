@@ -74,7 +74,9 @@ defmodule Engram.NotesTest do
 
     test "computes content_hash", %{user: user} do
       content = "# Hello\nWorld"
-      {:ok, note} = Notes.upsert_note(user, %{"path" => "Test/A.md", "content" => content, "mtime" => 1_000.0})
+
+      {:ok, note} =
+        Notes.upsert_note(user, %{"path" => "Test/A.md", "content" => content, "mtime" => 1_000.0})
 
       expected = :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
       assert note.content_hash == expected
@@ -277,9 +279,23 @@ defmodule Engram.NotesTest do
 
   describe "list_folders/1" do
     test "returns unique folders for user", %{user: user} do
-      Notes.upsert_note(user, %{"path" => "Folder A/Note.md", "content" => "x", "mtime" => 1_000.0})
-      Notes.upsert_note(user, %{"path" => "Folder B/Note.md", "content" => "x", "mtime" => 1_000.0})
-      Notes.upsert_note(user, %{"path" => "Folder A/Other.md", "content" => "x", "mtime" => 1_000.0})
+      Notes.upsert_note(user, %{
+        "path" => "Folder A/Note.md",
+        "content" => "x",
+        "mtime" => 1_000.0
+      })
+
+      Notes.upsert_note(user, %{
+        "path" => "Folder B/Note.md",
+        "content" => "x",
+        "mtime" => 1_000.0
+      })
+
+      Notes.upsert_note(user, %{
+        "path" => "Folder A/Other.md",
+        "content" => "x",
+        "mtime" => 1_000.0
+      })
 
       {:ok, folders} = Notes.list_folders(user)
       assert "Folder A" in folders
@@ -356,7 +372,8 @@ defmodule Engram.NotesTest do
         "mtime" => 1_000.0
       })
 
-      assert {:error, :not_found} = Notes.rename_note(other_user, "Test/Mine.md", "Test/Stolen.md")
+      assert {:error, :not_found} =
+               Notes.rename_note(other_user, "Test/Mine.md", "Test/Stolen.md")
     end
   end
 
@@ -425,7 +442,9 @@ defmodule Engram.NotesTest do
   describe "list_folders_with_counts/1" do
     test "returns folders with correct counts", %{user: user} do
       Notes.upsert_note(user, %{"path" => "Health/Note1.md", "content" => "x", "mtime" => 1_000.0})
+
       Notes.upsert_note(user, %{"path" => "Health/Note2.md", "content" => "y", "mtime" => 1_000.0})
+
       Notes.upsert_note(user, %{"path" => "Work/Note1.md", "content" => "z", "mtime" => 1_000.0})
 
       {:ok, folders} = Notes.list_folders_with_counts(user)
@@ -467,8 +486,18 @@ defmodule Engram.NotesTest do
 
   describe "list_notes_in_folder/2" do
     test "returns notes in a specific folder", %{user: user} do
-      Notes.upsert_note(user, %{"path" => "Health/Note1.md", "content" => "# A", "mtime" => 1_000.0})
-      Notes.upsert_note(user, %{"path" => "Health/Note2.md", "content" => "# B", "mtime" => 1_000.0})
+      Notes.upsert_note(user, %{
+        "path" => "Health/Note1.md",
+        "content" => "# A",
+        "mtime" => 1_000.0
+      })
+
+      Notes.upsert_note(user, %{
+        "path" => "Health/Note2.md",
+        "content" => "# B",
+        "mtime" => 1_000.0
+      })
+
       Notes.upsert_note(user, %{"path" => "Work/Note1.md", "content" => "# C", "mtime" => 1_000.0})
 
       {:ok, notes} = Notes.list_notes_in_folder(user, "Health")
@@ -480,7 +509,12 @@ defmodule Engram.NotesTest do
 
     test "returns root-level notes with empty string", %{user: user} do
       Notes.upsert_note(user, %{"path" => "Root.md", "content" => "# Root", "mtime" => 1_000.0})
-      Notes.upsert_note(user, %{"path" => "Health/Note.md", "content" => "# Health", "mtime" => 1_000.0})
+
+      Notes.upsert_note(user, %{
+        "path" => "Health/Note.md",
+        "content" => "# Health",
+        "mtime" => 1_000.0
+      })
 
       {:ok, notes} = Notes.list_notes_in_folder(user, "")
       assert length(notes) == 1
@@ -493,7 +527,12 @@ defmodule Engram.NotesTest do
     end
 
     test "excludes soft-deleted notes", %{user: user} do
-      Notes.upsert_note(user, %{"path" => "Health/Deleted.md", "content" => "x", "mtime" => 1_000.0})
+      Notes.upsert_note(user, %{
+        "path" => "Health/Deleted.md",
+        "content" => "x",
+        "mtime" => 1_000.0
+      })
+
       Notes.delete_note(user, "Health/Deleted.md")
 
       {:ok, notes} = Notes.list_notes_in_folder(user, "Health")
@@ -501,7 +540,11 @@ defmodule Engram.NotesTest do
     end
 
     test "excludes other user's notes", %{user: user, other_user: other_user} do
-      Notes.upsert_note(other_user, %{"path" => "Health/Secret.md", "content" => "x", "mtime" => 1_000.0})
+      Notes.upsert_note(other_user, %{
+        "path" => "Health/Secret.md",
+        "content" => "x",
+        "mtime" => 1_000.0
+      })
 
       {:ok, notes} = Notes.list_notes_in_folder(user, "Health")
       assert notes == []
@@ -530,8 +573,17 @@ defmodule Engram.NotesTest do
     end
 
     test "renames subfolder notes too", %{user: user} do
-      Notes.upsert_note(user, %{"path" => "Parent/Child/Note.md", "content" => "# Deep", "mtime" => 1_000.0})
-      Notes.upsert_note(user, %{"path" => "Parent/Note.md", "content" => "# Shallow", "mtime" => 1_000.0})
+      Notes.upsert_note(user, %{
+        "path" => "Parent/Child/Note.md",
+        "content" => "# Deep",
+        "mtime" => 1_000.0
+      })
+
+      Notes.upsert_note(user, %{
+        "path" => "Parent/Note.md",
+        "content" => "# Shallow",
+        "mtime" => 1_000.0
+      })
 
       assert {:ok, 2} = Notes.rename_folder(user, "Parent", "Renamed")
 
@@ -545,7 +597,11 @@ defmodule Engram.NotesTest do
     end
 
     test "does not affect other user's notes", %{user: user, other_user: other_user} do
-      Notes.upsert_note(other_user, %{"path" => "Shared/Note.md", "content" => "# Other", "mtime" => 1_000.0})
+      Notes.upsert_note(other_user, %{
+        "path" => "Shared/Note.md",
+        "content" => "# Other",
+        "mtime" => 1_000.0
+      })
 
       assert {:ok, 0} = Notes.rename_folder(user, "Shared", "Renamed")
 

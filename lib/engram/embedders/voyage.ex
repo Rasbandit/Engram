@@ -21,8 +21,10 @@ defmodule Engram.Embedders.Voyage do
   def embed_texts(texts) when is_list(texts) do
     url = Application.get_env(:engram, :voyage_url, @default_url)
     model = Application.get_env(:engram, :embed_model, @default_model)
-    api_key = System.get_env("VOYAGE_API_KEY") ||
-      raise "VOYAGE_API_KEY environment variable is not set"
+
+    api_key =
+      System.get_env("VOYAGE_API_KEY") ||
+        raise "VOYAGE_API_KEY environment variable is not set"
 
     result =
       Req.post("#{url}/v1/embeddings",

@@ -117,20 +117,21 @@ defmodule Engram.SearchTest do
         # With limit=2, should request 4x = 8, but min 20
         assert decoded["limit"] == 20
 
-        results = for i <- 0..3 do
-          %{
-            "id" => "uuid-#{i}",
-            "score" => 0.9 - i * 0.1,
-            "payload" => %{
-              "text" => "Result #{i}",
-              "title" => "Note #{i}",
-              "heading_path" => "Section",
-              "source_path" => "test/note#{i}.md",
-              "tags" => [],
-              "user_id" => to_string(user.id)
+        results =
+          for i <- 0..3 do
+            %{
+              "id" => "uuid-#{i}",
+              "score" => 0.9 - i * 0.1,
+              "payload" => %{
+                "text" => "Result #{i}",
+                "title" => "Note #{i}",
+                "heading_path" => "Section",
+                "source_path" => "test/note#{i}.md",
+                "tags" => [],
+                "user_id" => to_string(user.id)
+              }
             }
-          }
-        end
+          end
 
         conn
         |> Plug.Conn.put_resp_content_type("application/json")

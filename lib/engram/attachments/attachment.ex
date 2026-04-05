@@ -20,7 +20,16 @@ defmodule Engram.Attachments.Attachment do
 
   def changeset(attachment, attrs) do
     attachment
-    |> cast(attrs, [:path, :content, :content_hash, :mime_type, :size_bytes, :mtime, :user_id, :deleted_at])
+    |> cast(attrs, [
+      :path,
+      :content,
+      :content_hash,
+      :mime_type,
+      :size_bytes,
+      :mtime,
+      :user_id,
+      :deleted_at
+    ])
     |> validate_required([:path, :user_id, :content])
     |> validate_number(:size_bytes, less_than_or_equal_to: @max_attachment_bytes)
     |> unique_constraint([:user_id, :path])

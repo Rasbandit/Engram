@@ -18,7 +18,16 @@ defmodule Engram.Logs.ClientLog do
 
   def changeset(log, attrs) do
     log
-    |> cast(attrs, [:ts, :level, :category, :message, :stack, :plugin_version, :platform, :user_id])
+    |> cast(attrs, [
+      :ts,
+      :level,
+      :category,
+      :message,
+      :stack,
+      :plugin_version,
+      :platform,
+      :user_id
+    ])
     |> validate_required([:ts, :user_id])
   end
 end

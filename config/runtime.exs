@@ -53,8 +53,11 @@ if config_env() != :test do
   case System.get_env("RERANKER_BACKEND", "none") do
     "jina" ->
       config :engram, :reranker, Engram.Rerankers.Jina
-      config :engram, :jina_url, System.get_env("JINA_URL") ||
-        raise "JINA_URL is required when RERANKER_BACKEND=jina"
+
+      config :engram,
+             :jina_url,
+             System.get_env("JINA_URL") ||
+               raise("JINA_URL is required when RERANKER_BACKEND=jina")
 
     _ ->
       config :engram, :reranker, Engram.Rerankers.None

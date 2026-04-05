@@ -31,10 +31,14 @@ config :engram, :embedder, Engram.Embedders.Voyage
 
 # Hammer rate limiting (ETS backend)
 config :hammer,
-  backend: {Hammer.Backend.ETS, [
-    expiry_ms: 60_000 * 60,         # 1 hour bucket expiry
-    cleanup_interval_ms: 60_000 * 2  # cleanup every 2 min
-  ]}
+  backend:
+    {Hammer.Backend.ETS,
+     [
+       # 1 hour bucket expiry
+       expiry_ms: 60_000 * 60,
+       # cleanup every 2 min
+       cleanup_interval_ms: 60_000 * 2
+     ]}
 
 # Oban job queue (per-env overrides in dev/test/prod configs)
 config :engram, Oban,

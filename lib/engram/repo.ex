@@ -38,7 +38,7 @@ defmodule Engram.Repo do
 
   def with_tenant(tenant_id, _fun) do
     raise ArgumentError,
-      "tenant_id must be a positive integer, got: #{inspect(tenant_id)}"
+          "tenant_id must be a positive integer, got: #{inspect(tenant_id)}"
   end
 
   @doc """
