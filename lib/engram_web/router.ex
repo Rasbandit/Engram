@@ -71,6 +71,11 @@ defmodule EngramWeb.Router do
 
     # MCP endpoint (JSON-RPC 2.0 over HTTP POST)
     post "/mcp", McpController, :handle
+
+    # Billing
+    get "/billing/status", BillingController, :status
+    post "/billing/checkout-session", BillingController, :create_checkout
+    get "/billing/portal", BillingController, :customer_portal
   end
 
   # SPA fallback — serves React app for all /app and /share routes.
