@@ -2,9 +2,9 @@
 
 Your vault remembers everything.
 
-AI-powered personal knowledge base that makes your Obsidian vault queryable by any AI assistant via [MCP](https://modelcontextprotocol.io). Notes are stored in PostgreSQL, embedded into vectors, and searched with a two-stage pipeline (vector retrieval + semantic reranking) that actually understands what you wrote.
+AI-powered personal knowledge base that makes your Obsidian vault queryable by any AI assistant via [MCP](https://modelcontextprotocol.io). Built with Elixir/Phoenix. Notes are stored in PostgreSQL, embedded into vectors via Voyage AI, and searched with semantic similarity through Qdrant.
 
-Pairs with the [Engram Obsidian Sync](https://github.com/Rasbandit/Engram-obsidian-sync) plugin for real-time bidirectional sync between Obsidian and the server.
+Pairs with the [Engram Obsidian Sync](https://github.com/Rasbandit/Engram-obsidian-sync) plugin for real-time bidirectional sync between Obsidian and the server via Phoenix Channels (WebSocket).
 
 ## How It Works
 
@@ -15,25 +15,21 @@ Pairs with the [Engram Obsidian Sync](https://github.com/Rasbandit/Engram-obsidi
                          +--------+--------+
                                   |
                     REST API (notes, attachments)
-                    SSE (live change stream)
+                    WebSocket (Phoenix Channels)
                                   |
                          +--------v--------+
                          |     Engram      |
-                         |   (FastAPI)     |
+                         | (Elixir/Phoenix)|
                          +--+---------+--+-+
                             |         |  |
                   +---------+    +----+  +--------+
                   |              |                 |
           +-------v------+ +----v-----+   +-------v-------+
-          |  PostgreSQL  | |  Qdrant  |   |    Ollama     |
-          |              | | (vectors)|   | (embeddings)  |
-          | notes, auth  | +----+-----+   +---------------+
-          | attachments  |      |
-          +--------------+      |  (optional)
-                          +-----v----------+
-                          | Jina Reranker  |
-                          | (search boost) |
-                          +----------------+
+          |  PostgreSQL  | |  Qdrant  |   |   Voyage AI   |
+          |  (+ Oban)    | | (vectors)|   |  (embeddings) |
+          | notes, auth  | +----------+   +---------------+
+          | RLS isolation|
+          +--------------+
 ```
 
 ### Data Flow
@@ -41,148 +37,107 @@ Pairs with the [Engram Obsidian Sync](https://github.com/Rasbandit/Engram-obsidi
 **Indexing** — when a note arrives:
 
 ```
-POST /notes ─> store in PostgreSQL
-                    |
-                    v
-              parse markdown
-          (heading-aware chunking,
-           frontmatter extraction)
-                    |
-                    v
-            embed via Ollama
-         (nomic-embed-text, 768d)
-                    |
-                    v
-          upsert into Qdrant
-       (vectors + rich metadata)
-                    |
-                    v
-         publish SSE event
-     (other clients get notified)
+POST /notes (or Channel push_note)
+    → store in PostgreSQL (immediate)
+    → broadcast to connected devices via PubSub
+    → queue Oban embedding job (5s debounce, dedup)
+        → parse markdown (Earmark AST, heading-aware chunking)
+        → contextualize (prepend folder/heading path)
+        → embed via Voyage AI (voyage-4-large, 1024d)
+        → upsert into Qdrant
 ```
 
-**Search** — two-stage pipeline:
+**Search** — semantic similarity:
 
 ```
-query ──> embed ──> Qdrant (top 4x candidates)
-                         |
-                         v
-                  Jina rerank (top N)
-                         |
-                         v
-                 blend scores (40% vector / 60% rerank)
-                         |
-                         v
-                   return results
+query → Voyage AI embed → Qdrant similarity search → top N results
 ```
-
-If Jina is unavailable, search gracefully falls back to vector scores only.
 
 ### MCP Integration
 
 Any AI assistant that speaks MCP can query your vault:
 
-```
-┌──────────────────────────────────────────────────┐
-│  MCP Tools                                       │
-│                                                  │
-│  search_notes(query, limit, tags)                │
-│     → semantic search across your vault          │
-│                                                  │
-│  get_note(source_path)                           │
-│     → fetch full note content                    │
-│                                                  │
-│  list_tags()                                     │
-│     → all tags with document counts              │
-│                                                  │
-│  list_folders()                                  │
-│     → folder tree with note counts               │
-│                                                  │
-│  write_note(path, content)                       │
-│     → update or create a note                    │
-│                                                  │
-│  create_note(title, content, suggested_folder)   │
-│     → auto-places in the best folder             │
-└──────────────────────────────────────────────────┘
-```
-
-`create_note` is smart about folder placement — it searches for similar content and places the new note alongside related notes.
+| Tool | Description |
+|------|-------------|
+| `search_notes(query, limit, tags)` | Semantic search across your vault |
+| `get_note(source_path)` | Fetch full note content |
+| `list_tags()` | All tags with document counts |
+| `list_folders()` | Folder tree with note counts |
+| `write_note(path, content)` | Update or create a note |
+| `create_note(title, content, suggested_folder)` | Auto-places in the best folder |
+| `suggest_folder(title, content)` | Suggests folder placement based on similar notes |
 
 ## Architecture
 
-- **Single service** — search, indexing, MCP, sync, and auth all in one FastAPI app. No separate processes.
-- **Multi-tenant** — all data scoped by `user_id`. Users cannot see each other's notes, searches, or attachments.
-- **Adapter pattern** — swap embedding backends (Ollama/OpenAI) or vector stores without touching search logic.
-- **Graceful degradation** — Jina reranker is optional. Redis is optional. The system works with just PostgreSQL, Qdrant, and an embedder.
-- **Real-time sync** — PostgreSQL `LISTEN/NOTIFY` fans out change events to per-user SSE streams. No polling.
-- **Background indexing** — optional async task queue (`ASYNC_INDEXING=true`) with Redis persistence and retry logic.
+- **Elixir/Phoenix OTP app** — search, indexing, MCP, sync, and auth all in one supervised application
+- **Multi-tenant with RLS** — PostgreSQL Row-Level Security enforces tenant isolation at the database level
+- **Phoenix Channels** — bidirectional real-time sync over WebSocket with Presence for device tracking
+- **Async indexing via Oban** — embedding jobs are durable, deduplicated, and retried automatically
+- **Behaviour-based adapters** — swap embedding backends (Voyage AI / Ollama) without touching search logic
+- **No Redis required** — PubSub via Erlang distribution, caching via ETS
 
 ## Quick Start
 
 ### Prerequisites
 
-- Docker and Docker Compose
-- [Ollama](https://ollama.ai) running with an embedding model
-- [Qdrant](https://qdrant.tech) running
+- Elixir 1.17+ and Erlang/OTP 27+
+- PostgreSQL 16+
+- [Qdrant](https://qdrant.tech) running locally or Qdrant Cloud
 
-Pull the embedding model if you haven't:
+### 1. Setup
 
 ```bash
-ollama pull nomic-embed-text
+mix deps.get
+mix ecto.setup    # Create DB + run migrations + seeds
 ```
 
-### 1. Configure
+### 2. Configure
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and set:
+Edit `.env` — key variables:
 
 ```bash
-# Point to your Ollama instance
-OLLAMA_URL=http://your-ollama-host:11434
-
-# Point to your Qdrant instance
-QDRANT_URL=http://your-qdrant-host:6333
-
-# Optional — improves search quality significantly
-JINA_URL=http://your-jina-host:8082
-
-# Change in production!
+DATABASE_URL=postgresql://engram:engram@localhost:5432/engram
+EMBED_BACKEND=ollama              # or "voyage" for SaaS
+EMBED_MODEL=nomic-embed-text      # or "voyage-4-large"
+EMBED_DIMS=768                    # or 1024 for Voyage
+QDRANT_URL=http://localhost:6333
 JWT_SECRET=some-random-string-at-least-32-chars
 ```
 
-### 2. Start
+See `docs/context/environment-variables.md` for the full list.
+
+### 3. Start
 
 ```bash
-docker compose up --build
+mix phx.server    # http://localhost:4000
 ```
 
-This starts:
-- **Engram** on port 8000
-- **PostgreSQL** on port 5432
-- **Redis** on port 6379
-
-### 3. Register a User
+Or with Docker:
 
 ```bash
-curl -X POST http://localhost:8000/register \
+docker compose -f docker-compose.elixir.yml up --build
+```
+
+### 4. Register & Create API Key
+
+```bash
+# Register
+curl -X POST http://localhost:4000/register \
   -H "Content-Type: application/json" \
   -d '{"email": "you@example.com", "password": "your-password"}'
-```
 
-### 4. Create an API Key
-
-```bash
-# Login to get a session token
-TOKEN=$(curl -s -X POST http://localhost:8000/login \
+# Login
+TOKEN=$(curl -s -X POST http://localhost:4000/login \
   -H "Content-Type: application/json" \
   -d '{"email": "you@example.com", "password": "your-password"}' \
   | jq -r '.token')
 
-# Create an API key
-curl -X POST http://localhost:8000/api-keys \
+# Create API key
+curl -X POST http://localhost:4000/api-keys \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-key"}'
@@ -193,12 +148,12 @@ Save the returned API key — it starts with `engram_` and is only shown once.
 ### 5. Push a Note
 
 ```bash
-curl -X POST http://localhost:8000/notes \
+curl -X POST http://localhost:4000/notes \
   -H "Authorization: Bearer engram_your_key_here" \
   -H "Content-Type: application/json" \
   -d '{
     "path": "Notes/Hello World.md",
-    "content": "---\ntags: [test, hello]\n---\n# Hello World\n\nThis is my first note.",
+    "content": "# Hello World\n\nThis is my first note.",
     "mtime": 1709234567.0
   }'
 ```
@@ -206,7 +161,7 @@ curl -X POST http://localhost:8000/notes \
 ### 6. Search
 
 ```bash
-curl -X POST http://localhost:8000/search \
+curl -X POST http://localhost:4000/search \
   -H "Authorization: Bearer engram_your_key_here" \
   -H "Content-Type: application/json" \
   -d '{"query": "hello", "limit": 5}'
@@ -216,23 +171,21 @@ curl -X POST http://localhost:8000/search \
 
 Install [Engram Obsidian Sync](https://github.com/Rasbandit/Engram-obsidian-sync) via BRAT, then configure:
 
-- **Server URL**: `http://your-server:8000`
+- **Server URL**: `http://your-server:4000`
 - **API Key**: your `engram_` key
 
-The plugin handles full vault sync, live SSE updates, offline queueing, and conflict resolution.
+The plugin handles full vault sync, live WebSocket updates, offline queueing, and conflict resolution.
 
 ## MCP Configuration
 
 ### Claude Code
-
-Add to your Claude Code MCP settings:
 
 ```json
 {
   "mcpServers": {
     "engram": {
       "type": "sse",
-      "url": "http://your-server:8000/mcp",
+      "url": "http://your-server:4000/mcp",
       "headers": {
         "Authorization": "Bearer engram_your_key_here"
       }
@@ -243,13 +196,11 @@ Add to your Claude Code MCP settings:
 
 ### Claude Desktop
 
-Add to `claude_desktop_config.json`:
-
 ```json
 {
   "mcpServers": {
     "engram": {
-      "url": "http://your-server:8000/mcp",
+      "url": "http://your-server:4000/mcp",
       "transport": "sse",
       "headers": {
         "Authorization": "Bearer engram_your_key_here"
@@ -259,15 +210,13 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
-Once connected, Claude can search your notes, read full content, browse tags/folders, and even write notes back.
-
 ## API Reference
 
 ### Notes
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/notes` | Upsert a note (creates or updates, triggers indexing) |
+| `POST` | `/notes` | Upsert a note (creates or updates, triggers async indexing) |
 | `GET` | `/notes/{path}` | Get full note by path |
 | `DELETE` | `/notes/{path}` | Soft-delete a note |
 | `GET` | `/notes/changes?since=<timestamp>` | Notes changed since timestamp (for sync) |
@@ -276,7 +225,7 @@ Once connected, Claude can search your notes, read full content, browse tags/fol
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/search` | Semantic search with optional tag filtering |
+| `POST` | `/search` | Semantic search with optional tag/folder filtering |
 | `GET` | `/tags` | All tags with document counts |
 | `GET` | `/folders` | Folder tree with note counts |
 
@@ -285,9 +234,9 @@ Once connected, Claude can search your notes, read full content, browse tags/fol
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/attachments` | Upsert binary file (base64-encoded) |
-| `GET` | `/attachments/{path}` | Get attachment (base64-encoded) |
+| `GET` | `/attachments/{path}` | Get attachment |
 | `DELETE` | `/attachments/{path}` | Soft-delete attachment |
-| `GET` | `/attachments/changes?since=<timestamp>` | Attachment metadata changes (for sync) |
+| `GET` | `/attachments/changes?since=<timestamp>` | Attachment changes (for sync) |
 | `GET` | `/user/storage` | Storage usage stats |
 
 ### Auth
@@ -300,161 +249,49 @@ Once connected, Claude can search your notes, read full content, browse tags/fol
 | `DELETE` | `/api-keys/{id}` | Revoke an API key |
 | `GET` | `/api-keys` | List API keys |
 
-### Live Sync
+### Real-time Sync
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/notes/stream` | SSE stream of note/attachment changes |
+| Protocol | Endpoint | Description |
+|----------|----------|-------------|
+| WebSocket | `/socket/websocket` | Phoenix Channel — join `sync:{user_id}` for bidirectional sync |
 
 ### System
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/health` | Liveness check |
-| `GET` | `/health/deep` | Checks PostgreSQL, Qdrant, Ollama, Redis |
+| `GET` | `/health/deep` | Checks PostgreSQL, Qdrant, embedding backend |
 
 All endpoints except `/health`, `/register`, and `/login` require `Authorization: Bearer <api_key>` header.
 
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | — | PostgreSQL connection string (required) |
-| `OLLAMA_URL` | `http://localhost:11434` | Ollama embedding server |
-| `QDRANT_URL` | `http://localhost:6333` | Qdrant vector database |
-| `JINA_URL` | `http://localhost:8082` | Jina reranker (optional) |
-| `EMBED_MODEL` | `nomic-embed-text` | Embedding model name |
-| `EMBED_DIMS` | `768` | Vector dimensions |
-| `EMBED_BACKEND` | `ollama` | `ollama` or `openai` |
-| `OPENAI_API_KEY` | — | Required if `EMBED_BACKEND=openai` |
-| `COLLECTION` | `obsidian_notes` | Qdrant collection name |
-| `JWT_SECRET` | random | JWT signing key (set in production!) |
-| `REGISTRATION_ENABLED` | `true` | Allow new user registration |
-| `LOG_LEVEL` | `INFO` | Logging verbosity |
-| `PG_POOL_MAX` | `15` | PostgreSQL pool size per worker |
-| `MAX_NOTE_SIZE` | `10MB` | Maximum single note size |
-| `MAX_ATTACHMENT_SIZE` | `5MB` | Maximum single attachment size |
-| `MAX_STORAGE_PER_USER` | `1GB` | Total attachment storage per user |
-| `ASYNC_INDEXING` | `false` | Background indexing via task queue |
-| `CORS_ORIGINS` | `*` | Comma-separated allowed origins |
-| `RATE_LIMIT_RPM` | `120` | Requests per minute per user |
-| `REDIS_URL` | — | Optional Redis for caching + rate limiting |
-
-## Embedding Backends
-
-### Ollama (default)
-
-Self-hosted, runs on CPU or GPU. No API keys needed.
-
-```bash
-EMBED_BACKEND=ollama
-OLLAMA_URL=http://your-ollama-host:11434
-EMBED_MODEL=nomic-embed-text
-EMBED_DIMS=768
-```
-
-### OpenAI
-
-Cloud-hosted, no GPU required. Needs an API key.
-
-```bash
-EMBED_BACKEND=openai
-OPENAI_API_KEY=sk-...
-OPENAI_EMBED_MODEL=text-embedding-3-small
-EMBED_DIMS=1536
-```
-
 ## Testing
 
-The test suite defines the contract that the API must honor — **~97 assertions across 40 sections**.
-
 ```bash
-# Start services
-docker compose up --build -d
+# Unit tests
+mix test
 
-# Run tests (requires Ollama + Qdrant reachable)
+# Integration tests (requires Docker Compose stack)
 bash test_plan.sh
 
-# Run tests twice: without Redis, then with Redis
-bash test_plan.sh --both
+# E2E sync tests
+python3 -m pytest e2e/tests/ -v
 ```
 
-Covers: health checks, auth flows, note CRUD, frontmatter extraction, search pipeline, sync, SSE, CORS, attachments, rate limiting, multi-tenant isolation, MCP auth, and more.
+See `docs/context/testing-strategy.md` for the full testing strategy.
 
 ## Production Deployment
 
-### Deploy Script
-
-The included `deploy.sh` handles: build, tag, push to registry, deploy via SSH, and optionally build/release the Obsidian plugin.
+Engram deploys to [Fly.io](https://fly.io) with first-class Phoenix support:
 
 ```bash
-# Configure (or put these in .env.deploy)
-export ENGRAM_REGISTRY="ghcr.io/youruser/engram"
-export DEPLOY_SERVER="user@your-server"
-export DEPLOY_DIR="/opt/engram"        # default: /opt/engram
-export DOCKER_NETWORK="ai"            # default: ai
-
-# Deploy
-./deploy.sh 2.0.0
+fly launch              # Auto-detects Phoenix, generates Dockerfile + fly.toml
+fly postgres create     # Managed PostgreSQL with daily snapshots
+fly storage create      # Tigris S3 for attachments
+fly secrets set ...     # Voyage API key, Qdrant URL, JWT secret
+fly deploy              # Runs migrations, rolling deploy
 ```
 
-### Production Architecture
-
-```
-your-server
-├── Docker network: "ai"
-│   ├── engram           :8000  ← this project
-│   ├── engram-postgres  :5432  ← note + auth storage
-│   ├── engram-redis     :6379  ← caching, rate limiting
-│   ├── ollama           :11434 ← embedding inference (GPU)
-│   ├── qdrant           :6333  ← vector database
-│   └── jina-reranker    :8082  ← search quality boost (GPU)
-```
-
-### First-Time Server Setup
-
-```bash
-# On the remote server:
-
-# Create the shared Docker network
-docker network create ai
-
-# Create persistent volume for PostgreSQL
-docker volume create engram_pg_data
-
-# Create config directory
-mkdir -p /opt/engram
-
-# Generate JWT secret (persists across deploys)
-echo "JWT_SECRET=$(openssl rand -base64 32)" > /opt/engram/.env
-echo "VERSION=2.0.0" >> /opt/engram/.env
-echo "ENGRAM_IMAGE=ghcr.io/youruser/engram" >> /opt/engram/.env
-```
-
-### Manual Operations
-
-```bash
-# Check status
-ssh user@your-server "docker ps --filter name=engram"
-
-# View logs
-ssh user@your-server "docker logs engram --tail 50"
-
-# Restart
-ssh user@your-server "docker restart engram"
-```
-
-## Web UI
-
-Engram includes a built-in web interface at the root URL (`http://your-server:8000/`). Features:
-
-- Login / registration
-- Full-text semantic search with tag filtering
-- Note viewer
-- API key management
-- Account settings
-
-Built with Jinja2 templates and htmx — no build step, no JavaScript framework.
+See `docs/context/production-deployment.md` for full infrastructure details.
 
 ## License
 

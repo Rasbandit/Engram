@@ -20,7 +20,7 @@ defmodule EngramWeb.NotesController do
         {:error, :version_conflict, server_note} ->
           conn
           |> put_status(409)
-          |> json(%{error: "version_conflict", server_note: note_json(server_note)})
+          |> json(%{conflict: true, server_note: note_json(server_note)})
 
         {:error, changeset} ->
           conn
@@ -37,20 +37,21 @@ defmodule EngramWeb.NotesController do
       {:ok, note} ->
         content = String.trim_trailing(note.content, "\n") <> "\n" <> text
 
-        case Notes.upsert_note(user, %{
-               "path" => path,
-               "content" => content,
-               "mtime" => note.mtime
-             }) do
-          {:ok, updated} ->
-            json(conn, %{note: note_json(updated)})
-
-          {:error, changeset} ->
-            conn |> put_status(422) |> json(%{errors: format_errors(changeset)})
+        case Notes.upsert_note(user, %{"path" => path, "content" => content, "mtime" => note.mtime}) do
+          {:ok, updated} -> json(conn, %{created: false, path: path, note: note_json(updated)})
+          {:error, changeset} -> conn |> put_status(422) |> json(%{errors: format_errors(changeset)})
         end
 
       {:error, :not_found} ->
-        conn |> put_status(404) |> json(%{error: "not found"})
+        # Create new note with heading from filename + appended text
+        filename = path |> Path.basename(".md")
+        content = "# #{filename}\n\n#{text}"
+        mtime = System.os_time(:second) * 1.0
+
+        case Notes.upsert_note(user, %{"path" => path, "content" => content, "mtime" => mtime}) do
+          {:ok, note} -> json(conn, %{created: true, path: path, note: note_json(note)})
+          {:error, changeset} -> conn |> put_status(422) |> json(%{errors: format_errors(changeset)})
+        end
     end
   end
 
@@ -68,8 +69,11 @@ defmodule EngramWeb.NotesController do
     user = conn.assigns.current_user
 
     case Notes.rename_note(user, old_path, new_path) do
-      {:ok, note} -> json(conn, %{note: note_json(note)})
-      {:error, :not_found} -> conn |> put_status(404) |> json(%{error: "not found"})
+      {:ok, note} ->
+        json(conn, %{renamed: true, old_path: old_path, new_path: new_path, note: note_json(note)})
+
+      {:error, :not_found} ->
+        conn |> put_status(404) |> json(%{error: "not found"})
     end
   end
 
@@ -112,7 +116,7 @@ defmodule EngramWeb.NotesController do
       folder: note.folder || "",
       tags: note.tags || [],
       version: note.version,
-      content: note.content,
+      content: note.content || "",
       mtime: note.mtime,
       updated_at: note.updated_at
     }
@@ -126,7 +130,7 @@ defmodule EngramWeb.NotesController do
       tags: change.tags || [],
       version: change.version,
       mtime: change.mtime,
-      content: change.content,
+      content: change.content || "",
       deleted: change.deleted,
       updated_at: change.updated_at
     }

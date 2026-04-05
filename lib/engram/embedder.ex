@@ -15,8 +15,5 @@ defmodule Engram.Embedder do
   """
   @callback model_info() :: %{model: String.t(), dimensions: pos_integer()}
 
-  @doc """
-  Optional — not all adapters need model_info. Defaults provided.
-  """
   @optional_callbacks [model_info: 0]
 end

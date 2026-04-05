@@ -28,7 +28,7 @@ defmodule Engram.Notes do
       tags = Helpers.extract_tags(content)
       hash = content_hash(content)
 
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      now = DateTime.utc_now()
 
       note_attrs = %{
         path: sanitized_path,
@@ -119,7 +119,7 @@ defmodule Engram.Notes do
   def rename_note(user, old_path, new_path) do
     new_path = PathSanitizer.sanitize(new_path)
     new_folder = Helpers.extract_folder(new_path)
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.utc_now()
 
     result =
       Repo.with_tenant(user.id, fn ->
@@ -153,6 +153,7 @@ defmodule Engram.Notes do
     case result do
       {:ok, {:ok, note}} ->
         Oban.insert(EmbedNote.new_debounced(note.id))
+        broadcast_change(user.id, "delete", old_path)
         broadcast_change(user.id, "upsert", note.path)
         {:ok, note}
 
@@ -169,11 +170,13 @@ defmodule Engram.Notes do
   """
   @spec delete_note(map(), String.t()) :: :ok
   def delete_note(user, path) do
+    now = DateTime.utc_now()
+
     Repo.with_tenant(user.id, fn ->
       from(n in Note,
         where: n.user_id == ^user.id and n.path == ^path and is_nil(n.deleted_at)
       )
-      |> Repo.update_all(set: [deleted_at: DateTime.utc_now() |> DateTime.truncate(:second)])
+      |> Repo.update_all(set: [deleted_at: now, updated_at: now])
     end)
 
     broadcast_change(user.id, "delete", path)
@@ -368,7 +371,7 @@ defmodule Engram.Notes do
     if notes == [] do
       {:ok, 0}
     else
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      now = DateTime.utc_now()
       old_len = String.length(old_folder)
 
       # Build bulk updates — compute new paths/folders/titles in Elixir,
@@ -422,7 +425,7 @@ defmodule Engram.Notes do
   defp validate_path(path), do: {:ok, path}
 
   defp content_hash(content) do
-    :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
+    :crypto.hash(:md5, content) |> Base.encode16(case: :lower)
   end
 
   defp broadcast_change(user_id, event_type, path) do

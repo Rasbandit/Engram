@@ -11,12 +11,12 @@ defmodule Engram.Notes.Note do
     field :version, :integer, default: 1
     field :content_hash, :string
     field :mtime, :float
-    field :deleted_at, :utc_datetime
+    field :deleted_at, :utc_datetime_usec
 
     belongs_to :user, Engram.Accounts.User
     has_many :chunks, Engram.Notes.Chunk
 
-    timestamps(type: :utc_datetime)
+    timestamps(type: :utc_datetime_usec)
   end
 
   def changeset(note, attrs) do

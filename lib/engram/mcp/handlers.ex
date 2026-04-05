@@ -177,8 +177,6 @@ defmodule Engram.MCP.Handlers do
 
   # -- Write tools --
 
-  @max_note_bytes 10 * 1024 * 1024
-
   def create_note(user, args) do
     title = args["title"] || "Untitled"
     content = args["content"] || ""

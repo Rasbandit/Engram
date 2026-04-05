@@ -18,7 +18,7 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -34,7 +34,7 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v5
         with:
-          context: ./api
+          context: .
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
@@ -60,18 +60,9 @@ jobs:
             # Pull new image
             docker pull "${REGISTRY}:${VERSION}"
 
-            # Ensure Redis is running
-            docker inspect engram-redis >/dev/null 2>&1 || \
-              docker run -d \
-                --name engram-redis \
-                --network "${NETWORK}" \
-                --log-opt max-size=50m --log-opt max-file=1 \
-                --restart unless-stopped \
-                --label net.unraid.docker.managed=dockerman \
-                redis:7-alpine redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
-
-            # Read JWT_SECRET from existing env
+            # Read secrets from existing env file
             JWT_SECRET=$(grep JWT_SECRET /opt/engram/.env | cut -d= -f2)
+            SECRET_KEY_BASE=$(grep SECRET_KEY_BASE /opt/engram/.env | cut -d= -f2)
 
             # Replace engram container
             docker stop engram 2>/dev/null || true
@@ -79,23 +70,21 @@ jobs:
             docker run -d \
               --name engram \
               --network "${NETWORK}" \
-              -p 8000:8000 \
+              -p 8000:4000 \
               --log-opt max-size=50m --log-opt max-file=1 \
               --restart unless-stopped \
               --label net.unraid.docker.managed=dockerman \
               --label 'net.unraid.docker.webui=http://[IP]:[PORT:8000]/' \
               -e TZ=America/Los_Angeles \
-              -e EMBED_MODEL=nomic-embed-text \
-              -e EMBED_BACKEND=ollama \
+              -e PHX_SERVER=true \
               -e 'DATABASE_URL=postgresql://engram:engram@engram-postgres:5432/engram' \
               -e "JWT_SECRET=${JWT_SECRET}" \
-              -e REGISTRATION_ENABLED=true \
+              -e "SECRET_KEY_BASE=${SECRET_KEY_BASE}" \
+              -e EMBED_MODEL=nomic-embed-text \
+              -e EMBED_BACKEND=ollama \
               -e 'OLLAMA_URL=http://ollama:11434' \
               -e 'QDRANT_URL=http://qdrant:6333' \
-              -e 'JINA_URL=http://jina-reranker:8082' \
-              -e COLLECTION=obsidian_notes \
-              -e LOG_LEVEL=INFO \
-              -e 'REDIS_URL=redis://engram-redis:6379/0' \
+              -e QDRANT_COLLECTION=obsidian_notes \
               "${REGISTRY}:${VERSION}"
 
             # Update version in remote .env

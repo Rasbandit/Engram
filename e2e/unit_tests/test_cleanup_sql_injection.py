@@ -4,7 +4,7 @@ These tests verify that cleanup_test_data:
 - Rejects patterns containing SQL injection payloads
 - Rejects patterns with shell metacharacters
 - Accepts legitimate e2e email patterns
-- Constructs commands using psql variable binding (not string interpolation)
+- Constructs commands using psql \\set + :'var' quoting (not string interpolation)
 """
 
 from __future__ import annotations
@@ -75,33 +75,30 @@ def test_accepts_safe_email_patterns(pattern: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Command construction — verify psql variable binding
+# Command construction — verify psql variable binding via stdin
 # ---------------------------------------------------------------------------
 
 def test_command_uses_psql_variable_binding() -> None:
-    """The generated command must use -v pat=... and :'pat', not f-string interpolation."""
+    """The SQL script must use \\set + :'pat' quoting, piped via stdin."""
     with patch("helpers.cleanup.subprocess.run") as mock_run:
         mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = "DELETE 1"
 
         cleanup_test_data("e2e-%@test.local")
 
-        cmd = mock_run.call_args[0][0]
+        # SQL is passed via stdin (input kwarg), not -c flag
+        call_kwargs = mock_run.call_args[1]
+        sql_input = call_kwargs.get("input", "")
 
-        # Must pass pattern via -v flag
-        assert "-v" in cmd
-        v_idx = cmd.index("-v")
-        assert cmd[v_idx + 1] == "pat=e2e-%@test.local"
+        # Must set variable via \set
+        assert "\\set pat 'e2e-%@test.local'" in sql_input
 
-        # SQL must reference :'pat', not contain the raw pattern
-        sql_arg_idx = cmd.index("-c") + 1
-        sql = cmd[sql_arg_idx]
-        assert ":'pat'" in sql
-        assert "e2e-%" not in sql, "Raw pattern must not appear in SQL string"
+        # SQL must reference :'pat'
+        assert ":'pat'" in sql_input
 
 
 def test_command_does_not_interpolate_pattern_into_sql() -> None:
-    """Even with a safe pattern, SQL must never contain the literal pattern value."""
+    """The SQL body (after \\set) must never contain the literal pattern value."""
     with patch("helpers.cleanup.subprocess.run") as mock_run:
         mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = "DELETE 0"
@@ -109,10 +106,13 @@ def test_command_does_not_interpolate_pattern_into_sql() -> None:
         test_pattern = "e2e-sync-99999@test.local"
         cleanup_test_data(test_pattern)
 
-        cmd = mock_run.call_args[0][0]
-        sql_arg_idx = cmd.index("-c") + 1
-        sql = cmd[sql_arg_idx]
-        assert test_pattern not in sql, "Pattern value must not be interpolated into SQL"
+        call_kwargs = mock_run.call_args[1]
+        sql_input = call_kwargs.get("input", "")
+
+        # The \set line will contain the pattern, but the SQL body must not
+        lines = sql_input.strip().split("\n")
+        sql_body = "\n".join(lines[1:])  # Skip the \set line
+        assert test_pattern not in sql_body, "Pattern value must not be interpolated into SQL body"
 
 
 # ---------------------------------------------------------------------------

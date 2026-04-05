@@ -5,7 +5,7 @@ defmodule EngramWeb.FoldersController do
 
   def index(conn, _params) do
     {:ok, folders} = Notes.list_folders(conn.assigns.current_user)
-    json(conn, %{folders: folders})
+    json(conn, %{folders: Enum.map(folders, &%{folder: &1})})
   end
 
   def list(conn, %{"folder" => folder}) do
@@ -13,6 +13,7 @@ defmodule EngramWeb.FoldersController do
     {:ok, notes} = Notes.list_notes_in_folder(user, folder)
 
     json(conn, %{
+      folder: folder,
       notes: Enum.map(notes, &note_summary/1)
     })
   end
@@ -24,7 +25,12 @@ defmodule EngramWeb.FoldersController do
   def rename(conn, %{"old_folder" => old_folder, "new_folder" => new_folder}) do
     user = conn.assigns.current_user
     {:ok, count} = Notes.rename_folder(user, old_folder, new_folder)
-    json(conn, %{count: count})
+
+    if count == 0 do
+      conn |> put_status(404) |> json(%{error: "folder not found"})
+    else
+      json(conn, %{renamed: true, old_folder: old_folder, new_folder: new_folder, count: count})
+    end
   end
 
   defp note_summary(note) do

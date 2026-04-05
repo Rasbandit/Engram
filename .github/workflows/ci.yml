@@ -15,29 +15,74 @@ concurrency:
   group: ci-engram-stack
   cancel-in-progress: true
 
+env:
+  DOCKER_BUILDKIT: "1"
+  COMPOSE_DOCKER_CLI_BUILD: "1"
+
 jobs:
-  # ---------------------------------------------------------------------------
-  # Integration tests (test_plan.sh) — runs on every push/PR
-  # ---------------------------------------------------------------------------
-  integration:
-    # Skip on plugin dispatch (backend code didn't change). Allow workflow_dispatch for manual runs.
-    if: >
-      github.event_name != 'repository_dispatch' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
+  ci:
     runs-on: [self-hosted, engram]
 
     steps:
+      # ------------------------------------------------------------------
+      # Cleanup + checkout
+      # ------------------------------------------------------------------
       - name: Pre-cleanup stale resources
         run: |
           docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
+          docker rm -f engram-test-db 2>/dev/null || true
+          pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
+          pkill -9 Xvfb 2>/dev/null || true
+          rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Run unit tests (E2E helpers)
+      # ------------------------------------------------------------------
+      # Unit tests (Elixir + E2E helpers) — run while Docker builds
+      # ------------------------------------------------------------------
+      - name: Start test database
         run: |
-          python3 -m pytest e2e/unit_tests/ -v
+          docker run -d --name engram-test-db \
+            -e POSTGRES_USER=engram \
+            -e POSTGRES_PASSWORD=engram \
+            -e POSTGRES_DB=engram_test \
+            -p 5432:5432 \
+            --health-cmd "pg_isready -U engram" \
+            --health-interval 3s \
+            --health-timeout 3s \
+            --health-retries 10 \
+            postgres:16-alpine
+          for i in $(seq 1 30); do
+            if docker exec engram-test-db pg_isready -U engram > /dev/null 2>&1; then
+              echo "Test DB ready"
+              break
+            fi
+            sleep 1
+          done
 
+      - name: Build CI stack image (background)
+        run: docker compose -f docker-compose.ci.yml -p engram-ci build &
+
+      - name: Run Elixir unit tests
+        run: |
+          mix deps.get --only test
+          MIX_ENV=test mix ecto.create
+          MIX_ENV=test mix ecto.migrate
+          mix test
+
+      - name: Stop test database
+        if: always()
+        run: docker rm -f engram-test-db 2>/dev/null || true
+
+      - name: Run E2E helper unit tests
+        run: python3 -m pytest e2e/unit_tests/ -v
+
+      # ------------------------------------------------------------------
+      # Integration tests (test_plan.sh)
+      # Skip on plugin dispatch (backend code didn't change)
+      # ------------------------------------------------------------------
       - name: Start CI stack
+        if: github.event_name != 'repository_dispatch'
         run: |
           docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
           for i in $(seq 1 30); do
@@ -49,53 +94,30 @@ jobs:
           done
 
       - name: Run integration tests
+        if: github.event_name != 'repository_dispatch'
         run: ENGRAM_TEST_URL=http://localhost:8100/api bash test_plan.sh --skip-search
 
-      - name: Collect logs on failure
-        if: failure()
+      # ------------------------------------------------------------------
+      # E2E tests — full Obsidian sync cycle
+      # Runs on every push. Restarts CI stack with fresh volumes.
+      # ------------------------------------------------------------------
+      - name: Reset CI stack for E2E (fresh database)
         run: |
-          mkdir -p ci-artifacts
-          docker compose -f docker-compose.ci.yml -p engram-ci logs > ci-artifacts/docker-compose.log 2>&1
-
-      - name: Upload failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-debug-${{ github.sha }}
-          path: ci-artifacts/
-          retention-days: 7
-
-      - name: Tear down CI stack
-        if: always()
-        run: docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans
-
-  # ---------------------------------------------------------------------------
-  # E2E tests — full Obsidian sync cycle
-  # Runs on: push to main (after integration passes), or plugin dispatch
-  # ---------------------------------------------------------------------------
-  e2e:
-    needs: [integration]
-    if: >
-      always() && !cancelled() &&
-      (
-        github.event_name == 'repository_dispatch' ||
-        github.event_name == 'workflow_dispatch' ||
-        (github.ref == 'refs/heads/main' && needs.integration.result == 'success')
-      )
-    runs-on: [self-hosted, engram]
-
-    steps:
-      - name: Pre-cleanup stale resources
-        run: |
+          echo "Tearing down CI stack to clear integration test state..."
           docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
-          pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
-          pkill -9 Xvfb 2>/dev/null || true
           rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
-
-      - uses: actions/checkout@v4
+          echo "Starting CI stack with fresh volumes..."
+          docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
+              echo "engram is healthy"
+              break
+            fi
+            sleep 1
+          done
 
       - name: Checkout plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Rasbandit/Engram-obsidian-sync
           token: ${{ secrets.CROSS_REPO_PAT }}
@@ -116,21 +138,10 @@ jobs:
           done
           echo "Plugin build OK: $(ls -la plugin-src/main.js)"
 
-      - name: Start CI stack
-        run: |
-          docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
-              echo "engram is healthy"
-              break
-            fi
-            sleep 1
-          done
-
       - name: Check Ollama reachability
         run: |
           if ! curl -sf http://10.0.20.214:11434/api/tags > /dev/null 2>&1; then
-            echo "WARNING: Ollama on FastRaid not reachable — embedding tests will fail"
+            echo "WARNING: Ollama on FastRaid not reachable — embedding tests may fail"
           else
             echo "Ollama OK"
           fi
@@ -143,12 +154,14 @@ jobs:
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
           CI_POSTGRES_CONTAINER: engram-ci-postgres-1
 
+      # ------------------------------------------------------------------
+      # Cleanup + artifacts
+      # ------------------------------------------------------------------
       - name: Collect logs on failure
         if: failure()
         run: |
           mkdir -p ci-artifacts
           docker compose -f docker-compose.ci.yml -p engram-ci logs > ci-artifacts/docker-compose.log 2>&1
-          # Capture vault state for debugging
           for v in /tmp/e2e-vault-*; do
             if [ -d "$v" ]; then
               tar czf "ci-artifacts/$(basename $v).tar.gz" -C /tmp "$(basename $v)" 2>/dev/null || true
@@ -157,16 +170,17 @@ jobs:
 
       - name: Upload failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: e2e-debug-${{ github.sha }}
+          name: ci-debug-${{ github.sha }}
           path: ci-artifacts/
           retention-days: 7
 
-      - name: Tear down CI stack + processes
+      - name: Tear down
         if: always()
         run: |
           docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
+          docker rm -f engram-test-db 2>/dev/null || true
           pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
           pkill -9 Xvfb 2>/dev/null || true
           rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*

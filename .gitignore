@@ -1,10 +1,10 @@
-# Environment
-.env
-.env.deploy
-.env.elixir
+# Environment (keep .env.elixir.example as canonical template)
+.env*
+!.env.elixir.example
 
-# Python (benchmarks)
+# Python (benchmarks, e2e)
 __pycache__/
+.pytest_cache/
 
 # Elixir/Phoenix
 /_build/
