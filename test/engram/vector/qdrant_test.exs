@@ -11,11 +11,15 @@ defmodule Engram.Vector.QdrantTest do
   end
 
   describe "ensure_collection/2" do
-    test "creates collection with correct dims", %{bypass: bypass} do
+    test "creates collection with binary quantization config", %{bypass: bypass} do
       Bypass.expect_once(bypass, "PUT", "/collections/test_col", fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)
         decoded = Jason.decode!(body)
         assert decoded["vectors"]["size"] == 1024
+        assert decoded["vectors"]["distance"] == "Cosine"
+
+        quant = decoded["quantization_config"]["binary"]
+        assert quant["always_ram"] == true
 
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
@@ -94,6 +98,22 @@ defmodule Engram.Vector.QdrantTest do
       assert {:ok, results} = Qdrant.search("test_col", vector, user_id: "1", limit: 5)
       assert length(results) == 1
       assert hd(results).score == 0.95
+    end
+
+    test "includes binary quantization rescore params", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/collections/test_col/points/query", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        decoded = Jason.decode!(body)
+        assert decoded["params"]["quantization"]["rescore"] == true
+        assert decoded["params"]["quantization"]["oversampling"] == 3.0
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"result" => []}))
+      end)
+
+      vector = List.duplicate(0.1, 1024)
+      assert {:ok, []} = Qdrant.search("test_col", vector, user_id: "1", limit: 5)
     end
 
     test "returns empty list when no results", %{bypass: bypass} do

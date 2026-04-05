@@ -34,7 +34,17 @@ defmodule Engram.Vector.Qdrant do
   def ensure_collection(col \\ nil, dims) do
     col = col || collection()
 
-    opts = [json: %{vectors: %{size: dims, distance: "Cosine"}}] ++ req_opts()
+    opts =
+      [
+        json: %{
+          vectors: %{size: dims, distance: "Cosine"},
+          quantization_config: %{
+            binary: %{
+              always_ram: true
+            }
+          }
+        }
+      ] ++ req_opts()
 
     case Req.put("#{base_url()}/collections/#{col}", opts) do
       {:ok, %{status: status}} when status in [200, 201] -> :ok
@@ -101,7 +111,18 @@ defmodule Engram.Vector.Qdrant do
     must = if tags, do: [%{key: "tags", match: %{any: tags}} | must], else: must
     must = if folder, do: [%{key: "folder", match: %{value: folder}} | must], else: must
 
-    body = %{query: vector, filter: %{must: must}, limit: limit, with_payload: true}
+    body = %{
+      query: vector,
+      filter: %{must: must},
+      limit: limit,
+      with_payload: true,
+      params: %{
+        quantization: %{
+          rescore: true,
+          oversampling: 3.0
+        }
+      }
+    }
     opts = [json: body] ++ req_opts()
 
     case Req.post("#{base_url()}/collections/#{col}/points/query", opts) do
