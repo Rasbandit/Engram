@@ -1,8 +1,20 @@
 defmodule EngramWeb.MarketingControllerTest do
   use EngramWeb.ConnCase, async: true
 
+  # First TCP congestion window ≈ 14KB. Marketing pages must fit
+  # within this budget (gzipped) for single-RTT first paint.
+  @max_gzipped_bytes 14_336
+
   defp html_conn(%{conn: conn}) do
     {:ok, conn: put_req_header(conn, "accept", "text/html")}
+  end
+
+  defp assert_within_14kb(body) do
+    gzipped = :zlib.gzip(body)
+    gzipped_size = byte_size(gzipped)
+
+    assert gzipped_size <= @max_gzipped_bytes,
+           "Page exceeds 14KB budget: #{gzipped_size} bytes gzipped (limit: #{@max_gzipped_bytes})"
   end
 
   describe "GET /" do
@@ -17,6 +29,7 @@ defmodule EngramWeb.MarketingControllerTest do
       assert body =~ "Semantic Search"
       assert body =~ "MCP Integration"
       assert body =~ "Start Free Trial"
+      assert_within_14kb(body)
     end
 
     test "includes marketing layout with nav and stylesheet", %{conn: conn} do
@@ -43,6 +56,7 @@ defmodule EngramWeb.MarketingControllerTest do
       assert body =~ "Pro"
       assert body =~ "$5"
       assert body =~ "$10"
+      assert_within_14kb(body)
     end
 
     test "shows feature details for both tiers", %{conn: conn} do
@@ -67,6 +81,7 @@ defmodule EngramWeb.MarketingControllerTest do
       assert body =~ "API Documentation"
       assert body =~ "Authentication"
       assert body =~ "engram_your_api_key"
+      assert_within_14kb(body)
     end
 
     test "lists key endpoints", %{conn: conn} do
