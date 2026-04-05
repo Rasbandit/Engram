@@ -1,6 +1,19 @@
 defmodule EngramWeb.SpaControllerTest do
   use EngramWeb.ConnCase
 
+  setup do
+    # Ensure a minimal index.html exists for SPA tests (CI has no frontend build)
+    path = Application.app_dir(:engram, "priv/static/app")
+    File.mkdir_p!(path)
+    index = Path.join(path, "index.html")
+
+    unless File.exists?(index) do
+      File.write!(index, ~s(<!DOCTYPE html><html><body><div id="root"></div></body></html>))
+    end
+
+    :ok
+  end
+
   test "GET /app returns HTML with index.html content", %{conn: conn} do
     conn = get(conn, "/app")
     assert response_content_type(conn, :html)
