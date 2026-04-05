@@ -19,6 +19,9 @@ defmodule Engram.Embedders.Ollama do
   end
 
   @impl true
+  def embed_texts(texts, _opts) when is_list(texts), do: embed_texts(texts)
+
+  @impl true
   def embed_texts(texts) when is_list(texts) do
     url = System.get_env("OLLAMA_URL", @default_url)
     model = Application.get_env(:engram, :embed_model, @default_model)

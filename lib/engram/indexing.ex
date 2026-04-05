@@ -32,7 +32,7 @@ defmodule Engram.Indexing do
       dims = Application.get_env(:engram, :embed_dims, @default_dims)
 
       with :ok <- Qdrant.ensure_collection(collection(), dims),
-           {:ok, vectors} <- embedder().embed_texts(context_texts),
+           {:ok, vectors} <- embed_for_indexing(context_texts),
            :ok <- replace_chunks(note, chunks, vectors) do
         {:ok, length(chunks)}
       end
@@ -50,6 +50,15 @@ defmodule Engram.Indexing do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  defp doc_embed_model, do: Application.get_env(:engram, :doc_embed_model)
+
+  defp embed_for_indexing(texts) do
+    case doc_embed_model() do
+      nil -> embedder().embed_texts(texts)
+      model -> embedder().embed_texts(texts, model: model)
+    end
+  end
 
   defp replace_chunks(note, chunks, vectors) do
     # skip_tenant_check: trusted internal pipeline, already scoped by note_id/user_id

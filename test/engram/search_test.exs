@@ -159,6 +159,41 @@ defmodule Engram.SearchTest do
       assert hd(results).source_path == "test/note3.md"
     end
 
+    test "uses query embed model when configured", %{bypass: bypass, user: user} do
+      Application.put_env(:engram, :query_embed_model, "voyage-4-lite")
+      on_exit(fn -> Application.delete_env(:engram, :query_embed_model) end)
+
+      Engram.MockEmbedder
+      |> expect(:embed_texts, fn ["test query"], [model: "voyage-4-lite"] ->
+        {:ok, [List.duplicate(0.1, 3)]}
+      end)
+
+      Bypass.expect_once(bypass, "POST", "/collections/obsidian_notes/points/query", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": []}))
+      end)
+
+      assert {:ok, []} = Search.search(user, "test query")
+    end
+
+    test "uses default embed when query model not configured", %{bypass: bypass, user: user} do
+      Application.delete_env(:engram, :query_embed_model)
+
+      Engram.MockEmbedder
+      |> expect(:embed_texts, fn ["test query"] ->
+        {:ok, [List.duplicate(0.1, 3)]}
+      end)
+
+      Bypass.expect_once(bypass, "POST", "/collections/obsidian_notes/points/query", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": []}))
+      end)
+
+      assert {:ok, []} = Search.search(user, "test query")
+    end
+
     test "returns empty list when Qdrant returns no results", %{bypass: bypass, user: user} do
       Engram.MockEmbedder
       |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)

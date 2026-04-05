@@ -66,4 +66,38 @@ defmodule Engram.Embedders.VoyageTest do
       Voyage.embed_texts(["hello"])
     end
   end
+
+  describe "embed_texts/2" do
+    test "uses model override when provided", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/v1/embeddings", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        decoded = Jason.decode!(body)
+        assert decoded["model"] == "voyage-4-lite"
+
+        resp = %{"data" => [%{"embedding" => [0.1, 0.2]}]}
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(resp))
+      end)
+
+      assert {:ok, _} = Voyage.embed_texts(["hello"], model: "voyage-4-lite")
+    end
+
+    test "falls back to configured model when no override", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/v1/embeddings", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        decoded = Jason.decode!(body)
+        assert decoded["model"] == Application.get_env(:engram, :embed_model, "voyage-4-large")
+
+        resp = %{"data" => [%{"embedding" => [0.1, 0.2]}]}
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(resp))
+      end)
+
+      assert {:ok, _} = Voyage.embed_texts(["hello"], [])
+    end
+  end
 end

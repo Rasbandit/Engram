@@ -41,6 +41,16 @@ if config_env() != :test do
     config :engram, :embed_dims, String.to_integer(System.get_env("EMBED_DIMS"))
   end
 
+  # Asymmetric retrieval: separate models for doc indexing vs search queries.
+  # Falls back to EMBED_MODEL if not set (symmetric mode).
+  if doc_model = System.get_env("DOC_EMBED_MODEL") do
+    config :engram, :doc_embed_model, doc_model
+  end
+
+  if query_model = System.get_env("QUERY_EMBED_MODEL") do
+    config :engram, :query_embed_model, query_model
+  end
+
   if System.get_env("QDRANT_URL") do
     config :engram, :qdrant_url, System.get_env("QDRANT_URL")
   end

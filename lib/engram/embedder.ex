@@ -10,10 +10,15 @@ defmodule Engram.Embedder do
   @callback embed_texts([String.t()]) :: {:ok, [[float()]]} | {:error, term()}
 
   @doc """
+  Embed a batch of texts with options (e.g., model override for asymmetric retrieval).
+  """
+  @callback embed_texts([String.t()], keyword()) :: {:ok, [[float()]]} | {:error, term()}
+
+  @doc """
   Returns metadata about the embedder: model name and vector dimensions.
   Used for collection setup and diagnostics.
   """
   @callback model_info() :: %{model: String.t(), dimensions: pos_integer()}
 
-  @optional_callbacks [model_info: 0]
+  @optional_callbacks [model_info: 0, embed_texts: 2]
 end

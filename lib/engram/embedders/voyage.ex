@@ -18,9 +18,12 @@ defmodule Engram.Embedders.Voyage do
   end
 
   @impl true
-  def embed_texts(texts) when is_list(texts) do
+  def embed_texts(texts) when is_list(texts), do: embed_texts(texts, [])
+
+  @impl true
+  def embed_texts(texts, opts) when is_list(texts) do
     url = Application.get_env(:engram, :voyage_url, @default_url)
-    model = Application.get_env(:engram, :embed_model, @default_model)
+    model = Keyword.get(opts, :model, Application.get_env(:engram, :embed_model, @default_model))
 
     api_key =
       System.get_env("VOYAGE_API_KEY") ||
