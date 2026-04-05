@@ -40,7 +40,10 @@ defmodule EngramWeb.WebhookControllerTest do
       timestamp = System.system_time(:second)
       secret = Application.get_env(:engram, :stripe_webhook_secret)
       signed_payload = "#{timestamp}.#{payload}"
-      signature = :crypto.mac(:hmac, :sha256, secret, signed_payload) |> Base.encode16(case: :lower)
+
+      signature =
+        :crypto.mac(:hmac, :sha256, secret, signed_payload) |> Base.encode16(case: :lower)
+
       sig_header = "t=#{timestamp},v1=#{signature}"
 
       conn =
@@ -62,7 +65,10 @@ defmodule EngramWeb.WebhookControllerTest do
       timestamp = System.system_time(:second)
       secret = Application.get_env(:engram, :stripe_webhook_secret)
       signed_payload = "#{timestamp}.#{payload}"
-      signature = :crypto.mac(:hmac, :sha256, secret, signed_payload) |> Base.encode16(case: :lower)
+
+      signature =
+        :crypto.mac(:hmac, :sha256, secret, signed_payload) |> Base.encode16(case: :lower)
+
       sig_header = "t=#{timestamp},v1=#{signature}"
 
       conn =

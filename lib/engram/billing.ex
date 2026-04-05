@@ -110,7 +110,8 @@ defmodule Engram.Billing do
     %Subscription{}
     |> Subscription.changeset(attrs)
     |> Repo.insert(
-      on_conflict: {:replace, [:stripe_customer_id, :stripe_subscription_id, :tier, :status, :updated_at]},
+      on_conflict:
+        {:replace, [:stripe_customer_id, :stripe_subscription_id, :tier, :status, :updated_at]},
       conflict_target: :user_id,
       skip_tenant_check: true
     )
