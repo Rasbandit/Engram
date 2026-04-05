@@ -1,6 +1,8 @@
 defmodule EngramWeb.BillingController do
   use EngramWeb, :controller
 
+  require Logger
+
   alias Engram.Billing
 
   def status(conn, _params) do
@@ -26,8 +28,12 @@ defmodule EngramWeb.BillingController do
     user = conn.assigns.current_user
 
     case Billing.create_checkout_session(user, tier) do
-      {:ok, url} -> json(conn, %{url: url})
-      {:error, error} -> conn |> put_status(500) |> json(%{error: inspect(error)})
+      {:ok, url} ->
+        json(conn, %{url: url})
+
+      {:error, error} ->
+        Logger.error("Stripe checkout error: #{inspect(error)}")
+        conn |> put_status(502) |> json(%{error: "payment provider error"})
     end
   end
 
@@ -39,9 +45,15 @@ defmodule EngramWeb.BillingController do
     user = conn.assigns.current_user
 
     case Billing.create_portal_session(user) do
-      {:ok, url} -> json(conn, %{url: url})
-      {:error, :no_subscription} -> conn |> put_status(404) |> json(%{error: "no subscription"})
-      {:error, error} -> conn |> put_status(500) |> json(%{error: inspect(error)})
+      {:ok, url} ->
+        json(conn, %{url: url})
+
+      {:error, :no_subscription} ->
+        conn |> put_status(404) |> json(%{error: "no subscription"})
+
+      {:error, error} ->
+        Logger.error("Stripe portal error: #{inspect(error)}")
+        conn |> put_status(502) |> json(%{error: "payment provider error"})
     end
   end
 end

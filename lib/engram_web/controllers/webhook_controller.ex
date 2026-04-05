@@ -1,15 +1,26 @@
 defmodule EngramWeb.WebhookController do
   use EngramWeb, :controller
 
+  require Logger
+
   alias Engram.Billing
+
+  @max_signature_age_seconds 300
 
   def stripe(conn, _params) do
     with {:ok, sig_header} <- get_signature(conn),
          {:ok, payload} <- read_body_once(conn),
          :ok <- verify_signature(payload, sig_header) do
       event = Jason.decode!(payload)
-      Billing.upsert_from_stripe_event(event)
-      json(conn, %{status: "ok"})
+
+      case Billing.upsert_from_stripe_event(event) do
+        {:ok, _} ->
+          json(conn, %{status: "ok"})
+
+        {:error, reason} ->
+          Logger.warning("Stripe webhook processing failed: #{inspect(reason)}")
+          json(conn, %{status: "ok"})
+      end
     else
       {:error, reason} ->
         conn
@@ -36,7 +47,8 @@ defmodule EngramWeb.WebhookController do
     secret = Application.get_env(:engram, :stripe_webhook_secret)
 
     with {:ok, timestamp} <- extract_timestamp(sig_header),
-         {:ok, expected_sig} <- extract_v1_signature(sig_header) do
+         {:ok, expected_sig} <- extract_v1_signature(sig_header),
+         :ok <- check_timestamp_age(timestamp) do
       signed_payload = "#{timestamp}.#{payload}"
 
       computed =
@@ -48,6 +60,16 @@ defmodule EngramWeb.WebhookController do
       else
         {:error, "invalid signature"}
       end
+    end
+  end
+
+  defp check_timestamp_age(timestamp_str) do
+    age = abs(System.system_time(:second) - String.to_integer(timestamp_str))
+
+    if age <= @max_signature_age_seconds do
+      :ok
+    else
+      {:error, "timestamp too old"}
     end
   end
 

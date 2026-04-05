@@ -12,10 +12,12 @@ defmodule EngramWeb.WebhookControllerTest do
     end
 
     test "returns 400 when signature is invalid", %{conn: conn} do
+      timestamp = System.system_time(:second)
+
       conn =
         conn
         |> put_req_header("content-type", "application/json")
-        |> put_req_header("stripe-signature", "t=123,v1=bad")
+        |> put_req_header("stripe-signature", "t=#{timestamp},v1=bad")
         |> post("/webhooks/stripe", ~s({"type":"test"}))
 
       assert json_response(conn, 400)["error"] =~ "signature"
@@ -78,6 +80,28 @@ defmodule EngramWeb.WebhookControllerTest do
         |> post("/webhooks/stripe", payload)
 
       assert json_response(conn, 200)["status"] == "ok"
+    end
+
+    test "returns 400 for replayed signature with old timestamp", %{conn: conn} do
+      payload = Jason.encode!(%{"type" => "invoice.paid", "data" => %{"object" => %{}}})
+
+      # Timestamp 10 minutes ago — exceeds 300s tolerance
+      timestamp = System.system_time(:second) - 600
+      secret = Application.get_env(:engram, :stripe_webhook_secret)
+      signed_payload = "#{timestamp}.#{payload}"
+
+      signature =
+        :crypto.mac(:hmac, :sha256, secret, signed_payload) |> Base.encode16(case: :lower)
+
+      sig_header = "t=#{timestamp},v1=#{signature}"
+
+      conn =
+        conn
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("stripe-signature", sig_header)
+        |> post("/webhooks/stripe", payload)
+
+      assert json_response(conn, 400)["error"] =~ "timestamp"
     end
   end
 end
