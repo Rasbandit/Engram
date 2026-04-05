@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import logging
 import os
 import shutil
@@ -119,7 +120,7 @@ class ObsidianInstance:
 
         data = {
             "settings": {
-                "apiUrl": self.api_url,
+                "apiUrl": re.sub(r"/api/?$", "", self.api_url),
                 "apiKey": self.api_key,
                 "ignorePatterns": "",
                 "syncIntervalMinutes": 1,

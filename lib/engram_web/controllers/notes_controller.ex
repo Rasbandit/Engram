@@ -37,9 +37,16 @@ defmodule EngramWeb.NotesController do
       {:ok, note} ->
         content = String.trim_trailing(note.content, "\n") <> "\n" <> text
 
-        case Notes.upsert_note(user, %{"path" => path, "content" => content, "mtime" => note.mtime}) do
-          {:ok, updated} -> json(conn, %{created: false, path: path, note: note_json(updated)})
-          {:error, changeset} -> conn |> put_status(422) |> json(%{errors: format_errors(changeset)})
+        case Notes.upsert_note(user, %{
+               "path" => path,
+               "content" => content,
+               "mtime" => note.mtime
+             }) do
+          {:ok, updated} ->
+            json(conn, %{created: false, path: path, note: note_json(updated)})
+
+          {:error, changeset} ->
+            conn |> put_status(422) |> json(%{errors: format_errors(changeset)})
         end
 
       {:error, :not_found} ->
@@ -49,8 +56,11 @@ defmodule EngramWeb.NotesController do
         mtime = System.os_time(:second) * 1.0
 
         case Notes.upsert_note(user, %{"path" => path, "content" => content, "mtime" => mtime}) do
-          {:ok, note} -> json(conn, %{created: true, path: path, note: note_json(note)})
-          {:error, changeset} -> conn |> put_status(422) |> json(%{errors: format_errors(changeset)})
+          {:ok, note} ->
+            json(conn, %{created: true, path: path, note: note_json(note)})
+
+          {:error, changeset} ->
+            conn |> put_status(422) |> json(%{errors: format_errors(changeset)})
         end
     end
   end

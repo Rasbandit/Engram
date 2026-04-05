@@ -118,8 +118,6 @@ class CdpClient:
         result = await self.evaluate(f"{PLUGIN_PATH}.isLiveConnected()")
         return result is True
 
-    # Backward compat alias
-    check_sse_connected = check_stream_connected
 
     async def set_conflict_resolution(self, mode: str) -> None:
         """Set the plugin's conflictResolution setting.
@@ -237,8 +235,6 @@ class CdpClient:
         await self.evaluate(f"{PLUGIN_PATH}.noteStream.disconnect()")
         logger.info("Stream disconnected on CDP port %d", self.port)
 
-    # Backward compat alias
-    disconnect_sse = disconnect_stream
 
     async def reconnect_stream(self) -> None:
         """Reconnect the real-time stream after a disconnect.
@@ -255,8 +251,6 @@ class CdpClient:
                 return
         logger.warning("Stream did not reconnect within 10s on CDP port %d", self.port)
 
-    # Backward compat alias
-    reconnect_sse = reconnect_stream
 
     async def simulate_offline(self) -> None:
         """Override API methods to throw, simulating network failure.
@@ -319,6 +313,22 @@ class CdpClient:
         """Read the offline queue size."""
         result = await self.evaluate(f"{ENGINE_PATH}.queue.size")
         return result if isinstance(result, int) else 0
+
+    async def get_queue_entries(self) -> list[dict]:
+        """Dump queue entries for diagnostics (path, action, timestamp)."""
+        result = await self.evaluate(
+            f"JSON.stringify({ENGINE_PATH}.queue.all().map("
+            f"e => ({{path: e.path, action: e.action, kind: e.kind, ts: e.timestamp}})))"
+        )
+        if isinstance(result, str):
+            import json as _json
+            return _json.loads(result)
+        return []
+
+    async def clear_queue(self) -> None:
+        """Clear the offline queue (for test isolation)."""
+        await self.evaluate(f"{ENGINE_PATH}.queue.entries.clear()")
+        logger.info("Queue cleared on CDP port %d", self.port)
 
     async def get_offline_status(self) -> bool:
         """Read whether the engine is in offline mode."""

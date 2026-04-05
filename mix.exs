@@ -41,6 +41,8 @@ defmodule Engram.MixProject do
     [
       # Phoenix
       {:phoenix, "~> 1.8.5"},
+      {:phoenix_html, "~> 4.1"},
+      {:phoenix_live_view, "~> 1.1"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
       {:postgrex, ">= 0.0.0"},
@@ -60,6 +62,9 @@ defmodule Engram.MixProject do
 
       # Markdown parsing
       {:earmark, "~> 1.4"},
+
+      # CSS
+      {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},
 
       # HTTP client (Qdrant, Voyage AI)
       {:req, "~> 0.5"},
@@ -92,7 +97,8 @@ defmodule Engram.MixProject do
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],
+      "assets.deploy": ["tailwind marketing --minify", "phx.digest"]
     ]
   end
 end

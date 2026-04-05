@@ -10,6 +10,11 @@ defmodule EngramWeb.Router do
     }
   end
 
+  pipeline :browser do
+    plug :accepts, ["html"]
+    plug :put_secure_browser_headers
+  end
+
   # Stripe webhooks — no auth, raw body for signature verification
   scope "/webhooks", EngramWeb do
     pipe_through :api
@@ -76,6 +81,15 @@ defmodule EngramWeb.Router do
     get "/billing/status", BillingController, :status
     post "/billing/checkout-session", BillingController, :create_checkout
     get "/billing/portal", BillingController, :customer_portal
+  end
+
+  # Marketing pages — server-rendered HTML, before SPA catch-all
+  scope "/", EngramWeb do
+    pipe_through :browser
+
+    get "/", MarketingController, :index
+    get "/pricing", MarketingController, :pricing
+    get "/docs", MarketingController, :docs
   end
 
   # SPA fallback — serves React app for all /app and /share routes.

@@ -5,13 +5,25 @@ import Config
 # The MIX_TEST_PARTITION environment variable can be used
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
+repo_opts =
+  case System.get_env("DATABASE_URL") do
+    nil ->
+      [
+        username: "engram",
+        password: "engram",
+        hostname: "localhost",
+        database: "engram_test#{System.get_env("MIX_TEST_PARTITION")}"
+      ]
+
+    url ->
+      [url: url]
+  end
+
 config :engram, Engram.Repo,
-  username: "engram",
-  password: "engram",
-  hostname: "localhost",
-  database: "engram_test#{System.get_env("MIX_TEST_PARTITION")}",
-  pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  Keyword.merge(repo_opts,
+    pool: Ecto.Adapters.SQL.Sandbox,
+    pool_size: System.schedulers_online() * 2
+  )
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.

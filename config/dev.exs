@@ -25,7 +25,8 @@ config :engram, EngramWeb.Endpoint,
   debug_errors: true,
   secret_key_base: "hZXoe4bVk7sJkF6CT/1jG+/4X03lcdTECjUFOWwKSlF0KAecv1CROWuFYqrtzY3k",
   watchers: [
-    npm: ["run", "dev", "--", "--clearScreen", "false", cd: Path.expand("../frontend", __DIR__)]
+    npm: ["run", "dev", "--", "--clearScreen", "false", cd: Path.expand("../frontend", __DIR__)],
+    tailwind: {Tailwind, :install_and_run, [:marketing, ~w(--watch)]}
   ]
 
 # ## SSL Support

@@ -1,6 +1,6 @@
-"""Test 23: SSE disconnect → reconnect → catch-up pull.
+"""Test 23: Channel disconnect → reconnect → catch-up pull.
 
-When the SSE stream drops, the plugin should auto-reconnect (exponential
+When the WebSocket channel drops, the plugin should auto-reconnect (exponential
 backoff starting at 1s). On reconnect, onStatusChange(true) triggers a
 catch-up pull that fetches any changes missed while disconnected.
 """
@@ -13,28 +13,28 @@ from helpers.vault import wait_for_file, write_note
 
 
 @pytest.mark.asyncio
-async def test_sse_reconnect_catches_up(vault_a, vault_b, cdp_a, cdp_b, api_sync):
-    """SSE drops, A creates note, SSE reconnects, B gets the note."""
-    path = "E2E/SSEReconnect.md"
+async def test_channel_reconnect_catches_up(vault_a, vault_b, cdp_a, cdp_b, api_sync):
+    """Channel drops, A creates note, channel reconnects, B gets the note."""
+    path = "E2E/ChannelReconnect.md"
 
-    # Wait for SSE to be connected on B (may take a moment after prior tests)
+    # Wait for channel to be connected on B (may take a moment after prior tests)
     for _ in range(10):
-        if await cdp_b.check_sse_connected():
+        if await cdp_b.check_stream_connected():
             break
         await asyncio.sleep(1)
-    assert await cdp_b.check_sse_connected(), "B's SSE should be connected"
+    assert await cdp_b.check_stream_connected(), "B's channel should be connected"
 
-    # Disconnect B's SSE stream
-    await cdp_b.disconnect_sse()
+    # Disconnect B's channel
+    await cdp_b.disconnect_stream()
     await asyncio.sleep(0.3)
-    assert not await cdp_b.check_sse_connected(), "B's SSE should be disconnected"
+    assert not await cdp_b.check_stream_connected(), "B's channel should be disconnected"
 
-    # A creates a note while B's SSE is down
-    write_note(vault_a, path, "# SSE Reconnect Test\nCreated while B was disconnected")
+    # A creates a note while B's channel is down
+    write_note(vault_a, path, "# Channel Reconnect Test\nCreated while B was disconnected")
     api_sync.wait_for_note(path, timeout=10)
 
-    # Reconnect B's SSE — triggers catch-up pull (main.ts:354)
-    await cdp_b.reconnect_sse()
+    # Reconnect B's channel — triggers catch-up pull
+    await cdp_b.reconnect_stream()
 
     # Wait for catch-up pull to deliver the note
     b_content = wait_for_file(vault_b, path, timeout=15)

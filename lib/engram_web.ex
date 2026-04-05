@@ -17,7 +17,7 @@ defmodule EngramWeb do
   those modules here.
   """
 
-  def static_paths, do: ~w(app assets fonts images favicon.ico robots.txt)
+  def static_paths, do: ~w(app assets css fonts images favicon.ico robots.txt)
 
   def router do
     quote do
@@ -42,6 +42,17 @@ defmodule EngramWeb do
       use Gettext, backend: EngramWeb.Gettext
 
       import Plug.Conn
+
+      unquote(verified_routes())
+    end
+  end
+
+  def html do
+    quote do
+      use Phoenix.Component
+
+      import Phoenix.Controller,
+        only: [get_csrf_token: 0, get_flash: 1, get_flash: 2]
 
       unquote(verified_routes())
     end

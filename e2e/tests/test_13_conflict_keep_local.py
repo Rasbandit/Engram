@@ -19,10 +19,10 @@ async def test_conflict_keep_local(vault_a, vault_b, cdp_a, cdp_b, api_sync):
     """Both edit same note. B resolves with keep-local → B's version wins everywhere."""
     path = "E2E/ConflictKeepLocal.md"
 
-    # Disconnect B's SSE to prevent auto-pull during conflict setup.
-    # Without this, SSE delivers A's edit to B before B makes its own edit,
+    # Disconnect B's channel to prevent auto-pull during conflict setup.
+    # Without this, the channel delivers A's edit to B before B makes its own edit,
     # so there's no conflict to detect when trigger_pull runs.
-    await cdp_b.disconnect_sse()
+    await cdp_b.disconnect_stream()
 
     try:
         await setup_conflict(
@@ -61,6 +61,6 @@ async def test_conflict_keep_local(vault_a, vault_b, cdp_a, cdp_b, api_sync):
         # Server should now have B's version
         api_sync.wait_for_note_content(path, "Edited by B", timeout=10)
     finally:
-        await cdp_b.reconnect_sse()
+        await cdp_b.reconnect_stream()
         await cdp_b.restore_conflict_handler()
         await cdp_b.set_conflict_resolution("auto")
