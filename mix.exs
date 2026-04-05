@@ -61,6 +61,9 @@ defmodule Engram.MixProject do
       # Markdown parsing
       {:earmark, "~> 1.4"},
 
+      # CSS
+      {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},
+
       # HTTP client (Qdrant, Voyage AI)
       {:req, "~> 0.5"},
 
