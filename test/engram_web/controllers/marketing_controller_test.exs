@@ -94,4 +94,60 @@ defmodule EngramWeb.MarketingControllerTest do
       assert body =~ "/api/mcp"
     end
   end
+
+  describe "response headers" do
+    setup :html_conn
+
+    test "marketing pages return text/html content type", %{conn: conn} do
+      for path <- ["/", "/pricing", "/docs"] do
+        conn = get(conn, path)
+        assert {"content-type", content_type} = List.keyfind(conn.resp_headers, "content-type", 0)
+        assert content_type =~ "text/html"
+      end
+    end
+
+    test "marketing pages include security headers", %{conn: conn} do
+      conn = get(conn, "/")
+
+      headers = Map.new(conn.resp_headers)
+      assert Map.has_key?(headers, "x-content-type-options")
+      assert Map.has_key?(headers, "content-security-policy")
+      assert Map.has_key?(headers, "referrer-policy")
+    end
+  end
+
+  describe "route isolation" do
+    setup :html_conn
+
+    test "API health endpoint still returns JSON, not HTML", %{conn: conn} do
+      conn =
+        conn
+        |> put_req_header("accept", "application/json")
+        |> get("/api/health")
+
+      assert json_response(conn, 200)["status"] == "ok"
+    end
+
+    test "unknown marketing paths do not match", %{conn: conn} do
+      conn = get(conn, "/nonexistent")
+      assert conn.status in [404, 406]
+    end
+  end
+
+  describe "semantic HTML" do
+    setup :html_conn
+
+    test "landing page has proper document structure", %{conn: conn} do
+      conn = get(conn, "/")
+      body = html_response(conn, 200)
+
+      assert body =~ "<!DOCTYPE html>"
+      assert body =~ ~s(lang="en")
+      assert body =~ "<header"
+      assert body =~ "<main"
+      assert body =~ "<footer"
+      assert body =~ ~s(charset="utf-8")
+      assert body =~ ~s(name="viewport")
+    end
+  end
 end
