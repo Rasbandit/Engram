@@ -128,6 +128,40 @@ defmodule Engram.Vector.QdrantTest do
       assert {:ok, []} = Qdrant.search("test_col", [0.1], user_id: "1", limit: 5)
     end
 
+    test "parses object format with nested points key", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/collections/test_col/points/query", fn conn ->
+        resp = %{
+          "result" => %{
+            "points" => [
+              %{
+                "id" => "uuid-2",
+                "score" => 0.88,
+                "payload" => %{
+                  "text" => "world",
+                  "title" => "Doc",
+                  "heading_path" => "Doc > Intro",
+                  "source_path" => "Docs/Doc.md",
+                  "tags" => ["research"],
+                  "user_id" => "1"
+                }
+              }
+            ]
+          }
+        }
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(resp))
+      end)
+
+      vector = List.duplicate(0.1, 1024)
+      assert {:ok, results} = Qdrant.search("test_col", vector, user_id: "1", limit: 5)
+      assert length(results) == 1
+      assert hd(results).score == 0.88
+      assert hd(results).source_path == "Docs/Doc.md"
+      assert hd(results).tags == ["research"]
+    end
+
     test "returns error on failure", %{bypass: bypass} do
       Bypass.down(bypass)
 

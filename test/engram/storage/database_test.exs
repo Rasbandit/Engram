@@ -92,6 +92,26 @@ defmodule Engram.Storage.DatabaseTest do
     end
   end
 
+  describe "parse_key error handling" do
+    test "raises ArgumentError for key without slash" do
+      assert_raise ArgumentError, ~r/invalid storage key format/, fn ->
+        Database.get("noslash")
+      end
+    end
+
+    test "raises ArgumentError for empty string key" do
+      assert_raise ArgumentError, ~r/invalid storage key format/, fn ->
+        Database.get("")
+      end
+    end
+
+    test "raises ArgumentError for non-numeric user_id" do
+      assert_raise ArgumentError, fn ->
+        Database.get("abc/path")
+      end
+    end
+  end
+
   describe "multi-tenant isolation" do
     test "user B cannot read user A's content", %{key: key_a} do
       Database.put(key_a, @binary)
