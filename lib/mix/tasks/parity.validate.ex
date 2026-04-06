@@ -26,7 +26,8 @@ defmodule Mix.Tasks.Parity.Validate do
       run_section("Voyage AI", &validate_voyage/0),
       run_section("Qdrant", &validate_qdrant/0),
       run_section("MinIO/S3", &validate_s3/0),
-      run_section("Full Pipeline", &validate_pipeline/0)
+      run_section("Full Pipeline", &validate_pipeline/0),
+      run_section("Embed Hash Tracking", &validate_embed_tracking/0)
     ]
 
     IO.puts("\n\e[1m═══ Summary ═══\e[0m")
@@ -292,6 +293,156 @@ defmodule Mix.Tasks.Parity.Validate do
         Qdrant.delete_collection(@pipeline_collection)
       end
     end)
+  end
+
+  defp validate_embed_tracking do
+    alias Engram.{Accounts, Notes, Notes.Note, Repo}
+    alias Engram.Vector.Qdrant
+    alias Engram.Workers.EmbedNote
+
+    import Ecto.Query
+
+    qdrant_url = Application.get_env(:engram, :qdrant_url, "http://localhost:6333")
+    embed_collection = "parity_embed_hash"
+    Qdrant.delete_collection(embed_collection)
+
+    {:ok, %{status: s}} =
+      Req.put("#{qdrant_url}/collections/#{embed_collection}",
+        json: %{vectors: %{size: 1024, distance: "Cosine"}}
+      )
+
+    unless s in [200, 201], do: raise("Failed to create embed_hash collection: #{s}")
+
+    original_collection = Application.get_env(:engram, :qdrant_collection)
+    Application.put_env(:engram, :qdrant_collection, embed_collection)
+
+    try do
+      {:ok, user} =
+        Accounts.register_user(%{
+          email: "parity-embed-#{System.system_time(:second)}@test.local",
+          password: "paritytest123456",
+          display_name: "Parity Embed Hash"
+        })
+
+      {:ok, note} =
+        Notes.upsert_note(user, %{
+          "path" => "Parity/EmbedHash.md",
+          "content" => "# Embed Hash Test\n\nValidates the embed_hash tracking lifecycle.",
+          "mtime" => :os.system_time(:second) / 1
+        })
+
+      check("embed_hash nil before first embed", fn ->
+        fresh = Repo.get!(Note, note.id, skip_tenant_check: true)
+
+        if is_nil(fresh.embed_hash),
+          do: {:pass, "embed_hash is nil, content_hash=#{fresh.content_hash}"},
+          else: {:fail, "expected nil embed_hash, got #{fresh.embed_hash}"}
+      end)
+
+      check("EmbedNote.perform indexes + stamps embed_hash", fn ->
+        job = %Oban.Job{args: %{"note_id" => note.id}}
+        :ok = EmbedNote.perform(job)
+        stamped = Repo.get!(Note, note.id, skip_tenant_check: true)
+
+        if stamped.embed_hash == stamped.content_hash and not is_nil(stamped.embed_hash),
+          do: {:pass, "embed_hash=#{stamped.embed_hash}"},
+          else: {:fail, "embed_hash=#{stamped.embed_hash}, content_hash=#{stamped.content_hash}"}
+      end)
+
+      check("EmbedNote.perform skips when already embedded (idempotent)", fn ->
+        before = Repo.get!(Note, note.id, skip_tenant_check: true)
+        job = %Oban.Job{args: %{"note_id" => note.id}}
+        :ok = EmbedNote.perform(job)
+        after_run = Repo.get!(Note, note.id, skip_tenant_check: true)
+
+        if before.embed_hash == after_run.embed_hash,
+          do: {:pass, "skipped — embed_hash unchanged"},
+          else: {:fail, "embed_hash changed from #{before.embed_hash} to #{after_run.embed_hash}"}
+      end)
+
+      check("content update creates embed_hash mismatch", fn ->
+        {:ok, updated} =
+          Notes.upsert_note(user, %{
+            "path" => "Parity/EmbedHash.md",
+            "content" => "# Embed Hash Test\n\nUpdated content to trigger re-embed.",
+            "mtime" => :os.system_time(:second) / 1 + 1
+          })
+
+        reloaded = Repo.get!(Note, updated.id, skip_tenant_check: true)
+
+        if reloaded.embed_hash != reloaded.content_hash,
+          do: {:pass, "mismatch: embed=#{reloaded.embed_hash}, content=#{reloaded.content_hash}"},
+          else: {:fail, "expected mismatch, both are #{reloaded.embed_hash}"}
+      end)
+
+      check("ReconcileEmbeddings finds pending note", fn ->
+        pending =
+          from(n in Note,
+            where:
+              is_nil(n.deleted_at) and
+                n.user_id == ^user.id and
+                (is_nil(n.embed_hash) or n.embed_hash != n.content_hash),
+            select: n.id
+          )
+          |> Repo.all(skip_tenant_check: true)
+
+        if length(pending) >= 1,
+          do: {:pass, "#{length(pending)} pending note(s) detected"},
+          else: {:fail, "expected >= 1 pending, got 0"}
+      end)
+
+      check("re-embed stamps new embed_hash", fn ->
+        job = %Oban.Job{args: %{"note_id" => note.id}}
+        :ok = EmbedNote.perform(job)
+        Process.sleep(1000)
+        final = Repo.get!(Note, note.id, skip_tenant_check: true)
+
+        if final.embed_hash == final.content_hash and not is_nil(final.embed_hash),
+          do: {:pass, "re-stamped: embed_hash=#{final.embed_hash}"},
+          else: {:fail, "embed_hash=#{final.embed_hash}, content_hash=#{final.content_hash}"}
+      end)
+
+      check("search finds re-embedded content", fn ->
+        Process.sleep(2000)
+
+        {:ok, [query_vec]} =
+          Engram.Embedders.Voyage.embed_texts(["embed hash re-embed"],
+            model: "voyage-4-lite"
+          )
+
+        body = %{
+          query: query_vec,
+          filter: %{must: [%{key: "user_id", match: %{value: to_string(user.id)}}]},
+          limit: 5,
+          with_payload: true
+        }
+
+        {:ok, %{status: 200, body: %{"result" => result}}} =
+          Req.post("#{qdrant_url}/collections/#{embed_collection}/points/query",
+            json: body,
+            receive_timeout: 30_000,
+            retry: :transient,
+            max_retries: 3
+          )
+
+        points = result["points"] || result
+        points = if is_list(points), do: points, else: []
+
+        if length(points) >= 1 do
+          top = hd(points)
+          text = get_in(top, ["payload", "text"]) || ""
+
+          if String.contains?(text, "re-embed"),
+            do: {:pass, "found updated content, score=#{top["score"]}"},
+            else: {:pass, "found #{length(points)} result(s), top score=#{top["score"]}"}
+        else
+          {:fail, "expected >= 1 result after re-embed, got 0"}
+        end
+      end)
+    after
+      Application.put_env(:engram, :qdrant_collection, original_collection)
+      Qdrant.delete_collection(embed_collection)
+    end
   end
 
   # ---------------------------------------------------------------------------
