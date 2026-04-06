@@ -74,6 +74,9 @@ defmodule EngramWeb.Router do
     get "/logs", LogsController, :index
     post "/logs", LogsController, :ingest
 
+    # Embedding status
+    get "/embed-status", EmbedStatusController, :index
+
     # MCP endpoint (JSON-RPC 2.0 over HTTP POST)
     post "/mcp", McpController, :handle
 

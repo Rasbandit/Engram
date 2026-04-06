@@ -55,6 +55,25 @@ defmodule Engram.IndexingTest do
       assert length(chunks) == chunk_count
     end
 
+    test "uses doc embed model when configured", %{bypass: bypass, note: note} do
+      Application.put_env(:engram, :doc_embed_model, "voyage-4-large")
+      on_exit(fn -> Application.delete_env(:engram, :doc_embed_model) end)
+
+      Engram.MockEmbedder
+      |> expect(:embed_texts, fn texts, [model: "voyage-4-large"] ->
+        {:ok, Enum.map(texts, fn _ -> [0.1, 0.2, 0.3] end)}
+      end)
+
+      Bypass.expect(bypass, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": true}))
+      end)
+
+      assert {:ok, chunk_count} = Indexing.index_note(note)
+      assert chunk_count > 0
+    end
+
     test "skips embedding for empty content" do
       note = %Engram.Notes.Note{
         id: 999,
@@ -93,7 +112,7 @@ defmodule Engram.IndexingTest do
       {:ok, _} = Indexing.index_note(note)
 
       # Now delete — Qdrant should get a delete request
-      Bypass.expect_once(bypass, "POST", "/collections/obsidian_notes/points/delete", fn conn ->
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/delete", fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.send_resp(200, ~s({"result": {"status": "ok"}}))

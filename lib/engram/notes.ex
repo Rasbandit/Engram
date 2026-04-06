@@ -39,7 +39,7 @@ defmodule Engram.Notes do
         content_hash: hash,
         mtime: mtime,
         user_id: user.id,
-        inserted_at: now,
+        created_at: now,
         updated_at: now
       }
 
@@ -138,12 +138,12 @@ defmodule Engram.Notes do
             {count, _} =
               from(n in Note, where: n.id == ^note.id)
               |> Repo.update_all(
-                set: [path: new_path, folder: new_folder, title: new_title, updated_at: now]
+                set: [path: new_path, folder: new_folder, title: new_title, embed_hash: nil, updated_at: now]
               )
 
             if count == 1 do
               {:ok,
-               %{note | path: new_path, folder: new_folder, title: new_title, updated_at: now}}
+               %{note | path: new_path, folder: new_folder, title: new_title, embed_hash: nil, updated_at: now}}
             else
               :not_found
             end
@@ -152,7 +152,7 @@ defmodule Engram.Notes do
 
     case result do
       {:ok, {:ok, note}} ->
-        Oban.insert(EmbedNote.new_debounced(note.id))
+        Oban.insert(EmbedNote.new_debounced(note.id, old_path: old_path))
         broadcast_change(user.id, "delete", old_path)
         broadcast_change(user.id, "upsert", note.path)
         {:ok, note}
@@ -388,21 +388,21 @@ defmodule Engram.Notes do
           new_path = new_note_folder <> String.slice(note.path, String.length(note.folder)..-1//1)
           new_title = Helpers.extract_title(note.content || "", new_path)
 
-          {note.id, new_path, new_note_folder, new_title}
+          {note.id, note.path, new_path, new_note_folder, new_title}
         end)
 
       Repo.with_tenant(user.id, fn ->
-        Enum.each(updates, fn {id, new_path, new_note_folder, new_title} ->
+        Enum.each(updates, fn {id, _old_path, new_path, new_note_folder, new_title} ->
           from(n in Note, where: n.id == ^id)
           |> Repo.update_all(
-            set: [path: new_path, folder: new_note_folder, title: new_title, updated_at: now]
+            set: [path: new_path, folder: new_note_folder, title: new_title, embed_hash: nil, updated_at: now]
           )
         end)
       end)
 
       # Side effects outside the transaction — broadcast + reindex
-      Enum.each(updates, fn {id, new_path, _folder, _title} ->
-        Oban.insert(Engram.Workers.EmbedNote.new_debounced(id))
+      Enum.each(updates, fn {id, old_note_path, new_path, _folder, _title} ->
+        Oban.insert(Engram.Workers.EmbedNote.new_debounced(id, old_path: old_note_path))
         broadcast_change(user.id, "upsert", new_path)
       end)
 

@@ -10,13 +10,14 @@ defmodule Engram.Notes.Note do
     field :tags, {:array, :string}, default: []
     field :version, :integer, default: 1
     field :content_hash, :string
+    field :embed_hash, :string
     field :mtime, :float
     field :deleted_at, :utc_datetime_usec
 
     belongs_to :user, Engram.Accounts.User
     has_many :chunks, Engram.Notes.Chunk
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
   end
 
   def changeset(note, attrs) do
@@ -32,7 +33,7 @@ defmodule Engram.Notes.Note do
       :mtime,
       :user_id,
       :deleted_at
-    ])
+    ], empty_values: [])
     |> validate_required([:path, :user_id])
     |> unique_constraint([:user_id, :path])
   end

@@ -1,14 +1,26 @@
 import Config
 
 # Configure your database
+repo_opts =
+  case System.get_env("DATABASE_URL") do
+    nil ->
+      [
+        username: "engram",
+        password: "engram",
+        hostname: "localhost",
+        database: "engram_dev"
+      ]
+
+    url ->
+      [url: url]
+  end
+
 config :engram, Engram.Repo,
-  username: "engram",
-  password: "engram",
-  hostname: "localhost",
-  database: "engram_dev",
-  stacktrace: true,
-  show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+  Keyword.merge(repo_opts,
+    stacktrace: true,
+    show_sensitive_data_on_connection_error: true,
+    pool_size: 10
+  )
 
 # For development, we disable any cache and enable
 # debugging and code reloading.
@@ -57,6 +69,9 @@ config :joken, default_signer: "dev-jwt-secret-not-for-production"
 
 # joken_jwks: use Erlang's built-in httpc adapter (hackney not in deps)
 config :tesla, JokenJwks.HttpFetcher, adapter: Tesla.Adapter.Httpc
+
+# Qdrant collection — can be overridden by QDRANT_COLLECTION env var in runtime.exs
+config :engram, :qdrant_collection, "engram_notes"
 
 # Enable dev routes for dashboard and mailbox
 config :engram, dev_routes: true

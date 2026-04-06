@@ -15,9 +15,9 @@ defmodule Engram.Vector.Qdrant do
   defp collection, do: Application.get_env(:engram, :qdrant_collection, @default_collection)
 
   defp req_opts do
-    base = [receive_timeout: 30_000]
+    base = [receive_timeout: 30_000, retry: :transient, max_retries: 3, retry_log_level: :warning, connect_options: [protocols: [:http1]]]
 
-    case System.get_env("QDRANT_API_KEY") do
+    case Application.get_env(:engram, :qdrant_api_key) do
       nil -> base
       key -> Keyword.put(base, :headers, [{"api-key", key}])
     end
@@ -34,10 +34,47 @@ defmodule Engram.Vector.Qdrant do
   def ensure_collection(col \\ nil, dims) do
     col = col || collection()
 
-    opts = [json: %{vectors: %{size: dims, distance: "Cosine"}}] ++ req_opts()
+    opts =
+      [
+        json: %{
+          vectors: %{size: dims, distance: "Cosine"},
+          quantization_config: %{
+            binary: %{
+              always_ram: true
+            }
+          }
+        }
+      ] ++ req_opts()
 
     case Req.put("#{base_url()}/collections/#{col}", opts) do
-      {:ok, %{status: status}} when status in [200, 201] -> :ok
+      {:ok, %{status: status}} when status in [200, 201, 409] -> :ok
+      {:ok, %{status: status, body: body}} -> {:error, {status, body}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Delete a collection. Idempotent: returns `:ok` for both 200 and 404.
+  """
+  def delete_collection(col) do
+    opts = req_opts()
+
+    case Req.delete("#{base_url()}/collections/#{col}", opts) do
+      {:ok, %{status: status}} when status in [200, 404] -> :ok
+      {:ok, %{status: status, body: body}} -> {:error, {status, body}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Get collection info. Returns the raw `result` map from Qdrant
+  (includes config, point count, etc.).
+  """
+  def collection_info(col) do
+    opts = req_opts()
+
+    case Req.get("#{base_url()}/collections/#{col}", opts) do
+      {:ok, %{status: 200, body: %{"result" => result}}} -> {:ok, result}
       {:ok, %{status: status, body: body}} -> {:error, {status, body}}
       {:error, reason} -> {:error, reason}
     end
@@ -101,11 +138,24 @@ defmodule Engram.Vector.Qdrant do
     must = if tags, do: [%{key: "tags", match: %{any: tags}} | must], else: must
     must = if folder, do: [%{key: "folder", match: %{value: folder}} | must], else: must
 
-    body = %{query: vector, filter: %{must: must}, limit: limit, with_payload: true}
+    body = %{
+      query: vector,
+      filter: %{must: must},
+      limit: limit,
+      with_payload: true,
+      params: %{
+        quantization: %{
+          rescore: true,
+          oversampling: 3.0
+        }
+      }
+    }
     opts = [json: body] ++ req_opts()
 
     case Req.post("#{base_url()}/collections/#{col}/points/query", opts) do
-      {:ok, %{status: 200, body: %{"result" => points}}} ->
+      {:ok, %{status: 200, body: %{"result" => result}}} ->
+        points = if is_list(result), do: result, else: result["points"] || []
+
         results =
           Enum.map(points, fn p ->
             %{

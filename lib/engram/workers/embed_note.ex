@@ -6,6 +6,11 @@ defmodule Engram.Workers.EmbedNote do
   trigger only one Voyage API call.
 
   Dedup: unique per note_id in available/scheduled states, 60-second window.
+
+  Idempotency: skips embedding when embed_hash already matches content_hash
+  (content hasn't changed since last successful embed). On success, sets
+  embed_hash = content_hash using an optimistic lock — if content changed
+  mid-embed, the update is a no-op and the next job picks up the new version.
   """
 
   use Oban.Worker,
@@ -17,12 +22,19 @@ defmodule Engram.Workers.EmbedNote do
       states: [:available, :scheduled]
     ]
 
+  require Logger
+
+  import Ecto.Query
+
   alias Engram.Indexing
   alias Engram.Notes.Note
   alias Engram.Repo
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"note_id" => note_id}}) do
+  def perform(%Oban.Job{args: args}) do
+    note_id = args["note_id"]
+    old_path = args["old_path"]
+
     # skip_tenant_check: trusted internal worker — queries already scoped to note_id/user_id
     case Repo.get(Note, note_id, skip_tenant_check: true) do
       nil ->
@@ -31,23 +43,60 @@ defmodule Engram.Workers.EmbedNote do
       %Note{deleted_at: deleted_at} when not is_nil(deleted_at) ->
         {:discard, "note #{note_id} is soft-deleted"}
 
+      %Note{content_hash: hash, embed_hash: hash} when not is_nil(hash) and is_nil(old_path) ->
+        # Already embedded this exact content and no rename pending — skip
+        :ok
+
       note ->
+        # If renamed, clean up old path's Qdrant points before re-indexing
+        if old_path do
+          Indexing.delete_points_by_path(note, old_path)
+        end
+
         case Indexing.index_note(note) do
-          {:ok, _count} -> :ok
-          {:error, reason} -> {:error, reason}
+          {:ok, _count} ->
+            stamp_embed_hash(note)
+            :ok
+
+          {:error, reason} ->
+            {:error, reason}
         end
     end
+  end
+
+  # Optimistic lock: only set embed_hash if content_hash hasn't changed since
+  # we started embedding. If it changed (concurrent edit), this is a no-op —
+  # the reconciliation cron or the next debounced job will pick up the new version.
+  defp stamp_embed_hash(%Note{content_hash: nil}), do: :ok
+
+  defp stamp_embed_hash(note) do
+    {count, _} =
+      from(n in Note,
+        where: n.id == ^note.id and n.content_hash == ^note.content_hash
+      )
+      |> Repo.update_all([set: [embed_hash: note.content_hash]], skip_tenant_check: true)
+
+    if count == 0 do
+      Logger.info("embed_hash stamp skipped (concurrent edit): note_id=#{note.id}")
+    end
+
+    :ok
   end
 
   @doc """
   Build an Oban job with 5-second debounce.
   `replace: [:scheduled_at]` resets the timer on rapid edits (dedup by note_id).
+
+  Pass `old_path:` when the note was renamed — the worker will delete old Qdrant
+  points before re-indexing under the new path.
   """
-  def new_debounced(note_id) do
+  def new_debounced(note_id, opts \\ []) do
     scheduled_at = DateTime.add(DateTime.utc_now(), 5, :second)
+    args = %{note_id: note_id}
+    args = if opts[:old_path], do: Map.put(args, :old_path, opts[:old_path]), else: args
 
     new(
-      %{note_id: note_id},
+      args,
       scheduled_at: scheduled_at,
       replace: [:scheduled_at]
     )

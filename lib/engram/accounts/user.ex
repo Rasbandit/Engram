@@ -14,7 +14,7 @@ defmodule Engram.Accounts.User do
     has_many :notes, Engram.Notes.Note
     has_many :api_keys, Engram.Accounts.ApiKey
 
-    timestamps(type: :utc_datetime)
+    timestamps(type: :utc_datetime, inserted_at: :created_at)
   end
 
   def registration_changeset(user, attrs) do

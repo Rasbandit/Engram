@@ -1,16 +1,18 @@
 defmodule Engram.Embedders.VoyageTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Engram.Embedders.Voyage
 
   setup do
     bypass = Bypass.open()
     Application.put_env(:engram, :voyage_url, "http://localhost:#{bypass.port}")
-    System.put_env("VOYAGE_API_KEY", "test-key")
+    Application.put_env(:engram, :voyage_api_key, "test-key")
 
     on_exit(fn ->
       Application.delete_env(:engram, :voyage_url)
-      System.delete_env("VOYAGE_API_KEY")
+      Application.delete_env(:engram, :voyage_api_key)
     end)
 
     %{bypass: bypass}
@@ -38,7 +40,7 @@ defmodule Engram.Embedders.VoyageTest do
 
     test "returns error on non-200 response", %{bypass: bypass} do
       Bypass.expect_once(bypass, "POST", "/v1/embeddings", fn conn ->
-        Plug.Conn.send_resp(conn, 429, ~s({"error": "rate limited"}))
+        Plug.Conn.send_resp(conn, 400, ~s({"error": "invalid input"}))
       end)
 
       assert {:error, _} = Voyage.embed_texts(["hello"])
@@ -46,7 +48,10 @@ defmodule Engram.Embedders.VoyageTest do
 
     test "returns error on network failure", %{bypass: bypass} do
       Bypass.down(bypass)
-      assert {:error, _} = Voyage.embed_texts(["hello"])
+
+      capture_log(fn ->
+        assert {:error, _} = Voyage.embed_texts(["hello"])
+      end)
     end
 
     test "sends correct model in request body", %{bypass: bypass} do
@@ -64,6 +69,40 @@ defmodule Engram.Embedders.VoyageTest do
       end)
 
       Voyage.embed_texts(["hello"])
+    end
+  end
+
+  describe "embed_texts/2" do
+    test "uses model override when provided", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/v1/embeddings", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        decoded = Jason.decode!(body)
+        assert decoded["model"] == "voyage-4-lite"
+
+        resp = %{"data" => [%{"embedding" => [0.1, 0.2]}]}
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(resp))
+      end)
+
+      assert {:ok, _} = Voyage.embed_texts(["hello"], model: "voyage-4-lite")
+    end
+
+    test "falls back to configured model when no override", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/v1/embeddings", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        decoded = Jason.decode!(body)
+        assert decoded["model"] == Application.get_env(:engram, :embed_model, "voyage-4-large")
+
+        resp = %{"data" => [%{"embedding" => [0.1, 0.2]}]}
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(resp))
+      end)
+
+      assert {:ok, _} = Voyage.embed_texts(["hello"], [])
     end
   end
 end

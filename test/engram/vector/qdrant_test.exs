@@ -1,6 +1,8 @@
 defmodule Engram.Vector.QdrantTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Engram.Vector.Qdrant
 
   setup do
@@ -11,11 +13,15 @@ defmodule Engram.Vector.QdrantTest do
   end
 
   describe "ensure_collection/2" do
-    test "creates collection with correct dims", %{bypass: bypass} do
+    test "creates collection with binary quantization config", %{bypass: bypass} do
       Bypass.expect_once(bypass, "PUT", "/collections/test_col", fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)
         decoded = Jason.decode!(body)
         assert decoded["vectors"]["size"] == 1024
+        assert decoded["vectors"]["distance"] == "Cosine"
+
+        quant = decoded["quantization_config"]["binary"]
+        assert quant["always_ram"] == true
 
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
@@ -96,6 +102,22 @@ defmodule Engram.Vector.QdrantTest do
       assert hd(results).score == 0.95
     end
 
+    test "includes binary quantization rescore params", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/collections/test_col/points/query", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        decoded = Jason.decode!(body)
+        assert decoded["params"]["quantization"]["rescore"] == true
+        assert decoded["params"]["quantization"]["oversampling"] == 3.0
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"result" => []}))
+      end)
+
+      vector = List.duplicate(0.1, 1024)
+      assert {:ok, []} = Qdrant.search("test_col", vector, user_id: "1", limit: 5)
+    end
+
     test "returns empty list when no results", %{bypass: bypass} do
       Bypass.expect_once(bypass, "POST", "/collections/test_col/points/query", fn conn ->
         conn
@@ -106,9 +128,126 @@ defmodule Engram.Vector.QdrantTest do
       assert {:ok, []} = Qdrant.search("test_col", [0.1], user_id: "1", limit: 5)
     end
 
+    test "parses object format with nested points key", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/collections/test_col/points/query", fn conn ->
+        resp = %{
+          "result" => %{
+            "points" => [
+              %{
+                "id" => "uuid-2",
+                "score" => 0.88,
+                "payload" => %{
+                  "text" => "world",
+                  "title" => "Doc",
+                  "heading_path" => "Doc > Intro",
+                  "source_path" => "Docs/Doc.md",
+                  "tags" => ["research"],
+                  "user_id" => "1"
+                }
+              }
+            ]
+          }
+        }
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(resp))
+      end)
+
+      vector = List.duplicate(0.1, 1024)
+      assert {:ok, results} = Qdrant.search("test_col", vector, user_id: "1", limit: 5)
+      assert length(results) == 1
+      assert hd(results).score == 0.88
+      assert hd(results).source_path == "Docs/Doc.md"
+      assert hd(results).tags == ["research"]
+    end
+
     test "returns error on failure", %{bypass: bypass} do
       Bypass.down(bypass)
-      assert {:error, _} = Qdrant.search("test_col", [0.1], user_id: "1", limit: 5)
+
+      capture_log(fn ->
+        assert {:error, _} = Qdrant.search("test_col", [0.1], user_id: "1", limit: 5)
+      end)
+    end
+  end
+
+  describe "delete_collection/1" do
+    test "deletes a collection", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "DELETE", "/collections/test_col", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": true}))
+      end)
+
+      assert :ok = Qdrant.delete_collection("test_col")
+    end
+
+    test "returns ok when collection does not exist", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "DELETE", "/collections/test_col", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(404, ~s({"status":{"error":"Not found"}}))
+      end)
+
+      assert :ok = Qdrant.delete_collection("test_col")
+    end
+  end
+
+  describe "collection_info/1" do
+    test "returns collection config", %{bypass: bypass} do
+      resp = %{
+        "result" => %{
+          "config" => %{
+            "params" => %{
+              "vectors" => %{"size" => 1024, "distance" => "Cosine"}
+            }
+          },
+          "points_count" => 42
+        }
+      }
+
+      Bypass.expect_once(bypass, "GET", "/collections/test_col", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(resp))
+      end)
+
+      assert {:ok, info} = Qdrant.collection_info("test_col")
+      assert info["config"]["params"]["vectors"]["size"] == 1024
+      assert info["points_count"] == 42
+    end
+  end
+
+  describe "authentication" do
+    test "sends api-key header when qdrant_api_key is configured", %{bypass: bypass} do
+      Application.put_env(:engram, :qdrant_api_key, "test-qdrant-key")
+      on_exit(fn -> Application.delete_env(:engram, :qdrant_api_key) end)
+
+      Bypass.expect_once(bypass, "PUT", "/collections/test_col", fn conn ->
+        api_key = Plug.Conn.get_req_header(conn, "api-key")
+        assert api_key == ["test-qdrant-key"]
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": true}))
+      end)
+
+      assert :ok = Qdrant.ensure_collection("test_col", 1024)
+    end
+
+    test "does not send api-key header when config is not set", %{bypass: bypass} do
+      Application.delete_env(:engram, :qdrant_api_key)
+
+      Bypass.expect_once(bypass, "PUT", "/collections/test_col", fn conn ->
+        api_key = Plug.Conn.get_req_header(conn, "api-key")
+        assert api_key == []
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": true}))
+      end)
+
+      assert :ok = Qdrant.ensure_collection("test_col", 1024)
     end
   end
 end

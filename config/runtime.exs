@@ -24,6 +24,26 @@ config :engram, EngramWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 if config_env() != :test do
+  # Storage backend — select adapter from STORAGE_BACKEND env var (s3 or database)
+  case System.get_env("STORAGE_BACKEND", "database") do
+    "s3" ->
+      config :engram, :storage, Engram.Storage.S3
+      config :engram, :storage_bucket, System.get_env("STORAGE_BUCKET", "engram-attachments")
+
+      config :ex_aws,
+        access_key_id: System.get_env("STORAGE_ACCESS_KEY_ID"),
+        secret_access_key: System.get_env("STORAGE_SECRET_ACCESS_KEY"),
+        region: System.get_env("STORAGE_REGION", "auto")
+
+      config :ex_aws, :s3,
+        scheme: System.get_env("STORAGE_SCHEME", "https://"),
+        host: System.get_env("STORAGE_HOST"),
+        port: String.to_integer(System.get_env("STORAGE_PORT", "443"))
+
+    _ ->
+      config :engram, :storage, Engram.Storage.Database
+  end
+
   # Embedder — select adapter from EMBED_BACKEND env var (voyage or ollama)
   case System.get_env("EMBED_BACKEND", "voyage") do
     "ollama" ->
@@ -31,6 +51,10 @@ if config_env() != :test do
 
     _ ->
       config :engram, :embedder, Engram.Embedders.Voyage
+
+      if api_key = System.get_env("VOYAGE_API_KEY") do
+        config :engram, :voyage_api_key, api_key
+      end
   end
 
   if System.get_env("EMBED_MODEL") do
@@ -41,12 +65,26 @@ if config_env() != :test do
     config :engram, :embed_dims, String.to_integer(System.get_env("EMBED_DIMS"))
   end
 
+  # Asymmetric retrieval: separate models for doc indexing vs search queries.
+  # Falls back to EMBED_MODEL if not set (symmetric mode).
+  if doc_model = System.get_env("DOC_EMBED_MODEL") do
+    config :engram, :doc_embed_model, doc_model
+  end
+
+  if query_model = System.get_env("QUERY_EMBED_MODEL") do
+    config :engram, :query_embed_model, query_model
+  end
+
   if System.get_env("QDRANT_URL") do
     config :engram, :qdrant_url, System.get_env("QDRANT_URL")
   end
 
   if System.get_env("QDRANT_COLLECTION") do
     config :engram, :qdrant_collection, System.get_env("QDRANT_COLLECTION")
+  end
+
+  if qdrant_api_key = System.get_env("QDRANT_API_KEY") do
+    config :engram, :qdrant_api_key, qdrant_api_key
   end
 
   # Reranker — select adapter from RERANKER_BACKEND env var (jina or none)

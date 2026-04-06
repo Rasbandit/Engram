@@ -12,10 +12,10 @@ defmodule Engram.Repo.Migrations.CreateClientLogs do
       add :plugin_version, :text, default: ""
       add :platform, :text, default: ""
 
-      timestamps(type: :utc_datetime, updated_at: false)
+      timestamps(type: :utc_datetime, inserted_at: :created_at, updated_at: false)
     end
 
-    create index(:client_logs, [:user_id, :inserted_at], name: :idx_client_logs_user_created)
+    create index(:client_logs, [:user_id, :created_at], name: :idx_client_logs_user_created)
     create index(:client_logs, [:user_id, :level], name: :idx_client_logs_user_level)
   end
 end

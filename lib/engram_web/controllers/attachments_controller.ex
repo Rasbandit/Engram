@@ -19,6 +19,9 @@ defmodule EngramWeb.AttachmentsController do
       {:error, :too_large} ->
         conn |> put_status(413) |> json(%{error: "attachment exceeds size limit"})
 
+      {:error, {:storage, _reason}} ->
+        conn |> put_status(502) |> json(%{error: "failed to upload to storage backend"})
+
       {:error, changeset} ->
         conn |> put_status(422) |> json(%{errors: format_errors(changeset)})
     end
@@ -40,16 +43,23 @@ defmodule EngramWeb.AttachmentsController do
           size_bytes: att.size_bytes,
           mtime: att.mtime,
           content_base64: Base.encode64(att.content),
-          created_at: att.inserted_at,
+          created_at: att.created_at,
           updated_at: att.updated_at
         })
+
+      {:error, {:storage, _reason}} ->
+        conn |> put_status(502) |> json(%{error: "failed to fetch attachment from storage"})
+
+      {:error, _reason} ->
+        conn |> put_status(500) |> json(%{error: "internal error fetching attachment"})
     end
   end
 
   def delete(conn, %{"path" => path_parts}) do
     user = conn.assigns.current_user
     path = Path.join(path_parts)
-    :ok = Attachments.delete_attachment(user, path)
+
+    Attachments.delete_attachment(user, path)
     json(conn, %{deleted: true, path: path})
   end
 
@@ -93,7 +103,7 @@ defmodule EngramWeb.AttachmentsController do
       mime_type: att.mime_type,
       size_bytes: att.size_bytes,
       mtime: att.mtime,
-      created_at: att.inserted_at,
+      created_at: att.created_at,
       updated_at: att.updated_at
     }
   end

@@ -35,6 +35,12 @@ config :engram, EngramWeb.Endpoint,
 # Use mock embedder in tests — never hits Voyage AI
 config :engram, :embedder, Engram.MockEmbedder
 
+# Qdrant collection name for tests (matches Bypass URL expectations)
+config :engram, :qdrant_collection, "engram_notes"
+
+# Use real database storage in tests (backward-compatible default)
+config :engram, :storage, Engram.Storage.Database
+
 # Disable Oban queues/plugins in test — jobs must be triggered explicitly via perform_job/2
 # Use Oban.Testing.with_testing_mode(:inline, fn -> ... end) in tests that need inline execution
 config :engram, Oban, testing: :manual

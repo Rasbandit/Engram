@@ -20,6 +20,15 @@ defmodule Engram.Search do
 
   defp reranker_active?, do: reranker() != Engram.Rerankers.None
 
+  defp query_embed_model, do: Application.get_env(:engram, :query_embed_model)
+
+  defp embed_for_search(query) do
+    case query_embed_model() do
+      nil -> embedder().embed_texts([query])
+      model -> embedder().embed_texts([query], model: model)
+    end
+  end
+
   @doc """
   Search notes for a user. Returns {:ok, results} where each result has:
   score, text, title, heading_path, source_path, tags.
@@ -37,7 +46,7 @@ defmodule Engram.Search do
     # Fetch more candidates when reranking is active
     fetch_limit = if reranker_active?(), do: max(limit * 4, @min_candidates), else: limit
 
-    with {:ok, [vector]} <- embedder().embed_texts([query]) do
+    with {:ok, [vector]} <- embed_for_search(query) do
       search_opts =
         [user_id: to_string(user.id), limit: fetch_limit]
         |> then(&if(tags, do: Keyword.put(&1, :tags, tags), else: &1))
