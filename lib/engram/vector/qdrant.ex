@@ -15,7 +15,7 @@ defmodule Engram.Vector.Qdrant do
   defp collection, do: Application.get_env(:engram, :qdrant_collection, @default_collection)
 
   defp req_opts do
-    base = [receive_timeout: 30_000]
+    base = [receive_timeout: 30_000, retry: :transient, max_retries: 3, connect_options: [protocols: [:http1]]]
 
     case System.get_env("QDRANT_API_KEY") do
       nil -> base
@@ -47,7 +47,7 @@ defmodule Engram.Vector.Qdrant do
       ] ++ req_opts()
 
     case Req.put("#{base_url()}/collections/#{col}", opts) do
-      {:ok, %{status: status}} when status in [200, 201] -> :ok
+      {:ok, %{status: status}} when status in [200, 201, 409] -> :ok
       {:ok, %{status: status, body: body}} -> {:error, {status, body}}
       {:error, reason} -> {:error, reason}
     end
