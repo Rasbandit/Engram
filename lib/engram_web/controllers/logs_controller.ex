@@ -38,7 +38,7 @@ defmodule EngramWeb.LogsController do
       stack: log.stack,
       plugin_version: log.plugin_version,
       platform: log.platform,
-      created_at: log.inserted_at
+      created_at: log.created_at
     }
   end
 

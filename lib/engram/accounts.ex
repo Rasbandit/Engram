@@ -111,7 +111,7 @@ defmodule Engram.Accounts do
   def list_api_keys(user) do
     {:ok, keys} =
       Repo.with_tenant(user.id, fn ->
-        Repo.all(from(k in ApiKey, where: k.user_id == ^user.id, order_by: [desc: k.inserted_at]))
+        Repo.all(from(k in ApiKey, where: k.user_id == ^user.id, order_by: [desc: k.created_at]))
       end)
 
     keys

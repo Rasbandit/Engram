@@ -13,7 +13,7 @@ defmodule Engram.Logs.ClientLog do
 
     belongs_to :user, Engram.Accounts.User
 
-    timestamps(type: :utc_datetime, updated_at: false)
+    timestamps(type: :utc_datetime, inserted_at: :created_at, updated_at: false)
   end
 
   def changeset(log, attrs) do

@@ -40,7 +40,7 @@ defmodule EngramWeb.AttachmentsController do
           size_bytes: att.size_bytes,
           mtime: att.mtime,
           content_base64: Base.encode64(att.content),
-          created_at: att.inserted_at,
+          created_at: att.created_at,
           updated_at: att.updated_at
         })
     end
@@ -93,7 +93,7 @@ defmodule EngramWeb.AttachmentsController do
       mime_type: att.mime_type,
       size_bytes: att.size_bytes,
       mtime: att.mtime,
-      created_at: att.inserted_at,
+      created_at: att.created_at,
       updated_at: att.updated_at
     }
   end

@@ -39,7 +39,7 @@ defmodule Engram.Notes do
         content_hash: hash,
         mtime: mtime,
         user_id: user.id,
-        inserted_at: now,
+        created_at: now,
         updated_at: now
       }
 

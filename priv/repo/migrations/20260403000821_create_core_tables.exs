@@ -7,7 +7,7 @@ defmodule Engram.Repo.Migrations.CreateCoreTables do
       add :email, :text, null: false
       add :password_hash, :text, null: false
       add :display_name, :text
-      timestamps(type: :utc_datetime)
+      timestamps(type: :utc_datetime, inserted_at: :created_at)
     end
 
     create unique_index(:users, [:email])
@@ -24,7 +24,7 @@ defmodule Engram.Repo.Migrations.CreateCoreTables do
       add :content_hash, :text
       add :mtime, :float
       add :deleted_at, :utc_datetime
-      timestamps(type: :utc_datetime)
+      timestamps(type: :utc_datetime, inserted_at: :created_at)
     end
 
     create unique_index(:notes, [:user_id, :path])
@@ -45,7 +45,7 @@ defmodule Engram.Repo.Migrations.CreateCoreTables do
       add :char_start, :integer, null: false
       add :char_end, :integer, null: false
       add :qdrant_point_id, :uuid, null: false
-      timestamps(type: :utc_datetime, updated_at: false)
+      timestamps(type: :utc_datetime, inserted_at: :created_at, updated_at: false)
     end
 
     create unique_index(:chunks, [:note_id, :position])
@@ -59,7 +59,7 @@ defmodule Engram.Repo.Migrations.CreateCoreTables do
       add :size_bytes, :bigint
       add :mtime, :float
       add :deleted_at, :utc_datetime
-      timestamps(type: :utc_datetime)
+      timestamps(type: :utc_datetime, inserted_at: :created_at)
     end
 
     create unique_index(:attachments, [:user_id, :path])
@@ -70,7 +70,7 @@ defmodule Engram.Repo.Migrations.CreateCoreTables do
       add :key_hash, :text, null: false
       add :name, :text
       add :last_used, :utc_datetime
-      timestamps(type: :utc_datetime, updated_at: false)
+      timestamps(type: :utc_datetime, inserted_at: :created_at, updated_at: false)
     end
 
     create index(:api_keys, [:key_hash], name: :idx_api_keys_hash)

@@ -10,7 +10,7 @@ defmodule Engram.Repo.Migrations.CreateSubscriptions do
       add :status, :string, null: false, default: "trialing"
       add :current_period_end, :utc_datetime
 
-      timestamps(type: :utc_datetime)
+      timestamps(type: :utc_datetime, inserted_at: :created_at)
     end
 
     create unique_index(:subscriptions, [:user_id])

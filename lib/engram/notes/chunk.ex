@@ -12,7 +12,7 @@ defmodule Engram.Notes.Chunk do
     belongs_to :note, Engram.Notes.Note
     belongs_to :user, Engram.Accounts.User
 
-    timestamps(type: :utc_datetime, updated_at: false)
+    timestamps(type: :utc_datetime, inserted_at: :created_at, updated_at: false)
   end
 
   def changeset(chunk, attrs) do

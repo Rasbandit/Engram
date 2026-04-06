@@ -11,7 +11,7 @@ defmodule Engram.Billing.Subscription do
 
     belongs_to :user, Engram.Accounts.User
 
-    timestamps(type: :utc_datetime)
+    timestamps(type: :utc_datetime, inserted_at: :created_at)
   end
 
   def changeset(subscription, attrs) do

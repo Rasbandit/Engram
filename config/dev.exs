@@ -1,14 +1,26 @@
 import Config
 
 # Configure your database
+repo_opts =
+  case System.get_env("DATABASE_URL") do
+    nil ->
+      [
+        username: "engram",
+        password: "engram",
+        hostname: "localhost",
+        database: "engram_dev"
+      ]
+
+    url ->
+      [url: url]
+  end
+
 config :engram, Engram.Repo,
-  username: "engram",
-  password: "engram",
-  hostname: "localhost",
-  database: "engram_dev",
-  stacktrace: true,
-  show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+  Keyword.merge(repo_opts,
+    stacktrace: true,
+    show_sensitive_data_on_connection_error: true,
+    pool_size: 10
+  )
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

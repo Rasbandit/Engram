@@ -81,7 +81,7 @@ defmodule Engram.Indexing do
           char_start: chunk.char_start,
           char_end: chunk.char_end,
           qdrant_point_id: point_id,
-          inserted_at: now
+          created_at: now
         }
       end)
 

@@ -16,7 +16,7 @@ defmodule Engram.Attachments.Attachment do
 
     belongs_to :user, Engram.Accounts.User
 
-    timestamps(type: :utc_datetime)
+    timestamps(type: :utc_datetime, inserted_at: :created_at)
   end
 
   def changeset(attachment, attrs) do
