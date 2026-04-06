@@ -40,11 +40,13 @@ defmodule Engram.Indexing do
   end
 
   @doc """
-  Remove all indexed data for a note (Postgres chunks + Qdrant points).
+  Remove all indexed data for a note (Qdrant points first, then Postgres chunks).
   """
   def delete_note_index(note) do
-    Repo.delete_all(from(c in Chunk, where: c.note_id == ^note.id), skip_tenant_check: true)
-    Qdrant.delete_by_note(collection(), to_string(note.user_id), note.path)
+    with :ok <- Qdrant.delete_by_note(collection(), to_string(note.user_id), note.path) do
+      Repo.delete_all(from(c in Chunk, where: c.note_id == ^note.id), skip_tenant_check: true)
+      :ok
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -61,55 +63,57 @@ defmodule Engram.Indexing do
   end
 
   defp replace_chunks(note, chunks, vectors) do
-    # skip_tenant_check: trusted internal pipeline, already scoped by note_id/user_id
-    Repo.delete_all(from(c in Chunk, where: c.note_id == ^note.id), skip_tenant_check: true)
-    :ok = Qdrant.delete_by_note(collection(), to_string(note.user_id), note.path)
+    # Delete from Qdrant first (external, idempotent) — if this fails, Postgres is untouched
+    with :ok <- Qdrant.delete_by_note(collection(), to_string(note.user_id), note.path) do
+      # skip_tenant_check: trusted internal pipeline, already scoped by note_id/user_id
+      Repo.delete_all(from(c in Chunk, where: c.note_id == ^note.id), skip_tenant_check: true)
 
-    # Build new chunk rows + Qdrant points
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+      # Build new chunk rows + Qdrant points
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-    chunk_rows =
-      Enum.zip(chunks, vectors)
-      |> Enum.map(fn {chunk, _vector} ->
-        point_id = Ecto.UUID.generate()
+      chunk_rows =
+        Enum.zip(chunks, vectors)
+        |> Enum.map(fn {chunk, _vector} ->
+          point_id = Ecto.UUID.generate()
 
-        %{
-          note_id: note.id,
-          user_id: note.user_id,
-          position: chunk.position,
-          heading_path: chunk.heading_path,
-          char_start: chunk.char_start,
-          char_end: chunk.char_end,
-          qdrant_point_id: point_id,
-          created_at: now
-        }
-      end)
-
-    {_, inserted} =
-      Repo.insert_all(Chunk, chunk_rows,
-        returning: [:id, :qdrant_point_id, :position],
-        skip_tenant_check: true
-      )
-
-    qdrant_points =
-      Enum.zip(inserted, Enum.zip(chunks, vectors))
-      |> Enum.map(fn {row, {chunk, vector}} ->
-        %{
-          id: row.qdrant_point_id,
-          vector: vector,
-          payload: %{
-            user_id: to_string(note.user_id),
-            source_path: note.path,
-            title: note.title,
-            folder: note.folder || "",
-            tags: note.tags || [],
+          %{
+            note_id: note.id,
+            user_id: note.user_id,
+            position: chunk.position,
             heading_path: chunk.heading_path,
-            text: chunk.text,
-            chunk_index: row.position
+            char_start: chunk.char_start,
+            char_end: chunk.char_end,
+            qdrant_point_id: point_id,
+            created_at: now
           }
-        }
-      end)
+        end)
 
-    Qdrant.upsert_points(collection(), qdrant_points)
+      {_, inserted} =
+        Repo.insert_all(Chunk, chunk_rows,
+          returning: [:id, :qdrant_point_id, :position],
+          skip_tenant_check: true
+        )
+
+      qdrant_points =
+        Enum.zip(inserted, Enum.zip(chunks, vectors))
+        |> Enum.map(fn {row, {chunk, vector}} ->
+          %{
+            id: row.qdrant_point_id,
+            vector: vector,
+            payload: %{
+              user_id: to_string(note.user_id),
+              source_path: note.path,
+              title: note.title,
+              folder: note.folder || "",
+              tags: note.tags || [],
+              heading_path: chunk.heading_path,
+              text: chunk.text,
+              chunk_index: row.position
+            }
+          }
+        end)
+
+      Qdrant.upsert_points(collection(), qdrant_points)
+    end
   end
 end

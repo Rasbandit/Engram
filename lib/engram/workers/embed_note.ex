@@ -22,6 +22,8 @@ defmodule Engram.Workers.EmbedNote do
       states: [:available, :scheduled]
     ]
 
+  require Logger
+
   import Ecto.Query
 
   alias Engram.Indexing
@@ -60,10 +62,17 @@ defmodule Engram.Workers.EmbedNote do
   defp stamp_embed_hash(%Note{content_hash: nil}), do: :ok
 
   defp stamp_embed_hash(note) do
-    from(n in Note,
-      where: n.id == ^note.id and n.content_hash == ^note.content_hash
-    )
-    |> Repo.update_all([set: [embed_hash: note.content_hash]], skip_tenant_check: true)
+    {count, _} =
+      from(n in Note,
+        where: n.id == ^note.id and n.content_hash == ^note.content_hash
+      )
+      |> Repo.update_all([set: [embed_hash: note.content_hash]], skip_tenant_check: true)
+
+    if count == 0 do
+      Logger.info("embed_hash stamp skipped (concurrent edit): note_id=#{note.id}")
+    end
+
+    :ok
   end
 
   @doc """

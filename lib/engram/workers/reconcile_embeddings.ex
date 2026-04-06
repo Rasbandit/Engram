@@ -27,6 +27,8 @@ defmodule Engram.Workers.ReconcileEmbeddings do
 
   @batch_size 100
 
+  require Logger
+
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
     note_ids =
@@ -35,11 +37,13 @@ defmodule Engram.Workers.ReconcileEmbeddings do
           is_nil(n.deleted_at) and
             (is_nil(n.embed_hash) or n.embed_hash != n.content_hash),
         select: n.id,
-        limit: @batch_size
+        limit: @batch_size,
+        order_by: [asc: n.updated_at]
       )
       |> Repo.all(skip_tenant_check: true)
 
     if note_ids != [] do
+      Logger.info("reconcile_embeddings: queueing #{length(note_ids)} stale notes")
       jobs = Enum.map(note_ids, &EmbedNote.new_debounced/1)
       Oban.insert_all(jobs)
     end
