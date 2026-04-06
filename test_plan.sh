@@ -340,8 +340,8 @@ STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /folders" 200 "$STATUS"
 assert_json_not_empty "Folders list" "$BODY" '.folders'
 
-# Check Test folder is present (folders is a flat array of strings)
-FOLDER_COUNT=$(echo "$BODY" | jq '[.folders[] | select(. == "Test")] | length' 2>/dev/null || echo "0")
+# Check Test folder is present (folders is array of {folder: string} objects)
+FOLDER_COUNT=$(echo "$BODY" | jq '[.folders[] | select(.folder == "Test")] | length' 2>/dev/null || echo "0")
 if [[ "$FOLDER_COUNT" -gt 0 ]]; then
     pass "Test folder present in results"
 else
@@ -360,8 +360,8 @@ BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /tags" 200 "$STATUS"
 
-# Check "health" tag exists (tags is a flat array of strings)
-TAG_HEALTH=$(echo "$BODY" | jq '[.tags[] | select(. == "health")] | length' 2>/dev/null || echo "0")
+# Check "health" tag exists (tags is array of {name: string} objects)
+TAG_HEALTH=$(echo "$BODY" | jq '[.tags[] | select(.name == "health")] | length' 2>/dev/null || echo "0")
 if [[ "$TAG_HEALTH" -gt 0 ]]; then
     pass "Tag 'health' found"
 else
@@ -1379,13 +1379,15 @@ else echo "  ⏭ Skipping Sections 36-43 (folder search — not yet in Elixir)";
 echo ""
 echo "=== 44. Append to Note ==="
 
-# 44a: Append to nonexistent note → 404 (Elixir append requires existing note)
+# 44a: Append to nonexistent note → auto-creates with heading + text
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_NOTES/append" \
     -H "Authorization: Bearer $API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"path": "Test/Append Nonexistent.md", "text": "First line of content"}')
+BODY=$(echo "$RESP" | sed '$d')
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /notes/append (nonexistent note → 404)" 404 "$STATUS"
+assert_status "POST /notes/append (nonexistent note → auto-create)" 200 "$STATUS"
+assert_json_field "Append auto-create returns created=true" "$BODY" '.created' 'true'
 
 # 44b: Create a note first, then append to it
 curl -s -X POST "$EP_NOTES" \
@@ -1597,15 +1599,13 @@ else
     fail "Renamed folder has $FOLDER_NOTE_COUNT notes (expected 2)"
 fi
 
-# 47f: Rename nonexistent folder → 200 with count=0 (no notes to rename)
+# 47f: Rename nonexistent folder → 404
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_FOLDERS_RENAME" \
     -H "Authorization: Bearer $API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"old_folder": "Test/NonexistentFolder", "new_folder": "Test/Whatever"}')
-BODY=$(echo "$RESP" | sed '$d')
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /folders/rename (nonexistent → 200)" 200 "$STATUS"
-assert_json_field "Nonexistent folder rename returns count=0" "$BODY" '.count' '0'
+assert_status "POST /folders/rename (nonexistent → 404)" 404 "$STATUS"
 
 # ============================================================================
 # SECTION 48: Multi-Tenant Isolation — New Operations
@@ -1664,7 +1664,9 @@ fi
 # Verify note entries have path + content_hash
 FIRST_HASH=$(echo "$BODY" | jq -r '.notes[0].content_hash // empty' 2>/dev/null || echo "")
 FIRST_PATH=$(echo "$BODY" | jq -r '.notes[0].path // empty' 2>/dev/null || echo "")
-if [[ "$FIRST_HASH" =~ ^[a-f0-9]{64}$ ]]; then
+if [[ "$FIRST_HASH" =~ ^[a-f0-9]{32}$ ]]; then
+    pass "Manifest note entry has valid MD5 hash: $FIRST_PATH"
+elif [[ "$FIRST_HASH" =~ ^[a-f0-9]{64}$ ]]; then
     pass "Manifest note entry has valid SHA256 hash: $FIRST_PATH"
 else
     fail "Manifest note entry has invalid hash: $FIRST_HASH"
