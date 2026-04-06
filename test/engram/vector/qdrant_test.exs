@@ -1,6 +1,8 @@
 defmodule Engram.Vector.QdrantTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Engram.Vector.Qdrant
 
   setup do
@@ -128,7 +130,10 @@ defmodule Engram.Vector.QdrantTest do
 
     test "returns error on failure", %{bypass: bypass} do
       Bypass.down(bypass)
-      assert {:error, _} = Qdrant.search("test_col", [0.1], user_id: "1", limit: 5)
+
+      capture_log(fn ->
+        assert {:error, _} = Qdrant.search("test_col", [0.1], user_id: "1", limit: 5)
+      end)
     end
   end
 

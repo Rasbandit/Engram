@@ -1,6 +1,8 @@
 defmodule Engram.Embedders.VoyageTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Engram.Embedders.Voyage
 
   setup do
@@ -46,7 +48,10 @@ defmodule Engram.Embedders.VoyageTest do
 
     test "returns error on network failure", %{bypass: bypass} do
       Bypass.down(bypass)
-      assert {:error, _} = Voyage.embed_texts(["hello"])
+
+      capture_log(fn ->
+        assert {:error, _} = Voyage.embed_texts(["hello"])
+      end)
     end
 
     test "sends correct model in request body", %{bypass: bypass} do

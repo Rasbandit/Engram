@@ -1,6 +1,7 @@
 defmodule EngramWeb.SearchControllerTest do
   use EngramWeb.ConnCase, async: false
 
+  import ExUnit.CaptureLog
   import Mox
 
   setup :verify_on_exit!
@@ -110,7 +111,11 @@ defmodule EngramWeb.SearchControllerTest do
         Plug.Conn.send_resp(c, 500, ~s({"status":{"error":"Qdrant internal"}}))
       end)
 
-      conn = post(conn, "/api/search", %{query: "test"})
+      {conn, _log} =
+        with_log(fn ->
+          post(conn, "/api/search", %{query: "test"})
+        end)
+
       body = json_response(conn, 500)
       # Must NOT contain internal Elixir terms or adapter details
       refute String.contains?(body["error"], "Qdrant")

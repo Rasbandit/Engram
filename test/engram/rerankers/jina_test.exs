@@ -1,6 +1,8 @@
 defmodule Engram.Rerankers.JinaTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Engram.Rerankers.Jina
 
   setup do
@@ -51,9 +53,11 @@ defmodule Engram.Rerankers.JinaTest do
         %{score: 0.7, text: "Result B"}
       ]
 
-      assert {:ok, results} = Jina.rerank("query", candidates, 2)
-      # Falls back to vector scores — Result A first
-      assert hd(results).text == "Result A"
+      capture_log(fn ->
+        assert {:ok, results} = Jina.rerank("query", candidates, 2)
+        # Falls back to vector scores — Result A first
+        assert hd(results).text == "Result A"
+      end)
     end
 
     test "returns fallback when Jina returns non-200", %{bypass: bypass} do
@@ -62,8 +66,11 @@ defmodule Engram.Rerankers.JinaTest do
       end)
 
       candidates = [%{score: 0.8, text: "Only result"}]
-      assert {:ok, [result]} = Jina.rerank("query", candidates, 1)
-      assert result.text == "Only result"
+
+      capture_log(fn ->
+        assert {:ok, [result]} = Jina.rerank("query", candidates, 1)
+        assert result.text == "Only result"
+      end)
     end
 
     test "handles empty candidates", %{bypass: _bypass} do
