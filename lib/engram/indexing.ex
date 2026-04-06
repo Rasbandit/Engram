@@ -40,6 +40,13 @@ defmodule Engram.Indexing do
   end
 
   @doc """
+  Delete Qdrant points for a specific path (used after rename to clean up old path).
+  """
+  def delete_points_by_path(note, path) do
+    Qdrant.delete_by_note(collection(), to_string(note.user_id), path)
+  end
+
+  @doc """
   Remove all indexed data for a note (Qdrant points first, then Postgres chunks).
   """
   def delete_note_index(note) do

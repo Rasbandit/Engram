@@ -31,7 +31,10 @@ defmodule Engram.Workers.EmbedNote do
   alias Engram.Repo
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"note_id" => note_id}}) do
+  def perform(%Oban.Job{args: args}) do
+    note_id = args["note_id"]
+    old_path = args["old_path"]
+
     # skip_tenant_check: trusted internal worker — queries already scoped to note_id/user_id
     case Repo.get(Note, note_id, skip_tenant_check: true) do
       nil ->
@@ -40,11 +43,16 @@ defmodule Engram.Workers.EmbedNote do
       %Note{deleted_at: deleted_at} when not is_nil(deleted_at) ->
         {:discard, "note #{note_id} is soft-deleted"}
 
-      %Note{content_hash: hash, embed_hash: hash} when not is_nil(hash) ->
-        # Already embedded this exact content — skip
+      %Note{content_hash: hash, embed_hash: hash} when not is_nil(hash) and is_nil(old_path) ->
+        # Already embedded this exact content and no rename pending — skip
         :ok
 
       note ->
+        # If renamed, clean up old path's Qdrant points before re-indexing
+        if old_path do
+          Indexing.delete_points_by_path(note, old_path)
+        end
+
         case Indexing.index_note(note) do
           {:ok, _count} ->
             stamp_embed_hash(note)
@@ -78,12 +86,17 @@ defmodule Engram.Workers.EmbedNote do
   @doc """
   Build an Oban job with 5-second debounce.
   `replace: [:scheduled_at]` resets the timer on rapid edits (dedup by note_id).
+
+  Pass `old_path:` when the note was renamed — the worker will delete old Qdrant
+  points before re-indexing under the new path.
   """
-  def new_debounced(note_id) do
+  def new_debounced(note_id, opts \\ []) do
     scheduled_at = DateTime.add(DateTime.utc_now(), 5, :second)
+    args = %{note_id: note_id}
+    args = if opts[:old_path], do: Map.put(args, :old_path, opts[:old_path]), else: args
 
     new(
-      %{note_id: note_id},
+      args,
       scheduled_at: scheduled_at,
       replace: [:scheduled_at]
     )
