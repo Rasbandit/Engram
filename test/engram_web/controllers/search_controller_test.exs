@@ -106,7 +106,7 @@ defmodule EngramWeb.SearchControllerTest do
       Engram.MockEmbedder
       |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
 
-      Bypass.expect_once(bypass, "POST", "/collections/obsidian_notes/points/query", fn c ->
+      Bypass.expect(bypass, "POST", "/collections/obsidian_notes/points/query", fn c ->
         Plug.Conn.send_resp(c, 500, ~s({"status":{"error":"Qdrant internal"}}))
       end)
 
