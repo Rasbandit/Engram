@@ -26,14 +26,16 @@ defmodule Engram.Embedders.Voyage do
     model = Keyword.get(opts, :model, Application.get_env(:engram, :embed_model, @default_model))
 
     api_key =
-      System.get_env("VOYAGE_API_KEY") ||
-        raise "VOYAGE_API_KEY environment variable is not set"
+      Application.get_env(:engram, :voyage_api_key) ||
+        raise "VOYAGE_API_KEY not configured (set VOYAGE_API_KEY env var)"
 
     result =
       Req.post("#{url}/v1/embeddings",
         json: %{input: texts, model: model},
         headers: [{"authorization", "Bearer #{api_key}"}],
-        receive_timeout: 30_000
+        receive_timeout: 30_000,
+        retry: :transient,
+        max_retries: 3
       )
 
     case result do

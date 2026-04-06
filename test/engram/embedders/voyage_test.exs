@@ -8,11 +8,11 @@ defmodule Engram.Embedders.VoyageTest do
   setup do
     bypass = Bypass.open()
     Application.put_env(:engram, :voyage_url, "http://localhost:#{bypass.port}")
-    System.put_env("VOYAGE_API_KEY", "test-key")
+    Application.put_env(:engram, :voyage_api_key, "test-key")
 
     on_exit(fn ->
       Application.delete_env(:engram, :voyage_url)
-      System.delete_env("VOYAGE_API_KEY")
+      Application.delete_env(:engram, :voyage_api_key)
     end)
 
     %{bypass: bypass}
@@ -40,7 +40,7 @@ defmodule Engram.Embedders.VoyageTest do
 
     test "returns error on non-200 response", %{bypass: bypass} do
       Bypass.expect_once(bypass, "POST", "/v1/embeddings", fn conn ->
-        Plug.Conn.send_resp(conn, 429, ~s({"error": "rate limited"}))
+        Plug.Conn.send_resp(conn, 400, ~s({"error": "invalid input"}))
       end)
 
       assert {:error, _} = Voyage.embed_texts(["hello"])

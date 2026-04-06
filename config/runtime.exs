@@ -51,6 +51,10 @@ if config_env() != :test do
 
     _ ->
       config :engram, :embedder, Engram.Embedders.Voyage
+
+      if api_key = System.get_env("VOYAGE_API_KEY") do
+        config :engram, :voyage_api_key, api_key
+      end
   end
 
   if System.get_env("EMBED_MODEL") do
@@ -77,6 +81,10 @@ if config_env() != :test do
 
   if System.get_env("QDRANT_COLLECTION") do
     config :engram, :qdrant_collection, System.get_env("QDRANT_COLLECTION")
+  end
+
+  if qdrant_api_key = System.get_env("QDRANT_API_KEY") do
+    config :engram, :qdrant_api_key, qdrant_api_key
   end
 
   # Reranker — select adapter from RERANKER_BACKEND env var (jina or none)

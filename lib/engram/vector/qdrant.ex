@@ -15,9 +15,9 @@ defmodule Engram.Vector.Qdrant do
   defp collection, do: Application.get_env(:engram, :qdrant_collection, @default_collection)
 
   defp req_opts do
-    base = [receive_timeout: 30_000, retry: :transient, max_retries: 3, connect_options: [protocols: [:http1]]]
+    base = [receive_timeout: 30_000, retry: :transient, max_retries: 3, retry_log_level: :warning, connect_options: [protocols: [:http1]]]
 
-    case System.get_env("QDRANT_API_KEY") do
+    case Application.get_env(:engram, :qdrant_api_key) do
       nil -> base
       key -> Keyword.put(base, :headers, [{"api-key", key}])
     end
