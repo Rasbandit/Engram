@@ -105,7 +105,7 @@ defmodule Mix.Tasks.Parity.Validate do
     end)
 
     check("verify production collection has binary quant", fn ->
-      prod_collection = Application.get_env(:engram, :qdrant_collection, "engram_notes")
+      prod_collection = Application.get_env(:engram, :qdrant_collection, "obsidian_notes")
       {:ok, info} = Qdrant.collection_info(prod_collection)
       vectors = get_in(info, ["config", "params", "vectors"])
       quant = get_in(info, ["config", "quantization_config", "binary", "always_ram"])

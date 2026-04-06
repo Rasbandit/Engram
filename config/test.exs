@@ -35,6 +35,9 @@ config :engram, EngramWeb.Endpoint,
 # Use mock embedder in tests — never hits Voyage AI
 config :engram, :embedder, Engram.MockEmbedder
 
+# Qdrant collection name for tests (matches Bypass URL expectations)
+config :engram, :qdrant_collection, "engram_notes"
+
 # Use real database storage in tests (backward-compatible default)
 config :engram, :storage, Engram.Storage.Database
 

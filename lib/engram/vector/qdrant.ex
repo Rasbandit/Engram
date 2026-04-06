@@ -9,7 +9,7 @@ defmodule Engram.Vector.Qdrant do
   """
 
   @default_url "http://localhost:6333"
-  @default_collection "engram_notes"
+  @default_collection "obsidian_notes"
 
   defp base_url, do: Application.get_env(:engram, :qdrant_url, @default_url)
   defp collection, do: Application.get_env(:engram, :qdrant_collection, @default_collection)

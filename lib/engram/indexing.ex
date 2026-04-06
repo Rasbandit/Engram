@@ -15,7 +15,7 @@ defmodule Engram.Indexing do
 
   @default_dims 1024
 
-  defp collection, do: Application.get_env(:engram, :qdrant_collection, "engram_notes")
+  defp collection, do: Application.get_env(:engram, :qdrant_collection, "obsidian_notes")
   defp embedder, do: Application.get_env(:engram, :embedder, Engram.Embedders.Voyage)
 
   @doc """
