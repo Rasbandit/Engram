@@ -33,7 +33,7 @@ defmodule Engram.Notes.Note do
       :mtime,
       :user_id,
       :deleted_at
-    ])
+    ], empty_values: [])
     |> validate_required([:path, :user_id])
     |> unique_constraint([:user_id, :path])
   end

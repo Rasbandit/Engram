@@ -93,6 +93,29 @@ defmodule Engram.NotesTest do
       assert note.path == "Test/Empty.md"
     end
 
+    test "coerces nil content to empty string", %{user: user} do
+      assert {:ok, note} =
+               Notes.upsert_note(user, %{
+                 "path" => "Test/NilContent.md",
+                 "content" => nil,
+                 "mtime" => 1_000.0
+               })
+
+      assert note.content == ""
+      assert is_binary(note.content_hash)
+    end
+
+    test "coerces missing content key to empty string", %{user: user} do
+      assert {:ok, note} =
+               Notes.upsert_note(user, %{
+                 "path" => "Test/NoContent.md",
+                 "mtime" => 1_000.0
+               })
+
+      assert note.content == ""
+      assert is_binary(note.content_hash)
+    end
+
     test "returns error for missing path" do
       user = insert(:user)
 
