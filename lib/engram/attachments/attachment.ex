@@ -32,7 +32,7 @@ defmodule Engram.Attachments.Attachment do
       :storage_key,
       :deleted_at
     ])
-    |> validate_required([:path, :user_id])
+    |> validate_required([:path, :user_id, :content_hash, :mime_type, :size_bytes])
     |> validate_number(:size_bytes, less_than_or_equal_to: @max_attachment_bytes)
     |> unique_constraint([:user_id, :path])
   end

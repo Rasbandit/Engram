@@ -14,8 +14,6 @@ defmodule Engram.Attachments do
   alias Engram.Notes.PathSanitizer
   alias Engram.Storage
 
-  defp storage, do: Application.get_env(:engram, :storage, Storage.Database)
-
   @doc """
   Upserts an attachment. Decodes base64 content, detects MIME type, computes hash.
   Returns {:ok, attachment} or {:error, reason}.
@@ -79,7 +77,7 @@ defmodule Engram.Attachments do
         # Content stored externally (S3 adapter) — fetch it
         key = att.storage_key || Storage.key(user.id, path)
 
-        case storage().get(key) do
+        case Storage.adapter().get(key) do
           {:ok, binary} -> {:ok, %{att | content: binary}}
           {:error, :not_found} -> {:ok, nil}
           {:error, reason} -> {:error, {:storage, reason}}
@@ -97,9 +95,7 @@ defmodule Engram.Attachments do
   def delete_attachment(user, path) do
     path = PathSanitizer.sanitize(path)
     now = DateTime.utc_now() |> DateTime.truncate(:second)
-    backend = storage()
-
-    with :ok <- delete_external(backend, user.id, path) do
+    with :ok <- delete_external(Storage.adapter(), user.id, path) do
       Repo.with_tenant(user.id, fn ->
         from(a in Attachment,
           where: a.path == ^path and a.user_id == ^user.id and is_nil(a.deleted_at)
@@ -173,7 +169,7 @@ defmodule Engram.Attachments do
     mime = explicit_mime || detect_mime(path)
     hash = :crypto.hash(:md5, binary) |> Base.encode16(case: :lower)
     key = Storage.key(user.id, path)
-    backend = storage()
+    backend = Storage.adapter()
 
     changeset_attrs =
       %{
@@ -192,7 +188,7 @@ defmodule Engram.Attachments do
   end
 
   defp store_external(key, binary, mime) do
-    backend = storage()
+    backend = Storage.adapter()
 
     if backend == Storage.Database do
       :ok
