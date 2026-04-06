@@ -132,6 +132,53 @@ defmodule Engram.Vector.QdrantTest do
     end
   end
 
+  describe "delete_collection/1" do
+    test "deletes a collection", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "DELETE", "/collections/test_col", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": true}))
+      end)
+
+      assert :ok = Qdrant.delete_collection("test_col")
+    end
+
+    test "returns ok when collection does not exist", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "DELETE", "/collections/test_col", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(404, ~s({"status":{"error":"Not found"}}))
+      end)
+
+      assert :ok = Qdrant.delete_collection("test_col")
+    end
+  end
+
+  describe "collection_info/1" do
+    test "returns collection config", %{bypass: bypass} do
+      resp = %{
+        "result" => %{
+          "config" => %{
+            "params" => %{
+              "vectors" => %{"size" => 1024, "distance" => "Cosine"}
+            }
+          },
+          "points_count" => 42
+        }
+      }
+
+      Bypass.expect_once(bypass, "GET", "/collections/test_col", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(resp))
+      end)
+
+      assert {:ok, info} = Qdrant.collection_info("test_col")
+      assert info["config"]["params"]["vectors"]["size"] == 1024
+      assert info["points_count"] == 42
+    end
+  end
+
   describe "authentication" do
     test "sends api-key header when QDRANT_API_KEY is set", %{bypass: bypass} do
       System.put_env("QDRANT_API_KEY", "test-qdrant-key")

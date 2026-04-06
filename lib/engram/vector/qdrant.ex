@@ -54,6 +54,33 @@ defmodule Engram.Vector.Qdrant do
   end
 
   @doc """
+  Delete a collection. Idempotent: returns `:ok` for both 200 and 404.
+  """
+  def delete_collection(col) do
+    opts = req_opts()
+
+    case Req.delete("#{base_url()}/collections/#{col}", opts) do
+      {:ok, %{status: status}} when status in [200, 404] -> :ok
+      {:ok, %{status: status, body: body}} -> {:error, {status, body}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Get collection info. Returns the raw `result` map from Qdrant
+  (includes config, point count, etc.).
+  """
+  def collection_info(col) do
+    opts = req_opts()
+
+    case Req.get("#{base_url()}/collections/#{col}", opts) do
+      {:ok, %{status: 200, body: %{"result" => result}}} -> {:ok, result}
+      {:ok, %{status: status, body: body}} -> {:error, {status, body}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
   Upsert a batch of points. Each point: %{id: uuid_string, vector: [float], payload: map}.
   """
   def upsert_points(col \\ nil, points) do
