@@ -19,6 +19,7 @@ defmodule Engram.Factory do
       tags: [],
       version: 1,
       content_hash: :crypto.hash(:sha256, "# Test note content") |> Base.encode16(case: :lower),
+      embed_hash: nil,
       user: build(:user)
     }
   end

@@ -50,7 +50,11 @@ config :engram, Oban,
   queues: [embed: 5, reindex: 1, maintenance: 2],
   plugins: [
     {Oban.Plugins.Pruner, max_age: 7 * 24 * 3600},
-    Oban.Plugins.Lifeline
+    Oban.Plugins.Lifeline,
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"*/15 * * * *", Engram.Workers.ReconcileEmbeddings}
+     ]}
   ]
 
 # Configure Elixir's Logger

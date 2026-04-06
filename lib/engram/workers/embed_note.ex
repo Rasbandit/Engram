@@ -6,6 +6,11 @@ defmodule Engram.Workers.EmbedNote do
   trigger only one Voyage API call.
 
   Dedup: unique per note_id in available/scheduled states, 60-second window.
+
+  Idempotency: skips embedding when embed_hash already matches content_hash
+  (content hasn't changed since last successful embed). On success, sets
+  embed_hash = content_hash using an optimistic lock — if content changed
+  mid-embed, the update is a no-op and the next job picks up the new version.
   """
 
   use Oban.Worker,
@@ -16,6 +21,8 @@ defmodule Engram.Workers.EmbedNote do
       keys: [:note_id],
       states: [:available, :scheduled]
     ]
+
+  import Ecto.Query
 
   alias Engram.Indexing
   alias Engram.Notes.Note
@@ -31,12 +38,30 @@ defmodule Engram.Workers.EmbedNote do
       %Note{deleted_at: deleted_at} when not is_nil(deleted_at) ->
         {:discard, "note #{note_id} is soft-deleted"}
 
+      %Note{content_hash: hash, embed_hash: hash} when not is_nil(hash) ->
+        # Already embedded this exact content — skip
+        :ok
+
       note ->
         case Indexing.index_note(note) do
-          {:ok, _count} -> :ok
-          {:error, reason} -> {:error, reason}
+          {:ok, _count} ->
+            stamp_embed_hash(note)
+            :ok
+
+          {:error, reason} ->
+            {:error, reason}
         end
     end
+  end
+
+  # Optimistic lock: only set embed_hash if content_hash hasn't changed since
+  # we started embedding. If it changed (concurrent edit), this is a no-op —
+  # the reconciliation cron or the next debounced job will pick up the new version.
+  defp stamp_embed_hash(note) do
+    from(n in Note,
+      where: n.id == ^note.id and n.content_hash == ^note.content_hash
+    )
+    |> Repo.update_all([set: [embed_hash: note.content_hash]], skip_tenant_check: true)
   end
 
   @doc """
