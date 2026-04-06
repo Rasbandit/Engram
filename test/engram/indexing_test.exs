@@ -112,7 +112,7 @@ defmodule Engram.IndexingTest do
       {:ok, _} = Indexing.index_note(note)
 
       # Now delete — Qdrant should get a delete request
-      Bypass.expect_once(bypass, "POST", "/collections/obsidian_notes/points/delete", fn conn ->
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/delete", fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.send_resp(200, ~s({"result": {"status": "ok"}}))

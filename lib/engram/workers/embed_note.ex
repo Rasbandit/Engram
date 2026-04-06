@@ -57,6 +57,8 @@ defmodule Engram.Workers.EmbedNote do
   # Optimistic lock: only set embed_hash if content_hash hasn't changed since
   # we started embedding. If it changed (concurrent edit), this is a no-op —
   # the reconciliation cron or the next debounced job will pick up the new version.
+  defp stamp_embed_hash(%Note{content_hash: nil}), do: :ok
+
   defp stamp_embed_hash(note) do
     from(n in Note,
       where: n.id == ^note.id and n.content_hash == ^note.content_hash

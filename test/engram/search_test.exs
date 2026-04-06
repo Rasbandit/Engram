@@ -40,7 +40,7 @@ defmodule Engram.SearchTest do
         ]
       }
 
-      Bypass.expect_once(bypass, "POST", "/collections/obsidian_notes/points/query", fn conn ->
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.send_resp(200, Jason.encode!(qdrant_result))
@@ -56,7 +56,7 @@ defmodule Engram.SearchTest do
       Engram.MockEmbedder
       |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
 
-      Bypass.expect_once(bypass, "POST", "/collections/obsidian_notes/points/query", fn conn ->
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)
         decoded = Jason.decode!(body)
         conditions = decoded["filter"]["must"]
@@ -75,7 +75,7 @@ defmodule Engram.SearchTest do
       Engram.MockEmbedder
       |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
 
-      Bypass.expect_once(bypass, "POST", "/collections/obsidian_notes/points/query", fn conn ->
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)
         decoded = Jason.decode!(body)
         conditions = decoded["filter"]["must"]
@@ -111,7 +111,7 @@ defmodule Engram.SearchTest do
       Engram.MockEmbedder
       |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
 
-      Bypass.expect_once(bypass, "POST", "/collections/obsidian_notes/points/query", fn conn ->
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)
         decoded = Jason.decode!(body)
         # With limit=2, should request 4x = 8, but min 20
@@ -168,7 +168,7 @@ defmodule Engram.SearchTest do
         {:ok, [List.duplicate(0.1, 3)]}
       end)
 
-      Bypass.expect_once(bypass, "POST", "/collections/obsidian_notes/points/query", fn conn ->
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.send_resp(200, ~s({"result": []}))
@@ -185,7 +185,7 @@ defmodule Engram.SearchTest do
         {:ok, [List.duplicate(0.1, 3)]}
       end)
 
-      Bypass.expect_once(bypass, "POST", "/collections/obsidian_notes/points/query", fn conn ->
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.send_resp(200, ~s({"result": []}))
@@ -198,7 +198,7 @@ defmodule Engram.SearchTest do
       Engram.MockEmbedder
       |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
 
-      Bypass.expect_once(bypass, "POST", "/collections/obsidian_notes/points/query", fn conn ->
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.send_resp(200, ~s({"result": []}))

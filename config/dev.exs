@@ -70,6 +70,9 @@ config :joken, default_signer: "dev-jwt-secret-not-for-production"
 # joken_jwks: use Erlang's built-in httpc adapter (hackney not in deps)
 config :tesla, JokenJwks.HttpFetcher, adapter: Tesla.Adapter.Httpc
 
+# Qdrant collection — can be overridden by QDRANT_COLLECTION env var in runtime.exs
+config :engram, :qdrant_collection, "engram_notes"
+
 # Enable dev routes for dashboard and mailbox
 config :engram, dev_routes: true
 

@@ -12,7 +12,7 @@ defmodule Engram.Search do
 
   @min_candidates 20
 
-  defp collection, do: Application.get_env(:engram, :qdrant_collection, "obsidian_notes")
+  defp collection, do: Application.get_env(:engram, :qdrant_collection, "engram_notes")
 
   defp embedder, do: Application.get_env(:engram, :embedder, Engram.Embedders.Voyage)
 

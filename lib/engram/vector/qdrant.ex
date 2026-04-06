@@ -9,7 +9,7 @@ defmodule Engram.Vector.Qdrant do
   """
 
   @default_url "http://localhost:6333"
-  @default_collection "obsidian_notes"
+  @default_collection "engram_notes"
 
   defp base_url, do: Application.get_env(:engram, :qdrant_url, @default_url)
   defp collection, do: Application.get_env(:engram, :qdrant_collection, @default_collection)
@@ -153,7 +153,9 @@ defmodule Engram.Vector.Qdrant do
     opts = [json: body] ++ req_opts()
 
     case Req.post("#{base_url()}/collections/#{col}/points/query", opts) do
-      {:ok, %{status: 200, body: %{"result" => points}}} ->
+      {:ok, %{status: 200, body: %{"result" => result}}} ->
+        points = if is_list(result), do: result, else: result["points"] || []
+
         results =
           Enum.map(points, fn p ->
             %{

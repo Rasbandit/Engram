@@ -89,7 +89,7 @@ defmodule Mix.Tasks.Parity.Validate do
       Qdrant.delete_collection(@test_collection)
       # Use a plain collection without binary quantization for the test —
       # binary quant + rescore crashes Qdrant on tiny collections (< ~10 points).
-      # The production collection (obsidian_notes_v2) uses binary quant correctly.
+      # The production collection (engram_notes_v2) uses binary quant correctly.
       qdrant_url = Application.get_env(:engram, :qdrant_url, "http://localhost:6333")
 
       {:ok, %{status: status}} =
@@ -104,7 +104,7 @@ defmodule Mix.Tasks.Parity.Validate do
     end)
 
     check("verify production collection has binary quant", fn ->
-      prod_collection = Application.get_env(:engram, :qdrant_collection, "obsidian_notes")
+      prod_collection = Application.get_env(:engram, :qdrant_collection, "engram_notes")
       {:ok, info} = Qdrant.collection_info(prod_collection)
       vectors = get_in(info, ["config", "params", "vectors"])
       quant = get_in(info, ["config", "quantization_config", "binary", "always_ram"])
