@@ -11,6 +11,7 @@ defmodule Engram.Attachments do
 
   alias Engram.Repo
   alias Engram.Attachments.Attachment
+  alias Engram.Notes.PathSanitizer
   alias Engram.Storage
 
   defp storage, do: Application.get_env(:engram, :storage, Storage.Database)
@@ -20,7 +21,7 @@ defmodule Engram.Attachments do
   Returns {:ok, attachment} or {:error, reason}.
   """
   def upsert_attachment(user, attrs) do
-    path = attrs["path"] || attrs[:path]
+    path = (attrs["path"] || attrs[:path]) |> PathSanitizer.sanitize()
     content_b64 = attrs["content_base64"] || attrs[:content_base64]
     mtime = attrs["mtime"] || attrs[:mtime]
     explicit_mime = attrs["mime_type"] || attrs[:mime_type]
@@ -54,6 +55,8 @@ defmodule Engram.Attachments do
   Fetches binary content from the configured storage backend.
   """
   def get_attachment(user, path) do
+    path = PathSanitizer.sanitize(path)
+
     result =
       Repo.with_tenant(user.id, fn ->
         Repo.one(
@@ -92,23 +95,31 @@ defmodule Engram.Attachments do
   Also deletes from external storage if using S3 backend.
   """
   def delete_attachment(user, path) do
+    path = PathSanitizer.sanitize(path)
     now = DateTime.utc_now() |> DateTime.truncate(:second)
     backend = storage()
 
-    # Delete from external storage (no-op for Database adapter)
-    if backend != Storage.Database do
-      key = Storage.key(user.id, path)
-      backend.delete(key)
+    with :ok <- delete_external(backend, user.id, path) do
+      Repo.with_tenant(user.id, fn ->
+        from(a in Attachment,
+          where: a.path == ^path and a.user_id == ^user.id and is_nil(a.deleted_at)
+        )
+        |> Repo.update_all(set: [deleted_at: now, updated_at: now])
+      end)
+
+      :ok
     end
+  end
 
-    Repo.with_tenant(user.id, fn ->
-      from(a in Attachment,
-        where: a.path == ^path and a.user_id == ^user.id and is_nil(a.deleted_at)
-      )
-      |> Repo.update_all(set: [deleted_at: now, updated_at: now])
-    end)
+  defp delete_external(Storage.Database, _user_id, _path), do: :ok
 
-    :ok
+  defp delete_external(backend, user_id, path) do
+    key = Storage.key(user_id, path)
+
+    case backend.delete(key) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:storage, reason}}
+    end
   end
 
   @doc """
