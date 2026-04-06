@@ -46,7 +46,7 @@ defmodule Engram.AttachmentsTest do
                Attachments.get_attachment(user, @path)
     end
 
-    test "returns {:ok, nil} when storage backend returns :not_found", %{user: user} do
+    test "returns storage error when blob is missing for live row", %{user: user} do
       {:ok, _att} =
         Repo.with_tenant(user.id, fn ->
           %Attachment{}
@@ -66,7 +66,7 @@ defmodule Engram.AttachmentsTest do
         {:error, :not_found}
       end)
 
-      assert {:ok, nil} = Attachments.get_attachment(user, @path)
+      assert {:error, {:storage, :blob_missing}} = Attachments.get_attachment(user, @path)
     end
   end
 end

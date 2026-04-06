@@ -78,9 +78,17 @@ defmodule Engram.Attachments do
         key = att.storage_key || Storage.key(user.id, path)
 
         case Storage.adapter().get(key) do
-          {:ok, binary} -> {:ok, %{att | content: binary}}
-          {:error, :not_found} -> {:ok, nil}
-          {:error, reason} -> {:error, {:storage, reason}}
+          {:ok, binary} ->
+            {:ok, %{att | content: binary}}
+
+          {:error, :not_found} ->
+            # Live row with missing blob = storage corruption, not a normal 404
+            require Logger
+            Logger.error("Attachment blob missing for live row: id=#{att.id} key=#{key}")
+            {:error, {:storage, :blob_missing}}
+
+          {:error, reason} ->
+            {:error, {:storage, reason}}
         end
 
       {:error, _} = err ->
@@ -90,21 +98,26 @@ defmodule Engram.Attachments do
 
   @doc """
   Soft-deletes an attachment. Idempotent — returns :ok even if already deleted or nonexistent.
-  Also deletes from external storage if using S3 backend.
+
+  Ordering: soft-delete the DB row first (reversible), then delete the blob (permanent).
+  If the blob delete fails, the row stays deleted and we log a warning — a zombie blob
+  wastes storage but doesn't cause data loss, unlike the reverse (ghost row pointing to nothing).
   """
   def delete_attachment(user, path) do
     path = PathSanitizer.sanitize(path)
     now = DateTime.utc_now() |> DateTime.truncate(:second)
-    with :ok <- delete_external(Storage.adapter(), user.id, path) do
-      Repo.with_tenant(user.id, fn ->
-        from(a in Attachment,
-          where: a.path == ^path and a.user_id == ^user.id and is_nil(a.deleted_at)
-        )
-        |> Repo.update_all(set: [deleted_at: now, updated_at: now])
-      end)
 
-      :ok
-    end
+    Repo.with_tenant(user.id, fn ->
+      from(a in Attachment,
+        where: a.path == ^path and a.user_id == ^user.id and is_nil(a.deleted_at)
+      )
+      |> Repo.update_all(set: [deleted_at: now, updated_at: now])
+    end)
+
+    # Best-effort blob cleanup — row is already soft-deleted so this is safe to retry later
+    delete_external(Storage.adapter(), user.id, path)
+
+    :ok
   end
 
   defp delete_external(Storage.Database, _user_id, _path), do: :ok
@@ -113,8 +126,13 @@ defmodule Engram.Attachments do
     key = Storage.key(user_id, path)
 
     case backend.delete(key) do
-      :ok -> :ok
-      {:error, reason} -> {:error, {:storage, reason}}
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        require Logger
+        Logger.warning("Failed to delete blob key=#{key}: #{inspect(reason)} (row already soft-deleted)")
+        :ok
     end
   end
 

@@ -59,16 +59,8 @@ defmodule EngramWeb.AttachmentsController do
     user = conn.assigns.current_user
     path = Path.join(path_parts)
 
-    case Attachments.delete_attachment(user, path) do
-      :ok ->
-        json(conn, %{deleted: true, path: path})
-
-      {:error, {:storage, _reason}} ->
-        conn |> put_status(502) |> json(%{error: "failed to delete from storage backend"})
-
-      {:error, _reason} ->
-        conn |> put_status(500) |> json(%{error: "internal error deleting attachment"})
-    end
+    Attachments.delete_attachment(user, path)
+    json(conn, %{deleted: true, path: path})
   end
 
   def changes(conn, %{"since" => since_str}) do
