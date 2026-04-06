@@ -40,7 +40,13 @@ defmodule Engram.Storage.S3 do
   def exists?(key) do
     case ExAws.S3.head_object(bucket(), key) |> ExAws.request() do
       {:ok, _} -> true
-      _ -> false
+      {:error, {:http_error, 404, _}} -> false
+      {:error, {:http_error, 404}} -> false
+
+      {:error, reason} ->
+        require Logger
+        Logger.error("S3.exists? failed for key=#{key}: #{inspect(reason)}")
+        false
     end
   end
 end

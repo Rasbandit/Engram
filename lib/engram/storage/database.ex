@@ -86,8 +86,10 @@ defmodule Engram.Storage.Database do
       )
       |> Repo.update_all(set: [deleted_at: now, updated_at: now])
     end)
-
-    :ok
+    |> case do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @impl true
@@ -102,14 +104,20 @@ defmodule Engram.Storage.Database do
       )
     end)
     |> case do
-      {:ok, result} -> result
-      _ -> false
+      {:ok, result} ->
+        result
+
+      {:error, reason} ->
+        require Logger
+        Logger.error("Database.exists? failed for key=#{key}: #{inspect(reason)}")
+        false
     end
   end
 
-  defp parse_key(key) do
+  defp parse_key(key) when is_binary(key) do
     case String.split(key, "/", parts: 2) do
       [user_id_str, path] -> {String.to_integer(user_id_str), path}
+      _ -> raise ArgumentError, "invalid storage key format (expected \"user_id/path\"): #{inspect(key)}"
     end
   end
 end

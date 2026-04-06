@@ -17,5 +17,7 @@ defmodule Engram.Storage do
               boolean()
 
   @doc "Build a storage key from user_id and attachment path."
-  def key(user_id, path), do: "#{user_id}/#{path}"
+  def key(user_id, path) when is_integer(user_id) and is_binary(path) and path != "" do
+    "#{user_id}/#{path}"
+  end
 end
