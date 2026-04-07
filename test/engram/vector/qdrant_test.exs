@@ -52,6 +52,69 @@ defmodule Engram.Vector.QdrantTest do
     end
   end
 
+  describe "delete_by_vault/3" do
+    test "posts correct filter with user_id and vault_id must conditions", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/collections/test_col/points/delete", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        decoded = Jason.decode!(body)
+        conditions = decoded["filter"]["must"]
+        keys = Enum.map(conditions, & &1["key"])
+
+        assert length(conditions) == 2
+        assert "user_id" in keys
+        assert "vault_id" in keys
+
+        user_cond = Enum.find(conditions, &(&1["key"] == "user_id"))
+        vault_cond = Enum.find(conditions, &(&1["key"] == "vault_id"))
+        assert user_cond["match"]["value"] == "user-abc"
+        assert vault_cond["match"]["value"] == "vault-xyz"
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": {"status": "ok"}}))
+      end)
+
+      assert :ok = Qdrant.delete_by_vault("test_col", "user-abc", "vault-xyz")
+    end
+
+    test "returns :ok on 200 response", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/collections/test_col/points/delete", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": {"status": "ok"}}))
+      end)
+
+      assert :ok = Qdrant.delete_by_vault("test_col", "user-1", "vault-1")
+    end
+
+    test "returns error on non-200 response", %{bypass: bypass} do
+      # Use 400 (not retried by Req's :transient policy — only 408/429/500/502/503/504 are)
+      Bypass.expect_once(bypass, "POST", "/collections/test_col/points/delete", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(400, ~s({"status": {"error": "bad request"}}))
+      end)
+
+      assert {:error, {400, _}} = Qdrant.delete_by_vault("test_col", "user-1", "vault-1")
+    end
+
+    test "does not include source_path in filter (vault-wide, not note-scoped)", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/collections/test_col/points/delete", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        decoded = Jason.decode!(body)
+        keys = Enum.map(decoded["filter"]["must"], & &1["key"])
+
+        refute "source_path" in keys
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": {"status": "ok"}}))
+      end)
+
+      assert :ok = Qdrant.delete_by_vault("test_col", "user-1", "vault-1")
+    end
+  end
+
   describe "delete_by_note/4" do
     test "posts filter delete for user+vault+path", %{bypass: bypass} do
       Bypass.expect_once(bypass, "POST", "/collections/test_col/points/delete", fn conn ->
