@@ -12,7 +12,7 @@ defmodule EngramWeb.McpController do
   @protocol_version "2025-03-26"
 
   def handle(conn, %{"jsonrpc" => "2.0", "id" => id, "method" => method} = params) do
-    result = dispatch(conn.assigns.current_user, method, params["params"] || %{})
+    result = dispatch(conn, method, params["params"] || %{})
     send_jsonrpc(conn, id, result)
   end
 
@@ -27,7 +27,7 @@ defmodule EngramWeb.McpController do
 
   # -- Method dispatch --
 
-  defp dispatch(_user, "initialize", _params) do
+  defp dispatch(_conn, "initialize", _params) do
     {:ok,
      %{
        "protocolVersion" => @protocol_version,
@@ -36,7 +36,7 @@ defmodule EngramWeb.McpController do
      }}
   end
 
-  defp dispatch(_user, "tools/list", _params) do
+  defp dispatch(_conn, "tools/list", _params) do
     tools =
       Enum.map(Tools.list(), fn t ->
         %{"name" => t.name, "description" => t.description, "inputSchema" => t.inputSchema}
@@ -45,12 +45,21 @@ defmodule EngramWeb.McpController do
     {:ok, %{"tools" => tools}}
   end
 
-  defp dispatch(user, "tools/call", %{"name" => name, "arguments" => args}) do
+  defp dispatch(conn, "tools/call", %{"name" => name, "arguments" => args}) do
     case Tools.get(name) do
       {:ok, tool} ->
+        user = conn.assigns.current_user
+        vault = resolve_mcp_vault(user, args, conn)
+
         try do
-          text = tool.handler.(user, args)
-          {:ok, %{"content" => [%{"type" => "text", "text" => text}], "isError" => false}}
+          case tool.handler.(user, vault, args) do
+            {:ok, text} ->
+              {:ok, %{"content" => [%{"type" => "text", "text" => text}], "isError" => false}}
+
+            {:error, msg} ->
+              {:ok,
+               %{"content" => [%{"type" => "text", "text" => "Error: #{msg}"}], "isError" => true}}
+          end
         catch
           kind, reason ->
             message =
@@ -72,12 +81,27 @@ defmodule EngramWeb.McpController do
     end
   end
 
-  defp dispatch(_user, "tools/call", _params) do
+  defp dispatch(_conn, "tools/call", _params) do
     {:error, -32602, "Invalid params: name and arguments required"}
   end
 
-  defp dispatch(_user, _method, _params) do
+  defp dispatch(_conn, _method, _params) do
     {:error, -32601, "Method not found"}
+  end
+
+  # -- Vault resolution --
+
+  defp resolve_mcp_vault(user, args, conn) do
+    case args["vault_id"] do
+      nil ->
+        conn.assigns.current_vault
+
+      vault_id ->
+        case Engram.Vaults.get_vault(user, vault_id) do
+          {:ok, vault} -> vault
+          _ -> conn.assigns.current_vault
+        end
+    end
   end
 
   # -- Response helpers --

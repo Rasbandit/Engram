@@ -10,12 +10,14 @@ defmodule Engram.MCP.Tools do
           name: String.t(),
           description: String.t(),
           inputSchema: map(),
-          handler: (map(), map() -> String.t())
+          handler: (map(), map(), map() -> {:ok, String.t()} | {:error, String.t()})
         }
 
   @spec list() :: [tool_def()]
   def list do
     [
+      list_vaults_def(),
+      set_vault_def(),
       search_notes_def(),
       list_tags_def(),
       list_folders_def(),
@@ -43,6 +45,32 @@ defmodule Engram.MCP.Tools do
 
   # -- Tool definitions --
 
+  defp list_vaults_def do
+    %{
+      name: "list_vaults",
+      description:
+        "List all vaults owned by the current user with IDs, names, and descriptions.",
+      inputSchema: %{"type" => "object", "properties" => %{}},
+      handler: &Handlers.handle("list_vaults", &1, &2, &3)
+    }
+  end
+
+  defp set_vault_def do
+    %{
+      name: "set_vault",
+      description:
+        "Set the active vault context. Without vault_id, resets to default. " <>
+          "Call list_vaults first to see available vaults.",
+      inputSchema: %{
+        "type" => "object",
+        "properties" => %{
+          "vault_id" => %{"type" => "integer", "description" => "Vault ID to set as active"}
+        }
+      },
+      handler: &Handlers.handle("set_vault", &1, &2, &3)
+    }
+  end
+
   defp search_notes_def do
     %{
       name: "search_notes",
@@ -67,7 +95,7 @@ defmodule Engram.MCP.Tools do
         },
         "required" => ["query"]
       },
-      handler: &Handlers.search_notes/2
+      handler: &Handlers.handle("search_notes", &1, &2, &3)
     }
   end
 
@@ -78,7 +106,7 @@ defmodule Engram.MCP.Tools do
         "List all tags in the personal knowledge base with document counts. " <>
           "Use to explore what topics exist in the vault.",
       inputSchema: %{"type" => "object", "properties" => %{}},
-      handler: &Handlers.list_tags/2
+      handler: &Handlers.handle("list_tags", &1, &2, &3)
     }
   end
 
@@ -89,7 +117,7 @@ defmodule Engram.MCP.Tools do
         "List all folders in the personal knowledge base with note counts. " <>
           "Use to understand the vault's organization.",
       inputSchema: %{"type" => "object", "properties" => %{}},
-      handler: &Handlers.list_folders/2
+      handler: &Handlers.handle("list_folders", &1, &2, &3)
     }
   end
 
@@ -108,7 +136,7 @@ defmodule Engram.MCP.Tools do
         },
         "required" => ["folder"]
       },
-      handler: &Handlers.list_folder/2
+      handler: &Handlers.handle("list_folder", &1, &2, &3)
     }
   end
 
@@ -133,7 +161,7 @@ defmodule Engram.MCP.Tools do
         },
         "required" => ["description"]
       },
-      handler: &Handlers.suggest_folder/2
+      handler: &Handlers.handle("suggest_folder", &1, &2, &3)
     }
   end
 
@@ -153,7 +181,7 @@ defmodule Engram.MCP.Tools do
         },
         "required" => ["source_path"]
       },
-      handler: &Handlers.get_note/2
+      handler: &Handlers.handle("get_note", &1, &2, &3)
     }
   end
 
@@ -175,7 +203,7 @@ defmodule Engram.MCP.Tools do
         },
         "required" => ["title", "content"]
       },
-      handler: &Handlers.create_note/2
+      handler: &Handlers.handle("create_note", &1, &2, &3)
     }
   end
 
@@ -195,7 +223,7 @@ defmodule Engram.MCP.Tools do
         },
         "required" => ["path", "content"]
       },
-      handler: &Handlers.write_note/2
+      handler: &Handlers.handle("write_note", &1, &2, &3)
     }
   end
 
@@ -211,7 +239,7 @@ defmodule Engram.MCP.Tools do
         },
         "required" => ["path", "text"]
       },
-      handler: &Handlers.append_to_note/2
+      handler: &Handlers.handle("append_to_note", &1, &2, &3)
     }
   end
 
@@ -235,7 +263,7 @@ defmodule Engram.MCP.Tools do
         },
         "required" => ["path", "find", "replace"]
       },
-      handler: &Handlers.patch_note/2
+      handler: &Handlers.handle("patch_note", &1, &2, &3)
     }
   end
 
@@ -265,7 +293,7 @@ defmodule Engram.MCP.Tools do
         },
         "required" => ["path", "heading", "content"]
       },
-      handler: &Handlers.update_section/2
+      handler: &Handlers.handle("update_section", &1, &2, &3)
     }
   end
 
@@ -282,7 +310,7 @@ defmodule Engram.MCP.Tools do
         },
         "required" => ["old_path", "new_path"]
       },
-      handler: &Handlers.rename_note/2
+      handler: &Handlers.handle("rename_note", &1, &2, &3)
     }
   end
 
@@ -300,7 +328,7 @@ defmodule Engram.MCP.Tools do
         },
         "required" => ["old_folder", "new_folder"]
       },
-      handler: &Handlers.rename_folder/2
+      handler: &Handlers.handle("rename_folder", &1, &2, &3)
     }
   end
 
@@ -319,7 +347,7 @@ defmodule Engram.MCP.Tools do
         },
         "required" => ["path"]
       },
-      handler: &Handlers.delete_note/2
+      handler: &Handlers.handle("delete_note", &1, &2, &3)
     }
   end
 end

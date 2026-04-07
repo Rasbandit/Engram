@@ -1,14 +1,45 @@
 defmodule Engram.MCP.Handlers do
   @moduledoc """
   MCP tool handler implementations.
-  Each function takes (user, args) and returns a markdown-formatted string.
+  Each function takes (user, vault, args) and returns a markdown-formatted string.
   """
 
-  alias Engram.{Notes, Search}
+  alias Engram.{Notes, Search, Vaults}
+
+  # -- Vault tools --
+
+  def handle("list_vaults", user, _vault, _args) do
+    vaults = Vaults.list_vaults(user)
+
+    lines =
+      Enum.map(vaults, fn v ->
+        default = if v.is_default, do: " (default)", else: ""
+        desc = if v.description, do: " — #{v.description}", else: ""
+        "- **#{v.name}**#{default} (ID: #{v.id})#{desc}"
+      end)
+
+    {:ok, Enum.join(lines, "\n")}
+  end
+
+  def handle("set_vault", user, _vault, args) do
+    case args["vault_id"] do
+      nil ->
+        case Vaults.get_default_vault(user) do
+          {:ok, v} -> {:ok, "Active vault: **#{v.name}** (default)"}
+          {:error, _} -> {:error, "No default vault found"}
+        end
+
+      vault_id ->
+        case Vaults.get_vault(user, vault_id) do
+          {:ok, v} -> {:ok, "Active vault: **#{v.name}**"}
+          {:error, _} -> {:error, "Vault not found"}
+        end
+    end
+  end
 
   # -- Read tools --
 
-  def search_notes(user, args) do
+  def handle("search_notes", user, vault, args) do
     query = args["query"] || ""
     limit = min(args["limit"] || 5, 20)
     tags = args["tags"]
@@ -16,58 +47,58 @@ defmodule Engram.MCP.Handlers do
     opts = [limit: limit]
     opts = if tags, do: Keyword.put(opts, :tags, tags), else: opts
 
-    case Search.search(user, query, opts) do
+    case Search.search(user, vault, query, opts) do
       {:ok, results} when results != [] ->
-        results
-        |> Enum.with_index(1)
-        |> Enum.map(fn {r, i} ->
-          lines = ["## Result #{i} (score: #{Float.round(r.score, 3)})"]
-          lines = if r[:title], do: lines ++ ["**Title:** #{r.title}"], else: lines
+        text =
+          results
+          |> Enum.with_index(1)
+          |> Enum.map(fn {r, i} ->
+            lines = ["## Result #{i} (score: #{Float.round(r.score, 3)})"]
+            lines = if r[:title], do: lines ++ ["**Title:** #{r.title}"], else: lines
 
-          lines =
-            if r[:heading_path], do: lines ++ ["**Section:** #{r.heading_path}"], else: lines
+            lines =
+              if r[:heading_path], do: lines ++ ["**Section:** #{r.heading_path}"], else: lines
 
-          lines = if r[:source_path], do: lines ++ ["**Source:** #{r.source_path}"], else: lines
+            lines =
+              if r[:source_path], do: lines ++ ["**Source:** #{r.source_path}"], else: lines
 
-          lines =
-            if r[:tags] && r.tags != [],
-              do: lines ++ ["**Tags:** #{Enum.join(r.tags, ", ")}"],
-              else: lines
+            lines =
+              if r[:tags] && r.tags != [],
+                do: lines ++ ["**Tags:** #{Enum.join(r.tags, ", ")}"],
+                else: lines
 
-          lines = lines ++ ["\n#{r.text}\n"]
-          Enum.join(lines, "\n")
-        end)
-        |> Enum.join("\n")
+            lines = lines ++ ["\n#{r.text}\n"]
+            Enum.join(lines, "\n")
+          end)
+          |> Enum.join("\n")
+
+        {:ok, text}
 
       {:ok, []} ->
-        "No results found."
+        {:ok, "No results found."}
 
       {:error, _reason} ->
-        "Search unavailable."
+        {:ok, "Search unavailable."}
     end
   end
 
-  def list_tags(user, _args) do
-    {:ok, tags} = Notes.list_tags_with_counts(user)
+  def handle("list_tags", user, vault, _args) do
+    {:ok, tags} = Notes.list_tags_with_counts(user, vault)
 
     if tags == [] do
-      "No tags found."
+      {:ok, "No tags found."}
     else
       lines = ["| Tag | Count |", "|-----|-------|"]
-
-      lines =
-        lines ++
-          Enum.map(tags, fn t -> "| #{t.name} | #{t.count} |" end)
-
-      Enum.join(lines, "\n")
+      lines = lines ++ Enum.map(tags, fn t -> "| #{t.name} | #{t.count} |" end)
+      {:ok, Enum.join(lines, "\n")}
     end
   end
 
-  def list_folders(user, _args) do
-    {:ok, folders} = Notes.list_folders_with_counts(user)
+  def handle("list_folders", user, vault, _args) do
+    {:ok, folders} = Notes.list_folders_with_counts(user, vault)
 
     if folders == [] do
-      "No folders found."
+      {:ok, "No folders found."}
     else
       lines = ["| Folder | Notes |", "|--------|-------|"]
 
@@ -78,17 +109,17 @@ defmodule Engram.MCP.Handlers do
             "| #{folder_name} | #{f.count} |"
           end)
 
-      Enum.join(lines, "\n")
+      {:ok, Enum.join(lines, "\n")}
     end
   end
 
-  def list_folder(user, args) do
+  def handle("list_folder", user, vault, args) do
     folder = args["folder"] || ""
-    {:ok, notes} = Notes.list_notes_in_folder(user, folder)
+    {:ok, notes} = Notes.list_notes_in_folder(user, vault, folder)
 
     if notes == [] do
       folder_label = if folder == "", do: "(root)", else: folder
-      "No notes found in folder: #{folder_label}"
+      {:ok, "No notes found in folder: #{folder_label}"}
     else
       folder_label = if folder == "", do: "(root)", else: folder
 
@@ -106,16 +137,15 @@ defmodule Engram.MCP.Handlers do
             "| #{n.title} | #{n.path} | #{tags} |"
           end)
 
-      Enum.join(lines, "\n")
+      {:ok, Enum.join(lines, "\n")}
     end
   end
 
-  def suggest_folder(user, args) do
+  def handle("suggest_folder", user, vault, args) do
     description = args["description"] || ""
     limit = max(1, min(args["limit"] || 5, 10))
 
-    # Search fallback: find notes similar to description, count folder frequencies
-    case Search.search(user, description, limit: 10) do
+    case Search.search(user, vault, description, limit: 10) do
       {:ok, results} when results != [] ->
         folder_counts =
           results
@@ -133,7 +163,7 @@ defmodule Engram.MCP.Handlers do
           |> Enum.take(limit)
 
         if folder_counts == [] do
-          "No folders found. The vault may be empty."
+          {:ok, "No folders found. The vault may be empty."}
         else
           lines = ["| Rank | Folder | Notes |", "|------|--------|-------|"]
 
@@ -145,18 +175,18 @@ defmodule Engram.MCP.Handlers do
               "| #{rank} | #{folder_name} | #{count} |"
             end)
 
-          Enum.join(lines, "\n")
+          {:ok, Enum.join(lines, "\n")}
         end
 
       _ ->
-        "No folders found. The vault may be empty."
+        {:ok, "No folders found. The vault may be empty."}
     end
   end
 
-  def get_note(user, args) do
+  def handle("get_note", user, vault, args) do
     source_path = args["source_path"] || ""
 
-    case Notes.get_note(user, source_path) do
+    case Notes.get_note(user, vault, source_path) do
       {:ok, note} ->
         lines = ["# #{note.title}"]
 
@@ -168,16 +198,16 @@ defmodule Engram.MCP.Handlers do
         lines = lines ++ ["**Path:** #{note.path}"]
         lines = lines ++ ["**Folder:** #{note.folder || ""}\n"]
         lines = lines ++ [note.content]
-        Enum.join(lines, "\n")
+        {:ok, Enum.join(lines, "\n")}
 
       {:error, :not_found} ->
-        "Note not found: #{source_path}"
+        {:ok, "Note not found: #{source_path}"}
     end
   end
 
   # -- Write tools --
 
-  def create_note(user, args) do
+  def handle("create_note", user, vault, args) do
     title = args["title"] || "Untitled"
     content = args["content"] || ""
     suggested_folder = args["suggested_folder"]
@@ -186,13 +216,12 @@ defmodule Engram.MCP.Handlers do
       if suggested_folder && suggested_folder != "" do
         String.trim_trailing(suggested_folder, "/")
       else
-        auto_place_folder(user, title, content)
+        auto_place_folder(user, vault, title, content)
       end
 
     filename = String.replace(title, "/", "-") <> ".md"
     path = if folder != "", do: "#{folder}/#{filename}", else: filename
 
-    # Add title as H1 if content doesn't start with one
     content =
       if String.starts_with?(String.trim(content), "# ") do
         content
@@ -200,41 +229,45 @@ defmodule Engram.MCP.Handlers do
         "# #{title}\n\n#{content}"
       end
 
-    case Notes.upsert_note(user, %{"path" => path, "content" => content, "mtime" => now()}) do
-      {:ok, _note} -> "Note created: #{path}"
-      {:error, _} -> "Failed to create note: #{path}"
+    case Notes.upsert_note(user, vault, %{"path" => path, "content" => content, "mtime" => now()}) do
+      {:ok, _note} -> {:ok, "Note created: #{path}"}
+      {:error, _} -> {:ok, "Failed to create note: #{path}"}
     end
   end
 
-  def write_note(_user, %{"content" => content}) when byte_size(content) > 10 * 1024 * 1024 do
-    "Error: note exceeds maximum size of 10MB"
+  def handle("write_note", _user, _vault, %{"content" => content})
+      when byte_size(content) > 10 * 1024 * 1024 do
+    {:ok, "Error: note exceeds maximum size of 10MB"}
   end
 
-  def write_note(user, args) do
+  def handle("write_note", user, vault, args) do
     path = args["path"] || ""
     content = args["content"] || ""
 
-    case Notes.upsert_note(user, %{"path" => path, "content" => content, "mtime" => now()}) do
-      {:ok, _note} -> "Note saved: #{path}"
-      {:error, _} -> "Failed to save note: #{path}"
+    case Notes.upsert_note(user, vault, %{"path" => path, "content" => content, "mtime" => now()}) do
+      {:ok, _note} -> {:ok, "Note saved: #{path}"}
+      {:error, _} -> {:ok, "Failed to save note: #{path}"}
     end
   end
 
-  def append_to_note(user, args) do
+  def handle("append_to_note", user, vault, args) do
     path = args["path"] || ""
     text = args["text"] || ""
 
-    case Notes.get_note(user, path) do
+    case Notes.get_note(user, vault, path) do
       {:ok, note} ->
         content = String.trim_trailing(note.content, "\n") <> "\n" <> text
 
-        case Notes.upsert_note(user, %{"path" => path, "content" => content, "mtime" => now()}) do
-          {:ok, _} -> "Note appended to: #{path}"
-          {:error, _} -> "Failed to append to note: #{path}"
+        case Notes.upsert_note(user, vault, %{
+               "path" => path,
+               "content" => content,
+               "mtime" => now()
+             }) do
+          {:ok, _} -> {:ok, "Note appended to: #{path}"}
+          {:error, _} -> {:ok, "Failed to append to note: #{path}"}
         end
 
       {:error, :not_found} ->
-        # Create new note with title from filename
         title =
           path
           |> String.split("/")
@@ -243,63 +276,65 @@ defmodule Engram.MCP.Handlers do
 
         content = "# #{title}\n\n#{text}"
 
-        case Notes.upsert_note(user, %{"path" => path, "content" => content, "mtime" => now()}) do
-          {:ok, _} -> "Note created: #{path}"
-          {:error, _} -> "Failed to create note: #{path}"
+        case Notes.upsert_note(user, vault, %{
+               "path" => path,
+               "content" => content,
+               "mtime" => now()
+             }) do
+          {:ok, _} -> {:ok, "Note created: #{path}"}
+          {:error, _} -> {:ok, "Failed to create note: #{path}"}
         end
     end
   end
 
-  def patch_note(user, args) do
+  def handle("patch_note", user, vault, args) do
     path = args["path"] || ""
     find = args["find"] || ""
     replace = args["replace"] || ""
     occurrence = args["occurrence"] || 0
 
-    case Notes.get_note(user, path) do
+    case Notes.get_note(user, vault, path) do
       {:ok, note} ->
         if not String.contains?(note.content, find) do
-          "Text not found in #{path}"
+          {:ok, "Text not found in #{path}"}
         else
           {new_content, count} = do_replace(note.content, find, replace, occurrence)
 
-          case Notes.upsert_note(user, %{
+          case Notes.upsert_note(user, vault, %{
                  "path" => path,
                  "content" => new_content,
                  "mtime" => now()
                }) do
-            {:ok, _} -> "Replaced #{count} occurrence(s) in #{path}"
-            {:error, _} -> "Failed to patch note: #{path}"
+            {:ok, _} -> {:ok, "Replaced #{count} occurrence(s) in #{path}"}
+            {:error, _} -> {:ok, "Failed to patch note: #{path}"}
           end
         end
 
       {:error, :not_found} ->
-        "Note not found: #{path}"
+        {:ok, "Note not found: #{path}"}
     end
   end
 
-  def update_section(user, args) do
+  def handle("update_section", user, vault, args) do
     path = args["path"] || ""
     heading = args["heading"] || ""
     new_content = args["content"] || ""
     level = args["level"] || 2
 
-    case Notes.get_note(user, path) do
+    case Notes.get_note(user, vault, path) do
       {:ok, note} ->
         prefix = String.duplicate("#", max(1, min(level, 6))) <> " "
         target = prefix <> heading
         lines = String.split(note.content, "\n")
 
-        # Find the heading line
         start_idx =
           Enum.find_index(lines, fn line ->
             String.trim(line) == String.trim(target)
           end)
 
         if start_idx == nil do
-          "Heading not found: #{target}"
+          {:ok, "Heading not found: #{target}"}
         else
-          # Find end: next heading of same or higher level, or EOF
           end_idx =
             Enum.find_index(Enum.drop(lines, start_idx + 1), fn line ->
               stripped = String.trim_leading(line)
@@ -323,7 +358,6 @@ defmodule Engram.MCP.Handlers do
               do: length(lines),
               else: start_idx + 1 + end_idx
 
-          # Rebuild: heading line + new content + rest
           new_lines =
             Enum.slice(lines, 0, start_idx + 1) ++
               [String.trim_trailing(new_content, "\n")] ++
@@ -331,44 +365,49 @@ defmodule Engram.MCP.Handlers do
 
           final_content = Enum.join(new_lines, "\n")
 
-          case Notes.upsert_note(user, %{
+          case Notes.upsert_note(user, vault, %{
                  "path" => path,
                  "content" => final_content,
                  "mtime" => now()
                }) do
-            {:ok, _} -> "Section '#{heading}' updated in #{path}"
-            {:error, _} -> "Failed to update section in #{path}"
+            {:ok, _} -> {:ok, "Section '#{heading}' updated in #{path}"}
+            {:error, _} -> {:ok, "Failed to update section in #{path}"}
           end
         end
 
       {:error, :not_found} ->
-        "Note not found: #{path}"
+        {:ok, "Note not found: #{path}"}
     end
   end
 
-  def rename_note(user, args) do
+  def handle("rename_note", user, vault, args) do
     old_path = args["old_path"] || ""
     new_path = args["new_path"] || ""
 
-    case Notes.rename_note(user, old_path, new_path) do
-      {:ok, _note} -> "Note renamed: #{old_path} -> #{new_path}"
-      {:error, :not_found} -> "Note not found: #{old_path}"
+    case Notes.rename_note(user, vault, old_path, new_path) do
+      {:ok, _note} -> {:ok, "Note renamed: #{old_path} -> #{new_path}"}
+      {:error, :not_found} -> {:ok, "Note not found: #{old_path}"}
     end
   end
 
-  def rename_folder(user, args) do
+  def handle("rename_folder", user, vault, args) do
     old_folder = args["old_folder"] || ""
     new_folder = args["new_folder"] || ""
 
-    case Notes.rename_folder(user, old_folder, new_folder) do
-      {:ok, count} -> "Folder renamed: #{old_folder} -> #{new_folder} (#{count} notes updated)"
+    case Notes.rename_folder(user, vault, old_folder, new_folder) do
+      {:ok, count} ->
+        {:ok, "Folder renamed: #{old_folder} -> #{new_folder} (#{count} notes updated)"}
     end
   end
 
-  def delete_note(user, args) do
+  def handle("delete_note", user, vault, args) do
     path = args["path"] || ""
-    Notes.delete_note(user, path)
-    "Note deleted: #{path}"
+    Notes.delete_note(user, vault, path)
+    {:ok, "Note deleted: #{path}"}
+  end
+
+  def handle(name, _user, _vault, _args) do
+    {:error, "Unknown tool: #{name}"}
   end
 
   # -- Private helpers --
@@ -390,14 +429,14 @@ defmodule Engram.MCP.Handlers do
     end
   end
 
-  defp auto_place_folder(user, title, content) do
+  defp auto_place_folder(user, vault, title, content) do
     query =
       "#{title} #{String.slice(content, 0, 300)}" |> String.replace("\n", " ") |> String.trim()
 
     if query == "" do
       ""
     else
-      case Search.search(user, query, limit: 10) do
+      case Search.search(user, vault, query, limit: 10) do
         {:ok, results} when results != [] ->
           folder_counts =
             results
