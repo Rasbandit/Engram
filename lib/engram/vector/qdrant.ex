@@ -120,6 +120,28 @@ defmodule Engram.Vector.Qdrant do
   end
 
   @doc """
+  Delete all points for a given user+vault combination (vault-level cleanup).
+  """
+  def delete_by_vault(col \\ nil, user_id, vault_id) do
+    col = col || collection()
+
+    filter = %{
+      must: [
+        %{key: "user_id", match: %{value: user_id}},
+        %{key: "vault_id", match: %{value: vault_id}}
+      ]
+    }
+
+    opts = [json: %{filter: filter}] ++ req_opts()
+
+    case Req.post("#{base_url()}/collections/#{col}/points/delete", opts) do
+      {:ok, %{status: 200}} -> :ok
+      {:ok, %{status: status, body: body}} -> {:error, {status, body}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
   Vector similarity search. Returns list of result structs with score + payload.
 
   Options:

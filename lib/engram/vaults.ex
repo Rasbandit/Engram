@@ -193,7 +193,7 @@ defmodule Engram.Vaults do
   If the deleted vault was the default, promotes the next oldest non-deleted vault.
 
   Note: background cleanup (Qdrant vectors, S3 attachments) is handled by
-  a CleanupVault worker — TODO: enqueue CleanupVault.new(%{vault_id: vault.id}) once Task 14 is done.
+  CleanupVault — a job is enqueued here scheduled 30 days out.
 
   Returns {:ok, vault} or {:error, :not_found}.
   """
@@ -215,7 +215,14 @@ defmodule Engram.Vaults do
             promote_next_default(user.id)
           end
 
-          result
+          case result do
+            {:ok, deleted} ->
+              Engram.Workers.CleanupVault.enqueue(deleted.id, deleted.user_id)
+              result
+
+            _ ->
+              result
+          end
       end
     end)
     |> unwrap_transaction()
