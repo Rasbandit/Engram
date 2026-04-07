@@ -19,8 +19,13 @@ defmodule EngramWeb.ChannelCase do
       end
 
       @doc "Join the sync channel and allow the channel pid to use the sandbox."
-      def join_sync(socket, user) do
-        result = subscribe_and_join(socket, EngramWeb.SyncChannel, "sync:#{user.id}")
+      def join_sync(socket, user, vault) do
+        result =
+          subscribe_and_join(
+            socket,
+            EngramWeb.SyncChannel,
+            "sync:#{user.id}:#{vault.id}"
+          )
 
         case result do
           {:ok, reply, joined_socket} ->
