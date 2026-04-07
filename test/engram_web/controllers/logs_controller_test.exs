@@ -3,6 +3,7 @@ defmodule EngramWeb.LogsControllerTest do
 
   setup %{conn: conn} do
     user = insert(:user)
+    _vault = insert(:vault, user: user, is_default: true)
     {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "test-key")
     authed = put_req_header(conn, "authorization", "Bearer #{api_key}")
     %{conn: authed, user: user}
@@ -153,6 +154,7 @@ defmodule EngramWeb.LogsControllerTest do
 
     test "multi-tenant isolation — user B cannot see user A's logs", %{conn: _conn} do
       user_b = insert(:user)
+      insert(:vault, user: user_b, is_default: true)
       {:ok, api_key_b, _} = Engram.Accounts.create_api_key(user_b, "b-key")
 
       conn_b =

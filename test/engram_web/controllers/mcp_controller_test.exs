@@ -7,24 +7,25 @@ defmodule EngramWeb.McpControllerTest do
 
   setup %{conn: conn} do
     user = insert(:user)
+    vault = insert(:vault, user: user, is_default: true)
     {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "test-key")
     authed = put_req_header(conn, "authorization", "Bearer #{api_key}")
 
     # Seed some notes for read tool tests
-    Engram.Notes.upsert_note(user, %{
+    Engram.Notes.upsert_note(user, vault, %{
       "path" => "Health/Supplements.md",
       "content" =>
         "---\ntags: [health, supplements]\n---\n# Supplements\n\n## Shopping List\n\n- Omega 3\n- Vitamin D\n\n## Notes\n\nTake with food.",
       "mtime" => 1_000.0
     })
 
-    Engram.Notes.upsert_note(user, %{
+    Engram.Notes.upsert_note(user, vault, %{
       "path" => "Health/Exercise.md",
       "content" => "---\ntags: [health, fitness]\n---\n# Exercise\n\nDaily routine.",
       "mtime" => 1_000.0
     })
 
-    Engram.Notes.upsert_note(user, %{
+    Engram.Notes.upsert_note(user, vault, %{
       "path" => "Work/Project.md",
       "content" => "---\ntags: [work]\n---\n# Project\n\nProject notes.",
       "mtime" => 1_000.0
@@ -68,14 +69,16 @@ defmodule EngramWeb.McpControllerTest do
       assert resp["result"]["capabilities"]["tools"]
     end
 
-    test "tools/list returns 14 tools", %{conn: conn} do
+    test "tools/list returns 16 tools", %{conn: conn} do
       conn = jsonrpc(conn, "tools/list")
       resp = json_response(conn, 200)
 
       tools = resp["result"]["tools"]
-      assert length(tools) == 14
+      assert length(tools) == 16
 
       names = Enum.map(tools, & &1["name"])
+      assert "list_vaults" in names
+      assert "set_vault" in names
       assert "search_notes" in names
       assert "get_note" in names
       assert "write_note" in names
@@ -132,6 +135,46 @@ defmodule EngramWeb.McpControllerTest do
         })
 
       assert json_response(conn, 401)
+    end
+  end
+
+  # =========================================================================
+  # Vault tool tests
+  # =========================================================================
+
+  describe "list_vaults tool" do
+    test "returns list of vaults", %{conn: conn} do
+      conn = call_tool(conn, "list_vaults")
+      text = tool_text(conn)
+
+      assert text =~ "(default)"
+      assert text =~ "ID:"
+    end
+  end
+
+  describe "set_vault tool" do
+    test "without vault_id returns default vault", %{conn: conn} do
+      conn = call_tool(conn, "set_vault")
+      text = tool_text(conn)
+
+      assert text =~ "Active vault:"
+      assert text =~ "(default)"
+    end
+
+    test "with valid vault_id returns that vault", %{conn: conn, user: user} do
+      {:ok, vault} = Engram.Vaults.get_default_vault(user)
+      conn = call_tool(conn, "set_vault", %{"vault_id" => vault.id})
+      text = tool_text(conn)
+
+      assert text =~ "Active vault:"
+      assert text =~ vault.name
+    end
+
+    test "with invalid vault_id returns error", %{conn: conn} do
+      conn = call_tool(conn, "set_vault", %{"vault_id" => 999_999})
+      text = tool_text(conn)
+
+      assert text =~ "Error:"
     end
   end
 
@@ -277,11 +320,13 @@ defmodule EngramWeb.McpControllerTest do
       refute tool_text(conn) =~ "Omega 3"
     end
 
-    test "replaces all occurrences with -1", %{conn: conn} do
-      # First add duplicate text
+    test "replaces all occurrences with -1", %{conn: conn, user: user} do
+      # First add duplicate text — need the vault too
+      {:ok, vault} = Engram.Vaults.get_default_vault(user)
+
       Engram.Notes.upsert_note(
-        conn.assigns[:current_user] ||
-          hd(Engram.Repo.all(Engram.Accounts.User, skip_tenant_check: true)),
+        user,
+        vault,
         %{
           "path" => "Test/Dupes.md",
           "content" => "foo bar foo baz foo",

@@ -11,6 +11,8 @@ defmodule Engram.Factory do
   end
 
   def note_factory do
+    user = build(:user)
+
     %Engram.Notes.Note{
       path: sequence(:path, &"test/note-#{&1}.md"),
       title: sequence(:title, &"Note #{&1}"),
@@ -20,7 +22,22 @@ defmodule Engram.Factory do
       version: 1,
       content_hash: :crypto.hash(:sha256, "# Test note content") |> Base.encode16(case: :lower),
       embed_hash: nil,
-      user: build(:user)
+      user: user,
+      vault: build(:vault, user: user)
+    }
+  end
+
+  def attachment_factory do
+    user = build(:user)
+
+    %Engram.Attachments.Attachment{
+      path: sequence(:attachment_path, &"test/attachment-#{&1}.png"),
+      content: <<0, 1, 2, 3>>,
+      content_hash: :crypto.hash(:sha256, <<0, 1, 2, 3>>) |> Base.encode16(case: :lower),
+      mime_type: "image/png",
+      size_bytes: 4,
+      user: user,
+      vault: build(:vault, user: user)
     }
   end
 
@@ -31,6 +48,34 @@ defmodule Engram.Factory do
         |> Base.encode16(case: :lower),
       name: sequence(:key_name, &"Key #{&1}"),
       user: build(:user)
+    }
+  end
+
+  def vault_factory do
+    %Engram.Vaults.Vault{
+      user: build(:user),
+      name: sequence(:vault_name, &"Vault #{&1}"),
+      slug: sequence(:vault_slug, &"vault-#{&1}"),
+      is_default: false
+    }
+  end
+
+  def plan_factory do
+    %Engram.Billing.Plan{
+      name: sequence(:plan_name, &"plan_#{&1}"),
+      limits: %{
+        "max_vaults" => 1,
+        "cross_vault_search" => false,
+        "vault_scoped_keys" => false
+      }
+    }
+  end
+
+  def user_override_factory do
+    %Engram.Billing.UserOverride{
+      user: build(:user),
+      overrides: %{},
+      reason: "test override"
     }
   end
 

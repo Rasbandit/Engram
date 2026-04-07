@@ -12,8 +12,9 @@ defmodule EngramWeb.NotesController do
       conn |> put_status(413) |> json(%{error: "note exceeds maximum size of 10MB"})
     else
       user = conn.assigns.current_user
+      vault = conn.assigns.current_vault
 
-      case Notes.upsert_note(user, params) do
+      case Notes.upsert_note(user, vault, params) do
         {:ok, note} ->
           json(conn, %{note: note_json(note)})
 
@@ -32,12 +33,13 @@ defmodule EngramWeb.NotesController do
 
   def append(conn, %{"path" => path, "text" => text}) do
     user = conn.assigns.current_user
+    vault = conn.assigns.current_vault
 
-    case Notes.get_note(user, path) do
+    case Notes.get_note(user, vault, path) do
       {:ok, note} ->
         content = String.trim_trailing(note.content, "\n") <> "\n" <> text
 
-        case Notes.upsert_note(user, %{
+        case Notes.upsert_note(user, vault, %{
                "path" => path,
                "content" => content,
                "mtime" => note.mtime
@@ -55,7 +57,7 @@ defmodule EngramWeb.NotesController do
         content = "# #{filename}\n\n#{text}"
         mtime = System.os_time(:second) * 1.0
 
-        case Notes.upsert_note(user, %{"path" => path, "content" => content, "mtime" => mtime}) do
+        case Notes.upsert_note(user, vault, %{"path" => path, "content" => content, "mtime" => mtime}) do
           {:ok, note} ->
             json(conn, %{created: true, path: path, note: note_json(note)})
 
@@ -67,9 +69,10 @@ defmodule EngramWeb.NotesController do
 
   def show(conn, %{"path" => path_parts}) do
     user = conn.assigns.current_user
+    vault = conn.assigns.current_vault
     path = Enum.join(List.wrap(path_parts), "/")
 
-    case Notes.get_note(user, path) do
+    case Notes.get_note(user, vault, path) do
       {:ok, note} -> json(conn, note_json(note))
       {:error, :not_found} -> conn |> put_status(404) |> json(%{error: "not found"})
     end
@@ -77,8 +80,9 @@ defmodule EngramWeb.NotesController do
 
   def rename(conn, %{"old_path" => old_path, "new_path" => new_path}) do
     user = conn.assigns.current_user
+    vault = conn.assigns.current_vault
 
-    case Notes.rename_note(user, old_path, new_path) do
+    case Notes.rename_note(user, vault, old_path, new_path) do
       {:ok, note} ->
         json(conn, %{renamed: true, old_path: old_path, new_path: new_path, note: note_json(note)})
 
@@ -89,17 +93,19 @@ defmodule EngramWeb.NotesController do
 
   def delete(conn, %{"path" => path_parts}) do
     user = conn.assigns.current_user
+    vault = conn.assigns.current_vault
     path = Enum.join(List.wrap(path_parts), "/")
-    Notes.delete_note(user, path)
+    Notes.delete_note(user, vault, path)
     json(conn, %{deleted: true})
   end
 
   def changes(conn, %{"since" => since_str}) do
     user = conn.assigns.current_user
+    vault = conn.assigns.current_vault
 
     case DateTime.from_iso8601(since_str) do
       {:ok, since, _} ->
-        {:ok, changes} = Notes.list_changes(user, since)
+        {:ok, changes} = Notes.list_changes(user, vault, since)
 
         json(conn, %{
           changes: Enum.map(changes, &change_json/1),

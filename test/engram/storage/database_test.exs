@@ -9,8 +9,9 @@ defmodule Engram.Storage.DatabaseTest do
 
   setup do
     user = insert(:user)
-    key = Storage.key(user.id, @path)
-    %{user: user, key: key}
+    vault = insert(:vault, user: user)
+    key = Storage.key(user.id, vault.id, @path)
+    %{user: user, vault: vault, key: key}
   end
 
   describe "put/3" do
@@ -43,8 +44,8 @@ defmodule Engram.Storage.DatabaseTest do
       assert {:ok, @binary} = Database.get(key)
     end
 
-    test "returns :not_found for nonexistent key", %{user: user} do
-      key = Storage.key(user.id, "nonexistent.png")
+    test "returns :not_found for nonexistent key", %{user: user, vault: vault} do
+      key = Storage.key(user.id, vault.id, "nonexistent.png")
       assert {:error, :not_found} = Database.get(key)
     end
 
@@ -68,8 +69,8 @@ defmodule Engram.Storage.DatabaseTest do
       assert :ok = Database.delete(key)
     end
 
-    test "returns :ok for nonexistent key", %{user: user} do
-      key = Storage.key(user.id, "ghost.png")
+    test "returns :ok for nonexistent key", %{user: user, vault: vault} do
+      key = Storage.key(user.id, vault.id, "ghost.png")
       assert :ok = Database.delete(key)
     end
   end
@@ -80,8 +81,8 @@ defmodule Engram.Storage.DatabaseTest do
       assert Database.exists?(key) == true
     end
 
-    test "returns false for nonexistent attachment", %{user: user} do
-      key = Storage.key(user.id, "nope.png")
+    test "returns false for nonexistent attachment", %{user: user, vault: vault} do
+      key = Storage.key(user.id, vault.id, "nope.png")
       assert Database.exists?(key) == false
     end
 
@@ -93,9 +94,15 @@ defmodule Engram.Storage.DatabaseTest do
   end
 
   describe "parse_key error handling" do
-    test "raises ArgumentError for key without slash" do
+    test "raises ArgumentError for key without two slashes" do
       assert_raise ArgumentError, ~r/invalid storage key format/, fn ->
         Database.get("noslash")
+      end
+    end
+
+    test "raises ArgumentError for key with only one slash" do
+      assert_raise ArgumentError, ~r/invalid storage key format/, fn ->
+        Database.get("1/path")
       end
     end
 
@@ -107,17 +114,17 @@ defmodule Engram.Storage.DatabaseTest do
 
     test "raises ArgumentError for non-numeric user_id" do
       assert_raise ArgumentError, fn ->
-        Database.get("abc/path")
+        Database.get("abc/1/path")
       end
     end
   end
 
   describe "multi-tenant isolation" do
-    test "user B cannot read user A's content", %{key: key_a} do
+    test "user B cannot read user A's content", %{key: key_a, vault: vault} do
       Database.put(key_a, @binary)
 
       user_b = insert(:user)
-      key_b = Storage.key(user_b.id, @path)
+      key_b = Storage.key(user_b.id, vault.id, @path)
 
       assert {:error, :not_found} = Database.get(key_b)
     end

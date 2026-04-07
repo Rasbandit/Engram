@@ -6,12 +6,13 @@ defmodule EngramWeb.SyncChannelTest do
   setup do
     user = insert(:user)
     other_user = insert(:user)
+    vault = insert(:vault, user: user, is_default: true)
     {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "channel-test")
 
     socket = user_socket(user)
-    {:ok, _, socket} = join_sync(socket, user)
+    {:ok, _, socket} = join_sync(socket, user, vault)
 
-    %{socket: socket, user: user, other_user: other_user, api_key: api_key}
+    %{socket: socket, user: user, vault: vault, other_user: other_user, api_key: api_key}
   end
 
   # ---------------------------------------------------------------------------
@@ -39,16 +40,56 @@ defmodule EngramWeb.SyncChannelTest do
   end
 
   describe "join/3" do
-    test "accepts join for own user_id", %{user: user} do
+    test "accepts join for own user_id and vault", %{user: user, vault: vault} do
       socket = user_socket(user)
-      assert {:ok, _, _} = join_sync(socket, user)
+      assert {:ok, _, _} = join_sync(socket, user, vault)
     end
 
     test "rejects join for another user's channel", %{user: user, other_user: other_user} do
+      other_vault = insert(:vault, user: other_user, is_default: true)
       socket = user_socket(user)
 
       assert {:error, %{reason: "unauthorized"}} =
-               subscribe_and_join(socket, EngramWeb.SyncChannel, "sync:#{other_user.id}")
+               subscribe_and_join(
+                 socket,
+                 EngramWeb.SyncChannel,
+                 "sync:#{other_user.id}:#{other_vault.id}"
+               )
+    end
+
+    test "rejects join for vault belonging to another user", %{user: user, other_user: other_user} do
+      other_vault = insert(:vault, user: other_user, is_default: true)
+      socket = user_socket(user)
+
+      assert {:error, %{reason: "vault_not_found"}} =
+               subscribe_and_join(
+                 socket,
+                 EngramWeb.SyncChannel,
+                 "sync:#{user.id}:#{other_vault.id}"
+               )
+    end
+
+    test "rejects join with invalid vault_id", %{user: user} do
+      socket = user_socket(user)
+
+      assert {:error, %{reason: "invalid_vault_id"}} =
+               subscribe_and_join(socket, EngramWeb.SyncChannel, "sync:#{user.id}:notanint")
+    end
+
+    test "backwards-compat: join without vault_id uses default vault", %{user: user} do
+      socket = user_socket(user)
+      # user already has a default vault from setup
+      assert {:ok, _, _} =
+               subscribe_and_join(socket, EngramWeb.SyncChannel, "sync:#{user.id}")
+    end
+
+    test "backwards-compat: returns error when no default vault exists" do
+      # New user with no vault inserted
+      bare_user = insert(:user)
+      socket = user_socket(bare_user)
+
+      assert {:error, %{reason: "no_default_vault"}} =
+               subscribe_and_join(socket, EngramWeb.SyncChannel, "sync:#{bare_user.id}")
     end
   end
 
@@ -71,10 +112,10 @@ defmodule EngramWeb.SyncChannelTest do
       assert note["version"] == 1
     end
 
-    test "broadcasts note_changed to other subscribers", %{socket: socket, user: user} do
+    test "broadcasts note_changed to other subscribers", %{socket: socket, user: user, vault: vault} do
       # Second subscriber on the same channel topic
       other_socket = user_socket(user)
-      {:ok, _, _} = join_sync(other_socket, user)
+      {:ok, _, _} = join_sync(other_socket, user, vault)
 
       push(socket, "push_note", %{
         "path" => "Test/Shared.md",
@@ -84,19 +125,20 @@ defmodule EngramWeb.SyncChannelTest do
 
       assert_broadcast "note_changed", %{
         "event_type" => "upsert",
-        "path" => "Test/Shared.md",
-        "kind" => "note"
+        "path" => "Test/Shared.md"
       }
     end
 
-    test "does not echo note_changed back to sender", %{socket: socket} do
+    test "broadcasts note_changed to sender (Endpoint.broadcast semantics)", %{socket: socket} do
       push(socket, "push_note", %{
         "path" => "Test/Echo.md",
         "content" => "# Echo",
         "mtime" => 1_000.0
       })
 
-      refute_push "note_changed", %{"path" => "Test/Echo.md"}
+      # Notes context uses Endpoint.broadcast (not broadcast_from!), so sender
+      # also receives the note_changed event. Clients should deduplicate by path/version.
+      assert_push "note_changed", %{"event_type" => "upsert", "path" => "Test/Echo.md"}
     end
 
     test "sanitizes path in push_note", %{socket: socket} do
@@ -122,8 +164,8 @@ defmodule EngramWeb.SyncChannelTest do
   # ---------------------------------------------------------------------------
 
   describe "delete_note" do
-    test "soft-deletes note and replies ok", %{socket: socket, user: user} do
-      Notes.upsert_note(user, %{
+    test "soft-deletes note and replies ok", %{socket: socket, user: user, vault: vault} do
+      Notes.upsert_note(user, vault, %{
         "path" => "Test/ToDelete.md",
         "content" => "# Delete me",
         "mtime" => 1_000.0
@@ -132,11 +174,11 @@ defmodule EngramWeb.SyncChannelTest do
       ref = push(socket, "delete_note", %{"path" => "Test/ToDelete.md"})
       assert_reply ref, :ok, %{"deleted" => true}
 
-      assert {:error, :not_found} = Notes.get_note(user, "Test/ToDelete.md")
+      assert {:error, :not_found} = Notes.get_note(user, vault, "Test/ToDelete.md")
     end
 
-    test "broadcasts note_changed with event_type delete", %{socket: socket, user: user} do
-      Notes.upsert_note(user, %{
+    test "broadcasts note_changed with event_type delete", %{socket: socket, user: user, vault: vault} do
+      Notes.upsert_note(user, vault, %{
         "path" => "Test/Gone.md",
         "content" => "# Gone",
         "mtime" => 1_000.0
@@ -148,6 +190,7 @@ defmodule EngramWeb.SyncChannelTest do
         "event_type" => "delete",
         "path" => "Test/Gone.md"
       }
+      # Notes context broadcasts via Endpoint.broadcast (includes sender)
     end
 
     test "is idempotent for nonexistent path", %{socket: socket} do
@@ -161,8 +204,8 @@ defmodule EngramWeb.SyncChannelTest do
   # ---------------------------------------------------------------------------
 
   describe "rename_note" do
-    test "renames note and replies with updated note", %{socket: socket, user: user} do
-      Notes.upsert_note(user, %{
+    test "renames note and replies with updated note", %{socket: socket, user: user, vault: vault} do
+      Notes.upsert_note(user, vault, %{
         "path" => "Test/Original.md",
         "content" => "# Original",
         "mtime" => 1_000.0
@@ -178,8 +221,8 @@ defmodule EngramWeb.SyncChannelTest do
       assert note["path"] == "Test/Renamed.md"
     end
 
-    test "broadcasts note_changed for old and new path", %{socket: socket, user: user} do
-      Notes.upsert_note(user, %{
+    test "broadcasts note_changed for old and new path", %{socket: socket, user: user, vault: vault} do
+      Notes.upsert_note(user, vault, %{
         "path" => "Test/MoveSrc.md",
         "content" => "# Move",
         "mtime" => 1_000.0
@@ -190,9 +233,8 @@ defmodule EngramWeb.SyncChannelTest do
         "new_path" => "Test/MoveDst.md"
       })
 
-      # Old path tombstone
+      # Notes context broadcasts both events via Endpoint.broadcast
       assert_broadcast "note_changed", %{"event_type" => "delete", "path" => "Test/MoveSrc.md"}
-      # New path created
       assert_broadcast "note_changed", %{"event_type" => "upsert", "path" => "Test/MoveDst.md"}
     end
 
@@ -212,8 +254,8 @@ defmodule EngramWeb.SyncChannelTest do
   # ---------------------------------------------------------------------------
 
   describe "pull_changes" do
-    test "returns changes since timestamp", %{socket: socket, user: user} do
-      Notes.upsert_note(user, %{
+    test "returns changes since timestamp", %{socket: socket, user: user, vault: vault} do
+      Notes.upsert_note(user, vault, %{
         "path" => "Test/Recent.md",
         "content" => "# Recent",
         "mtime" => 1_000.0

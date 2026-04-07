@@ -95,7 +95,7 @@ defmodule Engram.AccountsTest do
 
     test "validate_api_key finds key by hash", %{user: user} do
       {:ok, raw_key, _api_key} = Accounts.create_api_key(user, "validate test")
-      assert {:ok, found_user} = Accounts.validate_api_key(raw_key)
+      assert {:ok, found_user, _api_key} = Accounts.validate_api_key(raw_key)
       assert found_user.id == user.id
     end
 

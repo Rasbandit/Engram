@@ -8,6 +8,7 @@ defmodule Engram.Accounts.ApiKey do
     field :last_used, :utc_datetime
 
     belongs_to :user, Engram.Accounts.User
+    many_to_many :vaults, Engram.Vaults.Vault, join_through: "api_key_vaults"
 
     timestamps(type: :utc_datetime, inserted_at: :created_at, updated_at: false)
   end

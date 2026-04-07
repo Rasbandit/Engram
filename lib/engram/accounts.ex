@@ -104,7 +104,7 @@ defmodule Engram.Accounts do
            skip_tenant_check: true
          ) do
       nil -> {:error, :invalid_key}
-      api_key -> {:ok, api_key.user}
+      api_key -> {:ok, api_key.user, api_key}
     end
   end
 

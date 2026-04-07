@@ -4,6 +4,7 @@ defmodule EngramWeb.EmbedStatusControllerTest do
   describe "GET /api/embed-status" do
     test "returns embedding stats for authenticated user", %{conn: conn} do
       user = insert(:user)
+      insert(:vault, user: user, is_default: true)
       {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "test-key")
       conn = put_req_header(conn, "authorization", "Bearer #{api_key}")
 
@@ -22,6 +23,7 @@ defmodule EngramWeb.EmbedStatusControllerTest do
 
     test "excludes soft-deleted notes", %{conn: conn} do
       user = insert(:user)
+      insert(:vault, user: user, is_default: true)
       {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "test-key")
       conn = put_req_header(conn, "authorization", "Bearer #{api_key}")
 

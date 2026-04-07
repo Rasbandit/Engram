@@ -1,11 +1,104 @@
 defmodule Engram.Billing do
   @moduledoc """
-  Billing context: Stripe checkout sessions, webhook processing, tier/trial queries.
+  Billing context: Stripe checkout sessions, webhook processing, tier/trial queries,
+  and plan-based limits enforcement.
   """
 
   import Ecto.Query
   alias Engram.Repo
+  alias Engram.Billing.Plan
   alias Engram.Billing.Subscription
+  alias Engram.Billing.UserOverride
+
+  @default_limits %{
+    "max_vaults" => 1,
+    "max_storage_bytes" => 104_857_600,
+    "cross_vault_search" => false,
+    "vault_scoped_keys" => false
+  }
+
+  # ── Limits ────────────────────────────────────────────────────────
+
+  @doc """
+  Returns the effective limit for a given key for a user.
+
+  Resolution order:
+    1. user_overrides[key]
+    2. plans[user.plan_id].limits[key]
+    3. @default_limits[key]
+
+  Uses explicit nil-checking (not ||) so that `false` values are honoured.
+  """
+  def effective_limit(user, key) do
+    case override_value(user.id, key) do
+      nil ->
+        case plan_value(user, key) do
+          nil -> Map.get(@default_limits, key)
+          val -> val
+        end
+
+      val ->
+        val
+    end
+  end
+
+  @doc """
+  Returns :ok if current_count is below the limit, or the limit is -1 (unlimited).
+  Returns {:error, :limit_reached} when at or over the limit.
+  """
+  def check_limit(user, key, current_count) do
+    case effective_limit(user, key) do
+      -1 -> :ok
+      limit when is_integer(limit) and current_count < limit -> :ok
+      _ -> {:error, :limit_reached}
+    end
+  end
+
+  @doc """
+  Returns :ok if the boolean feature is enabled for the user.
+  Returns {:error, :feature_not_available} otherwise.
+  """
+  def check_feature(user, key) do
+    if effective_limit(user, key) do
+      :ok
+    else
+      {:error, :feature_not_available}
+    end
+  end
+
+  # ── Private Limit Helpers ─────────────────────────────────────────
+
+  # Returns the value from the user's override row for `key`, or nil if no override exists
+  # or the key is absent in the overrides JSONB column.
+  defp override_value(user_id, key) do
+    Repo.one(
+      from(o in UserOverride,
+        where: o.user_id == ^user_id,
+        select: fragment("?->?", o.overrides, ^key)
+      ),
+      skip_tenant_check: true
+    )
+    |> decode_json_value()
+  end
+
+  # Returns the value from the user's plan limits for `key`, or nil.
+  defp plan_value(%{plan_id: nil}, _key), do: nil
+
+  defp plan_value(%{plan_id: plan_id}, key) do
+    Repo.one(
+      from(p in Plan,
+        where: p.id == ^plan_id,
+        select: fragment("?->?", p.limits, ^key)
+      ),
+      skip_tenant_check: true
+    )
+    |> decode_json_value()
+  end
+
+  # Postgres returns JSON values as Postgrex decoded types:
+  # integers → integer, booleans → boolean, nil (missing key) → nil.
+  # No transformation needed — just return as-is.
+  defp decode_json_value(value), do: value
 
   @trial_days 7
 

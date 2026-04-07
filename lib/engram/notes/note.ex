@@ -15,6 +15,7 @@ defmodule Engram.Notes.Note do
     field :deleted_at, :utc_datetime_usec
 
     belongs_to :user, Engram.Accounts.User
+    belongs_to :vault, Engram.Vaults.Vault
     has_many :chunks, Engram.Notes.Chunk
 
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
@@ -32,9 +33,10 @@ defmodule Engram.Notes.Note do
       :content_hash,
       :mtime,
       :user_id,
+      :vault_id,
       :deleted_at
     ], empty_values: [])
-    |> validate_required([:path, :user_id])
-    |> unique_constraint([:user_id, :path])
+    |> validate_required([:path, :user_id, :vault_id])
+    |> unique_constraint([:user_id, :vault_id, :path], name: :notes_user_vault_path_active_index)
   end
 end

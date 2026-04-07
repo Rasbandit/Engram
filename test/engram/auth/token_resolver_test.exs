@@ -38,7 +38,7 @@ defmodule Engram.Auth.TokenResolverTest do
     user = insert(:user)
     {:ok, raw_key, _api_key} = Accounts.create_api_key(user, "test key")
 
-    assert {:ok, resolved} = TokenResolver.resolve(raw_key)
+    assert {:ok, resolved, _api_key} = TokenResolver.resolve(raw_key)
     assert resolved.id == user.id
   end
 

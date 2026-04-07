@@ -14,9 +14,15 @@ defmodule EngramWeb.Plugs.Auth do
   def init(opts), do: opts
 
   def call(conn, _opts) do
-    with {:ok, user} <- authenticate(conn) do
-      assign(conn, :current_user, user)
-    else
+    case authenticate(conn) do
+      {:ok, user} ->
+        assign(conn, :current_user, user)
+
+      {:ok, user, api_key} ->
+        conn
+        |> assign(:current_user, user)
+        |> assign(:current_api_key, api_key)
+
       {:error, _reason} ->
         conn
         |> put_resp_content_type("application/json")

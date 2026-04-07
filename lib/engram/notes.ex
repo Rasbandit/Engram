@@ -14,8 +14,8 @@ defmodule Engram.Notes do
   Creates or updates a note. Sanitizes path, extracts metadata, computes content_hash.
   Returns {:ok, note} or {:error, changeset}.
   """
-  @spec upsert_note(map(), map()) :: {:ok, Note.t()} | {:error, Ecto.Changeset.t()}
-  def upsert_note(user, attrs) do
+  @spec upsert_note(map(), map(), map()) :: {:ok, Note.t()} | {:error, Ecto.Changeset.t()}
+  def upsert_note(user, vault, attrs) do
     path = attrs["path"] || attrs[:path]
     content = attrs["content"] || attrs[:content] || ""
     mtime = attrs["mtime"] || attrs[:mtime]
@@ -39,6 +39,7 @@ defmodule Engram.Notes do
         content_hash: hash,
         mtime: mtime,
         user_id: user.id,
+        vault_id: vault.id,
         created_at: now,
         updated_at: now
       }
@@ -47,7 +48,7 @@ defmodule Engram.Notes do
 
       result =
         Repo.with_tenant(user.id, fn ->
-          case Repo.get_by(Note, user_id: user.id, path: sanitized_path) do
+          case Repo.get_by(Note, user_id: user.id, vault_id: vault.id, path: sanitized_path) do
             nil ->
               case Repo.insert(changeset) do
                 {:ok, note} -> {:ok, {nil, note}}
@@ -75,7 +76,7 @@ defmodule Engram.Notes do
             Oban.insert(EmbedNote.new_debounced(note.id))
           end
 
-          broadcast_change(user.id, "upsert", note.path)
+          broadcast_change(user.id, vault.id, "upsert", note.path)
           {:ok, note}
 
         {:ok, {:conflict, existing}} ->
@@ -93,13 +94,15 @@ defmodule Engram.Notes do
   @doc """
   Gets a note by path for a user. Returns {:ok, note} or {:error, :not_found}.
   """
-  @spec get_note(map(), String.t()) :: {:ok, Note.t()} | {:error, :not_found}
-  def get_note(user, path) do
+  @spec get_note(map(), map(), String.t()) :: {:ok, Note.t()} | {:error, :not_found}
+  def get_note(user, vault, path) do
     result =
       Repo.with_tenant(user.id, fn ->
         Repo.one(
           from(n in Note,
-            where: n.user_id == ^user.id and n.path == ^path and is_nil(n.deleted_at)
+            where:
+              n.user_id == ^user.id and n.vault_id == ^vault.id and n.path == ^path and
+                is_nil(n.deleted_at)
           )
         )
       end)
@@ -115,8 +118,9 @@ defmodule Engram.Notes do
   Renames a note to a new path. Sanitizes the new path, updates folder and title.
   Returns {:ok, updated_note} or {:error, :not_found}.
   """
-  @spec rename_note(map(), String.t(), String.t()) :: {:ok, Note.t()} | {:error, :not_found}
-  def rename_note(user, old_path, new_path) do
+  @spec rename_note(map(), map(), String.t(), String.t()) ::
+          {:ok, Note.t()} | {:error, :not_found}
+  def rename_note(user, vault, old_path, new_path) do
     new_path = PathSanitizer.sanitize(new_path)
     new_folder = Helpers.extract_folder(new_path)
     now = DateTime.utc_now()
@@ -126,7 +130,9 @@ defmodule Engram.Notes do
         # Fetch current note for content (to derive title from new path)
         case Repo.one(
                from(n in Note,
-                 where: n.user_id == ^user.id and n.path == ^old_path and is_nil(n.deleted_at)
+                 where:
+                   n.user_id == ^user.id and n.vault_id == ^vault.id and n.path == ^old_path and
+                     is_nil(n.deleted_at)
                )
              ) do
           nil ->
@@ -153,8 +159,8 @@ defmodule Engram.Notes do
     case result do
       {:ok, {:ok, note}} ->
         Oban.insert(EmbedNote.new_debounced(note.id, old_path: old_path))
-        broadcast_change(user.id, "delete", old_path)
-        broadcast_change(user.id, "upsert", note.path)
+        broadcast_change(user.id, vault.id, "delete", old_path)
+        broadcast_change(user.id, vault.id, "upsert", note.path)
         {:ok, note}
 
       {:ok, :not_found} ->
@@ -167,19 +173,33 @@ defmodule Engram.Notes do
 
   @doc """
   Soft-deletes a note. Idempotent — returns :ok even if note doesn't exist.
+  Also cleans up Qdrant points and chunk records for the deleted note.
   """
-  @spec delete_note(map(), String.t()) :: :ok
-  def delete_note(user, path) do
+  @spec delete_note(map(), map(), String.t()) :: :ok
+  def delete_note(user, vault, path) do
     now = DateTime.utc_now()
 
-    Repo.with_tenant(user.id, fn ->
-      from(n in Note,
-        where: n.user_id == ^user.id and n.path == ^path and is_nil(n.deleted_at)
-      )
-      |> Repo.update_all(set: [deleted_at: now, updated_at: now])
-    end)
+    {:ok, note} =
+      Repo.with_tenant(user.id, fn ->
+        Repo.one(
+          from(n in Note,
+            where:
+              n.user_id == ^user.id and n.vault_id == ^vault.id and n.path == ^path and
+                is_nil(n.deleted_at)
+          )
+        )
+      end)
 
-    broadcast_change(user.id, "delete", path)
+    if note do
+      Repo.with_tenant(user.id, fn ->
+        from(n in Note, where: n.id == ^note.id)
+        |> Repo.update_all(set: [deleted_at: now, updated_at: now])
+      end)
+
+      Task.start(fn -> Engram.Indexing.delete_note_index(note) end)
+    end
+
+    broadcast_change(user.id, vault.id, "delete", path)
     :ok
   end
 
@@ -187,13 +207,13 @@ defmodule Engram.Notes do
   Returns notes changed (upserted or deleted) since the given datetime.
   Deleted notes are included with deleted: true.
   """
-  @spec list_changes(map(), DateTime.t()) :: {:ok, [map()]}
-  def list_changes(user, since) do
+  @spec list_changes(map(), map(), DateTime.t()) :: {:ok, [map()]}
+  def list_changes(user, vault, since) do
     {:ok, notes} =
       Repo.with_tenant(user.id, fn ->
         Repo.all(
           from(n in Note,
-            where: n.user_id == ^user.id and n.updated_at > ^since,
+            where: n.user_id == ^user.id and n.vault_id == ^vault.id and n.updated_at > ^since,
             order_by: [asc: n.updated_at]
           )
         )
@@ -220,13 +240,15 @@ defmodule Engram.Notes do
   @doc """
   Returns unique tags across all non-deleted notes for a user.
   """
-  @spec list_tags(map()) :: {:ok, [String.t()]}
-  def list_tags(user) do
+  @spec list_tags(map(), map()) :: {:ok, [String.t()]}
+  def list_tags(user, vault) do
     {:ok, rows} =
       Repo.with_tenant(user.id, fn ->
         Repo.all(
           from(n in Note,
-            where: n.user_id == ^user.id and is_nil(n.deleted_at) and n.tags != ^[],
+            where:
+              n.user_id == ^user.id and n.vault_id == ^vault.id and is_nil(n.deleted_at) and
+                n.tags != ^[],
             select: n.tags
           )
         )
@@ -244,14 +266,15 @@ defmodule Engram.Notes do
   @doc """
   Returns unique non-empty folder paths for a user's notes.
   """
-  @spec list_folders(map()) :: {:ok, [String.t()]}
-  def list_folders(user) do
+  @spec list_folders(map(), map()) :: {:ok, [String.t()]}
+  def list_folders(user, vault) do
     {:ok, folders} =
       Repo.with_tenant(user.id, fn ->
         Repo.all(
           from(n in Note,
             where:
-              n.user_id == ^user.id and is_nil(n.deleted_at) and n.folder != "" and
+              n.user_id == ^user.id and n.vault_id == ^vault.id and is_nil(n.deleted_at) and
+                n.folder != "" and
                 not is_nil(n.folder),
             select: n.folder,
             distinct: true,
@@ -267,13 +290,15 @@ defmodule Engram.Notes do
   Returns tags with counts across all non-deleted notes for a user.
   Uses Postgres unnest() to explode the tags array and group by tag.
   """
-  @spec list_tags_with_counts(map()) :: {:ok, [%{name: String.t(), count: integer()}]}
-  def list_tags_with_counts(user) do
+  @spec list_tags_with_counts(map(), map()) :: {:ok, [%{name: String.t(), count: integer()}]}
+  def list_tags_with_counts(user, vault) do
     {:ok, rows} =
       Repo.with_tenant(user.id, fn ->
         Repo.all(
           from(n in Note,
-            where: n.user_id == ^user.id and is_nil(n.deleted_at) and n.tags != ^[],
+            where:
+              n.user_id == ^user.id and n.vault_id == ^vault.id and is_nil(n.deleted_at) and
+                n.tags != ^[],
             select: %{
               name: fragment("unnest(?)", n.tags),
               count: fragment("1")
@@ -295,13 +320,14 @@ defmodule Engram.Notes do
   @doc """
   Returns folders with note counts for a user. Includes root folder (empty string).
   """
-  @spec list_folders_with_counts(map()) :: {:ok, [%{folder: String.t(), count: integer()}]}
-  def list_folders_with_counts(user) do
+  @spec list_folders_with_counts(map(), map()) ::
+          {:ok, [%{folder: String.t(), count: integer()}]}
+  def list_folders_with_counts(user, vault) do
     {:ok, rows} =
       Repo.with_tenant(user.id, fn ->
         Repo.all(
           from(n in Note,
-            where: n.user_id == ^user.id and is_nil(n.deleted_at),
+            where: n.user_id == ^user.id and n.vault_id == ^vault.id and is_nil(n.deleted_at),
             group_by: n.folder,
             select: %{folder: n.folder, count: count(n.id)},
             order_by: n.folder
@@ -319,8 +345,8 @@ defmodule Engram.Notes do
   Returns all non-deleted notes in a specific folder for a user.
   Pass "" for root-level notes.
   """
-  @spec list_notes_in_folder(map(), String.t()) :: {:ok, [Note.t()]}
-  def list_notes_in_folder(user, folder) do
+  @spec list_notes_in_folder(map(), map(), String.t()) :: {:ok, [Note.t()]}
+  def list_notes_in_folder(user, vault, folder) do
     {:ok, notes} =
       Repo.with_tenant(user.id, fn ->
         query =
@@ -328,13 +354,15 @@ defmodule Engram.Notes do
             # Root-level notes have folder = nil or ""
             from(n in Note,
               where:
-                n.user_id == ^user.id and is_nil(n.deleted_at) and
+                n.user_id == ^user.id and n.vault_id == ^vault.id and is_nil(n.deleted_at) and
                   (is_nil(n.folder) or n.folder == ""),
               order_by: n.title
             )
           else
             from(n in Note,
-              where: n.user_id == ^user.id and is_nil(n.deleted_at) and n.folder == ^folder,
+              where:
+                n.user_id == ^user.id and n.vault_id == ^vault.id and is_nil(n.deleted_at) and
+                  n.folder == ^folder,
               order_by: n.title
             )
           end
@@ -350,8 +378,8 @@ defmodule Engram.Notes do
   Rewrites path, folder, and title for each affected note.
   Returns {:ok, count} with the number of notes affected.
   """
-  @spec rename_folder(map(), String.t(), String.t()) :: {:ok, integer()}
-  def rename_folder(user, old_folder, new_folder) do
+  @spec rename_folder(map(), map(), String.t(), String.t()) :: {:ok, integer()}
+  def rename_folder(user, vault, old_folder, new_folder) do
     new_folder = String.trim_trailing(new_folder, "/")
     old_prefix = old_folder <> "/"
 
@@ -360,7 +388,7 @@ defmodule Engram.Notes do
         Repo.all(
           from(n in Note,
             where:
-              n.user_id == ^user.id and is_nil(n.deleted_at) and
+              n.user_id == ^user.id and n.vault_id == ^vault.id and is_nil(n.deleted_at) and
                 (n.folder == ^old_folder or
                    fragment("? LIKE ?", n.folder, ^(old_prefix <> "%"))),
             select: n
@@ -403,7 +431,7 @@ defmodule Engram.Notes do
       # Side effects outside the transaction — broadcast + reindex
       Enum.each(updates, fn {id, old_note_path, new_path, _folder, _title} ->
         Oban.insert(Engram.Workers.EmbedNote.new_debounced(id, old_path: old_note_path))
-        broadcast_change(user.id, "upsert", new_path)
+        broadcast_change(user.id, vault.id, "upsert", new_path)
       end)
 
       {:ok, length(notes)}
@@ -428,11 +456,11 @@ defmodule Engram.Notes do
     :crypto.hash(:md5, content) |> Base.encode16(case: :lower)
   end
 
-  defp broadcast_change(user_id, event_type, path) do
-    EngramWeb.Endpoint.broadcast("sync:#{user_id}", "note_changed", %{
-      event_type: event_type,
-      path: path,
-      kind: "note"
+  defp broadcast_change(user_id, vault_id, event_type, path) do
+    EngramWeb.Endpoint.broadcast("sync:#{user_id}:#{vault_id}", "note_changed", %{
+      "event_type" => event_type,
+      "path" => path,
+      "vault_id" => vault_id
     })
   end
 end

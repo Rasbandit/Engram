@@ -13,11 +13,12 @@ defmodule Engram.SearchTest do
     on_exit(fn -> Application.delete_env(:engram, :qdrant_url) end)
 
     user = insert(:user)
-    %{bypass: bypass, user: user}
+    vault = insert(:vault, user: user)
+    %{bypass: bypass, user: user, vault: vault}
   end
 
-  describe "search/3" do
-    test "returns results from Qdrant", %{bypass: bypass, user: user} do
+  describe "search/4" do
+    test "returns results from Qdrant", %{bypass: bypass, user: user, vault: vault} do
       Engram.MockEmbedder
       |> expect(:embed_texts, fn ["iron panel"] ->
         {:ok, [List.duplicate(0.1, 3)]}
@@ -34,7 +35,8 @@ defmodule Engram.SearchTest do
               "heading_path" => "Iron Panel",
               "source_path" => "Health/Iron Panel.md",
               "tags" => ["health"],
-              "user_id" => to_string(user.id)
+              "user_id" => to_string(user.id),
+              "vault_id" => to_string(vault.id)
             }
           }
         ]
@@ -46,13 +48,32 @@ defmodule Engram.SearchTest do
         |> Plug.Conn.send_resp(200, Jason.encode!(qdrant_result))
       end)
 
-      assert {:ok, results} = Search.search(user, "iron panel")
+      assert {:ok, results} = Search.search(user, vault, "iron panel")
       assert length(results) == 1
       assert hd(results).score == 0.95
       assert hd(results).source_path == "Health/Iron Panel.md"
     end
 
-    test "passes folder filter to Qdrant", %{bypass: bypass, user: user} do
+    test "includes vault_id filter in Qdrant request", %{bypass: bypass, user: user, vault: vault} do
+      Engram.MockEmbedder
+      |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
+
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        decoded = Jason.decode!(body)
+        conditions = decoded["filter"]["must"]
+        keys = Enum.map(conditions, & &1["key"])
+        assert "vault_id" in keys
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": []}))
+      end)
+
+      assert {:ok, []} = Search.search(user, vault, "query")
+    end
+
+    test "passes folder filter to Qdrant", %{bypass: bypass, user: user, vault: vault} do
       Engram.MockEmbedder
       |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
 
@@ -68,10 +89,10 @@ defmodule Engram.SearchTest do
         |> Plug.Conn.send_resp(200, ~s({"result": []}))
       end)
 
-      assert {:ok, []} = Search.search(user, "query", folder: "Health")
+      assert {:ok, []} = Search.search(user, vault, "query", folder: "Health")
     end
 
-    test "passes tags filter to Qdrant", %{bypass: bypass, user: user} do
+    test "passes tags filter to Qdrant", %{bypass: bypass, user: user, vault: vault} do
       Engram.MockEmbedder
       |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
 
@@ -87,17 +108,17 @@ defmodule Engram.SearchTest do
         |> Plug.Conn.send_resp(200, ~s({"result": []}))
       end)
 
-      assert {:ok, []} = Search.search(user, "query", tags: ["health"])
+      assert {:ok, []} = Search.search(user, vault, "query", tags: ["health"])
     end
 
-    test "returns error when embedder fails", %{user: user} do
+    test "returns error when embedder fails", %{user: user, vault: vault} do
       Engram.MockEmbedder
       |> expect(:embed_texts, fn _ -> {:error, :unavailable} end)
 
-      assert {:error, _} = Search.search(user, "iron panel")
+      assert {:error, _} = Search.search(user, vault, "iron panel")
     end
 
-    test "fetches 4x candidates when reranker is configured", %{bypass: bypass, user: user} do
+    test "fetches 4x candidates when reranker is configured", %{bypass: bypass, user: user, vault: vault} do
       # Configure Jina reranker via behaviour
       jina_bypass = Bypass.open()
       Application.put_env(:engram, :reranker, Engram.Rerankers.Jina)
@@ -128,7 +149,8 @@ defmodule Engram.SearchTest do
                 "heading_path" => "Section",
                 "source_path" => "test/note#{i}.md",
                 "tags" => [],
-                "user_id" => to_string(user.id)
+                "user_id" => to_string(user.id),
+                "vault_id" => to_string(vault.id)
               }
             }
           end
@@ -153,13 +175,13 @@ defmodule Engram.SearchTest do
         |> Plug.Conn.send_resp(200, Jason.encode!(resp))
       end)
 
-      assert {:ok, results} = Search.search(user, "test query", limit: 2)
+      assert {:ok, results} = Search.search(user, vault, "test query", limit: 2)
       assert length(results) == 2
       # Result 3 should be first (highest reranker score)
       assert hd(results).source_path == "test/note3.md"
     end
 
-    test "uses query embed model when configured", %{bypass: bypass, user: user} do
+    test "uses query embed model when configured", %{bypass: bypass, user: user, vault: vault} do
       Application.put_env(:engram, :query_embed_model, "voyage-4-lite")
       on_exit(fn -> Application.delete_env(:engram, :query_embed_model) end)
 
@@ -174,10 +196,10 @@ defmodule Engram.SearchTest do
         |> Plug.Conn.send_resp(200, ~s({"result": []}))
       end)
 
-      assert {:ok, []} = Search.search(user, "test query")
+      assert {:ok, []} = Search.search(user, vault, "test query")
     end
 
-    test "uses default embed when query model not configured", %{bypass: bypass, user: user} do
+    test "uses default embed when query model not configured", %{bypass: bypass, user: user, vault: vault} do
       Application.delete_env(:engram, :query_embed_model)
 
       Engram.MockEmbedder
@@ -191,10 +213,10 @@ defmodule Engram.SearchTest do
         |> Plug.Conn.send_resp(200, ~s({"result": []}))
       end)
 
-      assert {:ok, []} = Search.search(user, "test query")
+      assert {:ok, []} = Search.search(user, vault, "test query")
     end
 
-    test "returns empty list when Qdrant returns no results", %{bypass: bypass, user: user} do
+    test "returns empty list when Qdrant returns no results", %{bypass: bypass, user: user, vault: vault} do
       Engram.MockEmbedder
       |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
 
@@ -204,7 +226,47 @@ defmodule Engram.SearchTest do
         |> Plug.Conn.send_resp(200, ~s({"result": []}))
       end)
 
-      assert {:ok, []} = Search.search(user, "nothing")
+      assert {:ok, []} = Search.search(user, vault, "nothing")
+    end
+
+    test "cross-vault search returns error when feature disabled (free plan)", %{user: user, vault: vault} do
+      # Free plan user has no plan_id; @default_limits has cross_vault_search: false
+      assert user.plan_id == nil
+
+      assert {:error, :feature_not_available} =
+               Search.search(user, vault, "query", cross_vault: true)
+    end
+
+    test "cross-vault search proceeds past billing gate when feature enabled (pro plan)", %{bypass: bypass, vault: vault} do
+      plan = insert(:plan, limits: %{"cross_vault_search" => true})
+      pro_user = insert(:user, plan_id: plan.id)
+
+      Engram.MockEmbedder
+      |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
+
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": []}))
+      end)
+
+      result = Search.search(pro_user, vault, "query", cross_vault: true)
+      refute result == {:error, :feature_not_available}
+    end
+
+    test "default (non-cross-vault) search skips billing gate for free plan user", %{bypass: bypass, user: user, vault: vault} do
+      # Free plan user — no cross_vault opt — should never hit the billing check
+      Engram.MockEmbedder
+      |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
+
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": []}))
+      end)
+
+      result = Search.search(user, vault, "query")
+      refute result == {:error, :feature_not_available}
     end
   end
 end

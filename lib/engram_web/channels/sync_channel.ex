@@ -1,9 +1,11 @@
 defmodule EngramWeb.SyncChannel do
   @moduledoc """
-  Per-user WebSocket channel for bidirectional note sync.
+  Per-user, per-vault WebSocket channel for bidirectional note sync.
 
-  Topic: "sync:{user_id}"
-  Auth:  socket.assigns.current_user must match the user_id in the topic.
+  Topic: "sync:{user_id}:{vault_id}"
+  Auth:  socket.assigns.current_user must match user_id; vault must belong to that user.
+
+  Backwards-compat: "sync:{user_id}" (no vault) falls back to the user's default vault.
 
   Client → Server events: push_note, delete_note, rename_note, pull_changes
   Server → Client broadcasts: note_changed
@@ -12,6 +14,7 @@ defmodule EngramWeb.SyncChannel do
   use Phoenix.Channel
 
   alias Engram.Notes
+  alias Engram.Vaults
   alias EngramWeb.Presence
 
   # ---------------------------------------------------------------------------
@@ -19,24 +22,61 @@ defmodule EngramWeb.SyncChannel do
   # ---------------------------------------------------------------------------
 
   @impl true
-  def join("sync:" <> user_id_str, params, socket) do
-    current_user = socket.assigns.current_user
+  def join("sync:" <> ids, params, socket) do
+    user = socket.assigns.current_user
 
-    if to_string(current_user.id) == user_id_str do
-      send(self(), {:after_join, params})
-      {:ok, socket}
-    else
-      {:error, %{reason: "unauthorized"}}
+    case String.split(ids, ":") do
+      [user_id_str, vault_id_str] ->
+        if to_string(user.id) == user_id_str do
+          case Integer.parse(vault_id_str) do
+            {vault_id, ""} ->
+              case Vaults.get_vault(user, vault_id) do
+                {:ok, vault} ->
+                  socket = assign(socket, :vault, vault)
+                  send(self(), {:after_join, params})
+                  {:ok, socket}
+
+                {:error, _} ->
+                  {:error, %{reason: "vault_not_found"}}
+              end
+
+            _ ->
+              {:error, %{reason: "invalid_vault_id"}}
+          end
+        else
+          {:error, %{reason: "unauthorized"}}
+        end
+
+      # Backwards-compat: old topic "sync:{user_id}" without vault
+      [user_id_str] ->
+        if to_string(user.id) == user_id_str do
+          case Vaults.get_default_vault(user) do
+            {:ok, vault} ->
+              socket = assign(socket, :vault, vault)
+              send(self(), {:after_join, params})
+              {:ok, socket}
+
+            {:error, _} ->
+              {:error, %{reason: "no_default_vault"}}
+          end
+        else
+          {:error, %{reason: "unauthorized"}}
+        end
+
+      _ ->
+        {:error, %{reason: "invalid_topic"}}
     end
   end
 
   @impl true
   def handle_info({:after_join, params}, socket) do
     device_id = Map.get(params, "device_id", "unknown")
+    vault_id = socket.assigns.vault.id
 
     {:ok, _} =
       Presence.track(socket, device_id, %{
-        joined_at: DateTime.utc_now() |> DateTime.to_iso8601()
+        joined_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+        vault_id: vault_id
       })
 
     push(socket, "presence_state", Presence.list(socket))
@@ -50,16 +90,10 @@ defmodule EngramWeb.SyncChannel do
   @impl true
   def handle_in("push_note", params, socket) do
     user = socket.assigns.current_user
+    vault = socket.assigns.vault
 
-    case Notes.upsert_note(user, params) do
+    case Notes.upsert_note(user, vault, params) do
       {:ok, note} ->
-        broadcast_from!(socket, "note_changed", %{
-          "event_type" => "upsert",
-          "path" => note.path,
-          "kind" => "note",
-          "timestamp" => DateTime.to_iso8601(note.updated_at)
-        })
-
         reply = %{
           "note" => serialize_note(note),
           "indexing" => "queued"
@@ -79,15 +113,9 @@ defmodule EngramWeb.SyncChannel do
   @impl true
   def handle_in("delete_note", %{"path" => path}, socket) do
     user = socket.assigns.current_user
-    :ok = Notes.delete_note(user, path)
+    vault = socket.assigns.vault
 
-    broadcast_from!(socket, "note_changed", %{
-      "event_type" => "delete",
-      "path" => path,
-      "kind" => "note",
-      "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601()
-    })
-
+    :ok = Notes.delete_note(user, vault, path)
     {:reply, {:ok, %{"deleted" => true}}, socket}
   end
 
@@ -98,26 +126,10 @@ defmodule EngramWeb.SyncChannel do
   @impl true
   def handle_in("rename_note", %{"old_path" => old_path, "new_path" => new_path}, socket) do
     user = socket.assigns.current_user
+    vault = socket.assigns.vault
 
-    case Notes.rename_note(user, old_path, new_path) do
+    case Notes.rename_note(user, vault, old_path, new_path) do
       {:ok, note} ->
-        now = DateTime.utc_now() |> DateTime.to_iso8601()
-
-        # Broadcast tombstone for old path + create for new path
-        broadcast_from!(socket, "note_changed", %{
-          "event_type" => "delete",
-          "path" => old_path,
-          "kind" => "note",
-          "timestamp" => now
-        })
-
-        broadcast_from!(socket, "note_changed", %{
-          "event_type" => "upsert",
-          "path" => note.path,
-          "kind" => "note",
-          "timestamp" => now
-        })
-
         {:reply, {:ok, %{"note" => serialize_note(note)}}, socket}
 
       {:error, :not_found} ->
@@ -132,10 +144,11 @@ defmodule EngramWeb.SyncChannel do
   @impl true
   def handle_in("pull_changes", %{"since" => since_str}, socket) do
     user = socket.assigns.current_user
+    vault = socket.assigns.vault
 
     case DateTime.from_iso8601(since_str) do
       {:ok, since, _} ->
-        {:ok, changes} = Notes.list_changes(user, since)
+        {:ok, changes} = Notes.list_changes(user, vault, since)
 
         serialized =
           Enum.map(changes, fn c ->

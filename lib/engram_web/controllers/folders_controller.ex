@@ -4,13 +4,16 @@ defmodule EngramWeb.FoldersController do
   alias Engram.Notes
 
   def index(conn, _params) do
-    {:ok, folders} = Notes.list_folders(conn.assigns.current_user)
+    user = conn.assigns.current_user
+    vault = conn.assigns.current_vault
+    {:ok, folders} = Notes.list_folders(user, vault)
     json(conn, %{folders: Enum.map(folders, &%{folder: &1})})
   end
 
   def list(conn, %{"folder" => folder}) do
     user = conn.assigns.current_user
-    {:ok, notes} = Notes.list_notes_in_folder(user, folder)
+    vault = conn.assigns.current_vault
+    {:ok, notes} = Notes.list_notes_in_folder(user, vault, folder)
 
     json(conn, %{
       folder: folder,
@@ -24,7 +27,8 @@ defmodule EngramWeb.FoldersController do
 
   def rename(conn, %{"old_folder" => old_folder, "new_folder" => new_folder}) do
     user = conn.assigns.current_user
-    {:ok, count} = Notes.rename_folder(user, old_folder, new_folder)
+    vault = conn.assigns.current_vault
+    {:ok, count} = Notes.rename_folder(user, vault, old_folder, new_folder)
 
     if count == 0 do
       conn |> put_status(404) |> json(%{error: "folder not found"})
