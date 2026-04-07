@@ -52,8 +52,8 @@ defmodule Engram.Vector.QdrantTest do
     end
   end
 
-  describe "delete_by_note/3" do
-    test "posts filter delete for user+path", %{bypass: bypass} do
+  describe "delete_by_note/4" do
+    test "posts filter delete for user+vault+path", %{bypass: bypass} do
       Bypass.expect_once(bypass, "POST", "/collections/test_col/points/delete", fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)
         decoded = Jason.decode!(body)
@@ -67,7 +67,7 @@ defmodule Engram.Vector.QdrantTest do
         |> Plug.Conn.send_resp(200, ~s({"result": {"status": "ok"}}))
       end)
 
-      assert :ok = Qdrant.delete_by_note("test_col", "user-1", "Test/Note.md")
+      assert :ok = Qdrant.delete_by_note("test_col", "user-1", "vault-1", "Test/Note.md")
     end
   end
 

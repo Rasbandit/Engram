@@ -17,9 +17,10 @@ defmodule Engram.Workers.EmbedNoteTest do
     on_exit(fn -> Application.delete_env(:engram, :qdrant_url) end)
 
     user = insert(:user)
+    vault = insert(:vault, user: user)
     # Use factory directly — avoids triggering EmbedNote inline during setup
-    note = insert(:note, user: user, path: "Test/Hello.md", content: "# Hello\n\nWorld.")
-    %{bypass: bypass, user: user, note: note}
+    note = insert(:note, user: user, vault: vault, path: "Test/Hello.md", content: "# Hello\n\nWorld.")
+    %{bypass: bypass, user: user, vault: vault, note: note}
   end
 
   defp stub_qdrant(bypass) do
@@ -104,9 +105,9 @@ defmodule Engram.Workers.EmbedNoteTest do
   end
 
   describe "job scheduling" do
-    test "Notes.upsert_note enqueues EmbedNote job", %{user: user} do
+    test "Notes.upsert_note enqueues EmbedNote job", %{user: user, vault: vault} do
       {:ok, note} =
-        Notes.upsert_note(user, %{
+        Notes.upsert_note(user, vault, %{
           "path" => "Test/Scheduled.md",
           "content" => "# Scheduled",
           "mtime" => 1_000.0
@@ -116,9 +117,9 @@ defmodule Engram.Workers.EmbedNoteTest do
       assert_enqueued(worker: EmbedNote, args: %{"note_id" => note.id})
     end
 
-    test "upsert with unchanged content does not enqueue embed job", %{user: user} do
+    test "upsert with unchanged content does not enqueue embed job", %{user: user, vault: vault} do
       {:ok, note} =
-        Notes.upsert_note(user, %{
+        Notes.upsert_note(user, vault, %{
           "path" => "Test/NoChange.md",
           "content" => "# Same content",
           "mtime" => 1_000.0
@@ -129,7 +130,7 @@ defmodule Engram.Workers.EmbedNoteTest do
 
       # Re-upsert with same content — should not enqueue another
       {:ok, _} =
-        Notes.upsert_note(user, %{
+        Notes.upsert_note(user, vault, %{
           "path" => "Test/NoChange.md",
           "content" => "# Same content",
           "mtime" => 2_000.0
@@ -140,15 +141,24 @@ defmodule Engram.Workers.EmbedNoteTest do
       assert length(jobs) == 1
     end
 
-    test "delete_note does not enqueue an additional embed job", %{user: user} do
+    test "delete_note does not enqueue an additional embed job", %{bypass: bypass, user: user, vault: vault} do
+      # Stub all Qdrant requests — the background delete_note_index Task may hit Qdrant
+      Bypass.stub(bypass, "POST", "/collections/engram_notes/points/delete", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": {"status": "ok"}}))
+      end)
+
       {:ok, note} =
-        Notes.upsert_note(user, %{
+        Notes.upsert_note(user, vault, %{
           "path" => "Test/Gone.md",
           "content" => "# Gone",
           "mtime" => 1_000.0
         })
 
-      Notes.delete_note(user, note.path)
+      Notes.delete_note(user, vault, note.path)
+      # Allow the background Task to complete before checking job count
+      Process.sleep(100)
 
       # Only the upsert job, nothing from delete
       jobs = all_enqueued(worker: EmbedNote)

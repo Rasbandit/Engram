@@ -8,11 +8,13 @@ defmodule Engram.RepoTenantTest do
       user_a = insert(:user)
       user_b = insert(:user)
 
-      # Insert a note as User A
+      # Insert a note as User A (vault required after multi-vault migration)
+      vault_a = insert(:vault, user: user_a)
+
       {:ok, _note} =
         Repo.with_tenant(user_a.id, fn ->
           %Note{}
-          |> Note.changeset(%{path: "secret.md", content: "private", user_id: user_a.id})
+          |> Note.changeset(%{path: "secret.md", content: "private", user_id: user_a.id, vault_id: vault_a.id})
           |> Repo.insert()
         end)
 

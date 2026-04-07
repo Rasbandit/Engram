@@ -196,7 +196,7 @@ defmodule Engram.Notes do
         |> Repo.update_all(set: [deleted_at: now, updated_at: now])
       end)
 
-      Engram.Indexing.delete_note_index(note)
+      Task.start(fn -> Engram.Indexing.delete_note_index(note) end)
     end
 
     broadcast_change(user.id, vault.id, "delete", path)
