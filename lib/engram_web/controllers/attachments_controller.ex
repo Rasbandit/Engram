@@ -5,8 +5,9 @@ defmodule EngramWeb.AttachmentsController do
 
   def upload(conn, params) do
     user = conn.assigns.current_user
+    vault = conn.assigns.current_vault
 
-    case Attachments.upsert_attachment(user, params) do
+    case Attachments.upsert_attachment(user, vault, params) do
       {:ok, att} ->
         json(conn, %{attachment: serialize_metadata(att)})
 
@@ -29,9 +30,10 @@ defmodule EngramWeb.AttachmentsController do
 
   def show(conn, %{"path" => path_parts}) do
     user = conn.assigns.current_user
+    vault = conn.assigns.current_vault
     path = Path.join(path_parts)
 
-    case Attachments.get_attachment(user, path) do
+    case Attachments.get_attachment(user, vault, path) do
       {:ok, nil} ->
         conn |> put_status(404) |> json(%{error: "attachment not found"})
 
@@ -57,18 +59,20 @@ defmodule EngramWeb.AttachmentsController do
 
   def delete(conn, %{"path" => path_parts}) do
     user = conn.assigns.current_user
+    vault = conn.assigns.current_vault
     path = Path.join(path_parts)
 
-    Attachments.delete_attachment(user, path)
+    Attachments.delete_attachment(user, vault, path)
     json(conn, %{deleted: true, path: path})
   end
 
   def changes(conn, %{"since" => since_str}) do
     user = conn.assigns.current_user
+    vault = conn.assigns.current_vault
 
     case DateTime.from_iso8601(since_str) do
       {:ok, since, _offset} ->
-        {:ok, changes} = Attachments.list_changes(user, since)
+        {:ok, changes} = Attachments.list_changes(user, vault, since)
 
         json(conn, %{
           changes:

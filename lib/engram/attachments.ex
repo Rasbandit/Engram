@@ -18,7 +18,7 @@ defmodule Engram.Attachments do
   Upserts an attachment. Decodes base64 content, detects MIME type, computes hash.
   Returns {:ok, attachment} or {:error, reason}.
   """
-  def upsert_attachment(user, attrs) do
+  def upsert_attachment(user, vault, attrs) do
     path = (attrs["path"] || attrs[:path]) |> PathSanitizer.sanitize()
     content_b64 = attrs["content_base64"] || attrs[:content_base64]
     mtime = attrs["mtime"] || attrs[:mtime]
@@ -26,11 +26,15 @@ defmodule Engram.Attachments do
 
     with {:ok, binary} <- decode_base64(content_b64),
          :ok <- validate_size(binary),
-         {:ok, key, changeset_attrs} <- prepare_upload(user, path, binary, mtime, explicit_mime),
+         {:ok, key, changeset_attrs} <- prepare_upload(user, vault, path, binary, mtime, explicit_mime),
          :ok <- store_external(key, binary, changeset_attrs.mime_type) do
       Repo.with_tenant(user.id, fn ->
         existing =
-          Repo.one(from(a in Attachment, where: a.path == ^path and a.user_id == ^user.id))
+          Repo.one(
+            from(a in Attachment,
+              where: a.path == ^path and a.user_id == ^user.id and a.vault_id == ^vault.id
+            )
+          )
 
         case existing do
           nil ->
@@ -52,14 +56,16 @@ defmodule Engram.Attachments do
   Gets an attachment by path. Returns nil for soft-deleted.
   Fetches binary content from the configured storage backend.
   """
-  def get_attachment(user, path) do
+  def get_attachment(user, vault, path) do
     path = PathSanitizer.sanitize(path)
 
     result =
       Repo.with_tenant(user.id, fn ->
         Repo.one(
           from(a in Attachment,
-            where: a.path == ^path and a.user_id == ^user.id and is_nil(a.deleted_at)
+            where:
+              a.path == ^path and a.user_id == ^user.id and a.vault_id == ^vault.id and
+                is_nil(a.deleted_at)
           )
         )
       end)
@@ -75,7 +81,7 @@ defmodule Engram.Attachments do
 
       {:ok, %Attachment{} = att} ->
         # Content stored externally (S3 adapter) — fetch it
-        key = att.storage_key || Storage.key(user.id, path)
+        key = att.storage_key || Storage.key(user.id, vault.id, path)
 
         case Storage.adapter().get(key) do
           {:ok, binary} ->
@@ -103,27 +109,27 @@ defmodule Engram.Attachments do
   If the blob delete fails, the row stays deleted and we log a warning — a zombie blob
   wastes storage but doesn't cause data loss, unlike the reverse (ghost row pointing to nothing).
   """
-  def delete_attachment(user, path) do
+  def delete_attachment(user, vault, path) do
     path = PathSanitizer.sanitize(path)
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     Repo.with_tenant(user.id, fn ->
       from(a in Attachment,
-        where: a.path == ^path and a.user_id == ^user.id and is_nil(a.deleted_at)
+        where: a.path == ^path and a.user_id == ^user.id and a.vault_id == ^vault.id and is_nil(a.deleted_at)
       )
       |> Repo.update_all(set: [deleted_at: now, updated_at: now])
     end)
 
     # Best-effort blob cleanup — row is already soft-deleted so this is safe to retry later
-    delete_external(Storage.adapter(), user.id, path)
+    delete_external(Storage.adapter(), user.id, vault.id, path)
 
     :ok
   end
 
-  defp delete_external(Storage.Database, _user_id, _path), do: :ok
+  defp delete_external(Storage.Database, _user_id, _vault_id, _path), do: :ok
 
-  defp delete_external(backend, user_id, path) do
-    key = Storage.key(user_id, path)
+  defp delete_external(backend, user_id, vault_id, path) do
+    key = Storage.key(user_id, vault_id, path)
 
     case backend.delete(key) do
       :ok ->
@@ -139,10 +145,10 @@ defmodule Engram.Attachments do
   @doc """
   Lists attachment changes since a given timestamp. Returns metadata only (no content).
   """
-  def list_changes(user, since) do
+  def list_changes(user, vault, since) do
     Repo.with_tenant(user.id, fn ->
       from(a in Attachment,
-        where: a.user_id == ^user.id and a.updated_at > ^since,
+        where: a.user_id == ^user.id and a.vault_id == ^vault.id and a.updated_at > ^since,
         order_by: [asc: a.updated_at],
         select: %{
           path: a.path,
@@ -159,7 +165,25 @@ defmodule Engram.Attachments do
   end
 
   @doc """
-  Returns storage usage for a user: total bytes and file count.
+  Returns storage usage for a vault: total bytes and file count.
+  """
+  def storage_usage(user, vault) do
+    Repo.with_tenant(user.id, fn ->
+      from(a in Attachment,
+        where: a.user_id == ^user.id and a.vault_id == ^vault.id and is_nil(a.deleted_at),
+        select: %{
+          used_bytes: type(coalesce(sum(a.size_bytes), 0), :integer),
+          file_count: count(a.id)
+        }
+      )
+      |> Repo.one()
+    end)
+    |> unwrap_tenant()
+  end
+
+  @doc """
+  Returns storage usage for a user across all vaults: total bytes and file count.
+  Used by the user-level /user/storage endpoint.
   """
   def storage_usage(user) do
     Repo.with_tenant(user.id, fn ->
@@ -183,10 +207,10 @@ defmodule Engram.Attachments do
       else: :ok
   end
 
-  defp prepare_upload(user, path, binary, mtime, explicit_mime) do
+  defp prepare_upload(user, vault, path, binary, mtime, explicit_mime) do
     mime = explicit_mime || detect_mime(path)
     hash = :crypto.hash(:md5, binary) |> Base.encode16(case: :lower)
-    key = Storage.key(user.id, path)
+    key = Storage.key(user.id, vault.id, path)
     backend = Storage.adapter()
 
     changeset_attrs =
@@ -197,6 +221,7 @@ defmodule Engram.Attachments do
         size_bytes: byte_size(binary),
         mtime: mtime,
         user_id: user.id,
+        vault_id: vault.id,
         storage_key: key,
         deleted_at: nil
       }
