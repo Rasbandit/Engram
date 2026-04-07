@@ -173,19 +173,31 @@ defmodule Engram.Notes do
 
   @doc """
   Soft-deletes a note. Idempotent — returns :ok even if note doesn't exist.
+  Also cleans up Qdrant points and chunk records for the deleted note.
   """
   @spec delete_note(map(), map(), String.t()) :: :ok
   def delete_note(user, vault, path) do
     now = DateTime.utc_now()
 
-    Repo.with_tenant(user.id, fn ->
-      from(n in Note,
-        where:
-          n.user_id == ^user.id and n.vault_id == ^vault.id and n.path == ^path and
-            is_nil(n.deleted_at)
-      )
-      |> Repo.update_all(set: [deleted_at: now, updated_at: now])
-    end)
+    {:ok, note} =
+      Repo.with_tenant(user.id, fn ->
+        Repo.one(
+          from(n in Note,
+            where:
+              n.user_id == ^user.id and n.vault_id == ^vault.id and n.path == ^path and
+                is_nil(n.deleted_at)
+          )
+        )
+      end)
+
+    if note do
+      Repo.with_tenant(user.id, fn ->
+        from(n in Note, where: n.id == ^note.id)
+        |> Repo.update_all(set: [deleted_at: now, updated_at: now])
+      end)
+
+      Engram.Indexing.delete_note_index(note)
+    end
 
     broadcast_change(user.id, vault.id, "delete", path)
     :ok
