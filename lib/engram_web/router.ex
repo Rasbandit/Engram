@@ -32,9 +32,34 @@ defmodule EngramWeb.Router do
     post "/users/login", AuthController, :login
   end
 
+  # User-scoped authenticated endpoints (no vault context needed)
   scope "/api", EngramWeb do
-    # Authenticated API endpoints
     pipe_through [:api, EngramWeb.Plugs.Auth]
+
+    # User info
+    get "/user/storage", StorageController, :index
+    get "/me", UsersController, :me
+
+    # API key management
+    post "/api-keys", AuthController, :create_api_key
+    delete "/api-keys/:id", AuthController, :revoke_api_key
+
+    # Vault management (user-level, not vault-scoped)
+    get "/vaults", VaultsController, :index
+    post "/vaults", VaultsController, :create
+    get "/vaults/:id", VaultsController, :show
+    patch "/vaults/:id", VaultsController, :update
+    delete "/vaults/:id", VaultsController, :delete
+
+    # Billing
+    get "/billing/status", BillingController, :status
+    post "/billing/checkout-session", BillingController, :create_checkout
+    get "/billing/portal", BillingController, :customer_portal
+  end
+
+  # Vault-scoped authenticated endpoints (VaultPlug resolves current_vault)
+  scope "/api", EngramWeb do
+    pipe_through [:api, EngramWeb.Plugs.Auth, EngramWeb.Plugs.VaultPlug]
 
     # Notes CRUD
     post "/notes/rename", NotesController, :rename
@@ -56,14 +81,6 @@ defmodule EngramWeb.Router do
     # Sync
     get "/sync/manifest", SyncController, :manifest
 
-    # User info
-    get "/user/storage", StorageController, :index
-    get "/me", UsersController, :me
-
-    # API key management
-    post "/api-keys", AuthController, :create_api_key
-    delete "/api-keys/:id", AuthController, :revoke_api_key
-
     # Attachments
     post "/attachments", AttachmentsController, :upload
     get "/attachments/changes", AttachmentsController, :changes
@@ -79,11 +96,6 @@ defmodule EngramWeb.Router do
 
     # MCP endpoint (JSON-RPC 2.0 over HTTP POST)
     post "/mcp", McpController, :handle
-
-    # Billing
-    get "/billing/status", BillingController, :status
-    post "/billing/checkout-session", BillingController, :create_checkout
-    get "/billing/portal", BillingController, :customer_portal
   end
 
   # Marketing pages — server-rendered HTML, before SPA catch-all

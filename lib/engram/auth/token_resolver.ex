@@ -12,10 +12,16 @@ defmodule Engram.Auth.TokenResolver do
 
   alias Engram.Accounts
 
-  @spec resolve(any()) :: {:ok, Accounts.User.t()} | {:error, atom()}
+  @spec resolve(any()) ::
+          {:ok, Accounts.User.t()}
+          | {:ok, Accounts.User.t(), Accounts.ApiKey.t()}
+          | {:error, atom()}
 
-  def resolve("engram_" <> _ = api_key) do
-    Accounts.validate_api_key(api_key)
+  def resolve("engram_" <> _ = raw_key) do
+    case Accounts.validate_api_key(raw_key) do
+      {:ok, user, api_key} -> {:ok, user, api_key}
+      {:error, _} = err -> err
+    end
   end
 
   def resolve(token) when is_binary(token) do
