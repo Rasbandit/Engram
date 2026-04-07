@@ -97,14 +97,15 @@ defmodule Engram.Vector.Qdrant do
   end
 
   @doc """
-  Delete all points for a given user+path combination.
+  Delete all points for a given user+vault+path combination.
   """
-  def delete_by_note(col \\ nil, user_id, path) do
+  def delete_by_note(col \\ nil, user_id, vault_id, path) do
     col = col || collection()
 
     filter = %{
       must: [
         %{key: "user_id", match: %{value: user_id}},
+        %{key: "vault_id", match: %{value: vault_id}},
         %{key: "source_path", match: %{value: path}}
       ]
     }
@@ -122,19 +123,22 @@ defmodule Engram.Vector.Qdrant do
   Vector similarity search. Returns list of result structs with score + payload.
 
   Options:
-  - `:user_id` — filter to this user's points (required for tenant isolation)
-  - `:limit`   — number of results (default 5)
-  - `:tags`    — filter to points with ANY of these tags
-  - `:folder`  — filter to points in this folder
+  - `:user_id`  — filter to this user's points (required for tenant isolation)
+  - `:vault_id` — filter to a specific vault (omit for cross-vault search)
+  - `:limit`    — number of results (default 5)
+  - `:tags`     — filter to points with ANY of these tags
+  - `:folder`   — filter to points in this folder
   """
   def search(col \\ nil, vector, search_opts) do
     col = col || collection()
     user_id = Keyword.fetch!(search_opts, :user_id)
+    vault_id = Keyword.get(search_opts, :vault_id)
     limit = Keyword.get(search_opts, :limit, 5)
     tags = Keyword.get(search_opts, :tags)
     folder = Keyword.get(search_opts, :folder)
 
     must = [%{key: "user_id", match: %{value: user_id}}]
+    must = if vault_id, do: must ++ [%{key: "vault_id", match: %{value: vault_id}}], else: must
     must = if tags, do: [%{key: "tags", match: %{any: tags}} | must], else: must
     must = if folder, do: [%{key: "folder", match: %{value: folder}} | must], else: must
 

@@ -30,15 +30,32 @@ defmodule Engram.Search do
   end
 
   @doc """
-  Search notes for a user. Returns {:ok, results} where each result has:
+  Search notes for a user within a vault. Returns {:ok, results} where each result has:
   score, text, title, heading_path, source_path, tags.
 
+  Pass `vault: nil` with `cross_vault: true` in opts to search across all user vaults
+  (requires billing feature check).
+
   Options:
-  - `:limit`  — number of results (default 5)
-  - `:tags`   — filter to notes with any of these tags
-  - `:folder` — filter to notes in this folder
+  - `:limit`       — number of results (default 5)
+  - `:tags`        — filter to notes with any of these tags
+  - `:folder`      — filter to notes in this folder
+  - `:cross_vault` — when true, search across all vaults (billing-gated)
   """
-  def search(user, query, opts \\ []) do
+  def search(user, vault, query, opts \\ []) do
+    cross_vault = Keyword.get(opts, :cross_vault, false)
+
+    if cross_vault do
+      case Engram.Billing.check_feature(user, "cross_vault_search") do
+        :ok -> do_search(user, nil, query, opts)
+        {:error, _} = err -> err
+      end
+    else
+      do_search(user, vault, query, opts)
+    end
+  end
+
+  defp do_search(user, vault, query, opts) do
     limit = Keyword.get(opts, :limit, 5)
     tags = Keyword.get(opts, :tags)
     folder = Keyword.get(opts, :folder)
@@ -49,6 +66,7 @@ defmodule Engram.Search do
     with {:ok, [vector]} <- embed_for_search(query) do
       search_opts =
         [user_id: to_string(user.id), limit: fetch_limit]
+        |> then(&if(vault, do: Keyword.put(&1, :vault_id, to_string(vault.id)), else: &1))
         |> then(&if(tags, do: Keyword.put(&1, :tags, tags), else: &1))
         |> then(&if(folder, do: Keyword.put(&1, :folder, folder), else: &1))
 

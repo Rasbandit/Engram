@@ -15,15 +15,16 @@ defmodule Engram.IndexingTest do
     on_exit(fn -> Application.delete_env(:engram, :qdrant_url) end)
 
     user = insert(:user)
+    vault = insert(:vault, user: user)
 
     {:ok, note} =
-      Notes.upsert_note(user, %{
+      Notes.upsert_note(user, vault, %{
         "path" => "Health/Iron Panel.md",
         "content" => "---\ntags: [health]\n---\n# Iron Panel\n\nFerritin levels.",
         "mtime" => 1_000.0
       })
 
-    %{bypass: bypass, user: user, note: note}
+    %{bypass: bypass, user: user, vault: vault, note: note}
   end
 
   # ---------------------------------------------------------------------------
@@ -80,6 +81,7 @@ defmodule Engram.IndexingTest do
         path: "Test/Empty.md",
         content: "",
         user_id: 1,
+        vault_id: 1,
         title: "Empty",
         folder: "Test",
         tags: [],

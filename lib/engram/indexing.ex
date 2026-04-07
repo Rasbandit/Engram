@@ -43,14 +43,14 @@ defmodule Engram.Indexing do
   Delete Qdrant points for a specific path (used after rename to clean up old path).
   """
   def delete_points_by_path(note, path) do
-    Qdrant.delete_by_note(collection(), to_string(note.user_id), path)
+    Qdrant.delete_by_note(collection(), to_string(note.user_id), to_string(note.vault_id), path)
   end
 
   @doc """
   Remove all indexed data for a note (Qdrant points first, then Postgres chunks).
   """
   def delete_note_index(note) do
-    with :ok <- Qdrant.delete_by_note(collection(), to_string(note.user_id), note.path) do
+    with :ok <- Qdrant.delete_by_note(collection(), to_string(note.user_id), to_string(note.vault_id), note.path) do
       Repo.delete_all(from(c in Chunk, where: c.note_id == ^note.id), skip_tenant_check: true)
       :ok
     end
@@ -71,7 +71,7 @@ defmodule Engram.Indexing do
 
   defp replace_chunks(note, chunks, vectors) do
     # Delete from Qdrant first (external, idempotent) — if this fails, Postgres is untouched
-    with :ok <- Qdrant.delete_by_note(collection(), to_string(note.user_id), note.path) do
+    with :ok <- Qdrant.delete_by_note(collection(), to_string(note.user_id), to_string(note.vault_id), note.path) do
       # skip_tenant_check: trusted internal pipeline, already scoped by note_id/user_id
       Repo.delete_all(from(c in Chunk, where: c.note_id == ^note.id), skip_tenant_check: true)
 
@@ -86,6 +86,7 @@ defmodule Engram.Indexing do
           %{
             note_id: note.id,
             user_id: note.user_id,
+            vault_id: note.vault_id,
             position: chunk.position,
             heading_path: chunk.heading_path,
             char_start: chunk.char_start,
@@ -109,6 +110,7 @@ defmodule Engram.Indexing do
             vector: vector,
             payload: %{
               user_id: to_string(note.user_id),
+              vault_id: to_string(note.vault_id),
               source_path: note.path,
               title: note.title,
               folder: note.folder || "",
