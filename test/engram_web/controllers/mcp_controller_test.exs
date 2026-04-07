@@ -7,24 +7,25 @@ defmodule EngramWeb.McpControllerTest do
 
   setup %{conn: conn} do
     user = insert(:user)
+    vault = insert(:vault, user: user, is_default: true)
     {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "test-key")
     authed = put_req_header(conn, "authorization", "Bearer #{api_key}")
 
     # Seed some notes for read tool tests
-    Engram.Notes.upsert_note(user, %{
+    Engram.Notes.upsert_note(user, vault, %{
       "path" => "Health/Supplements.md",
       "content" =>
         "---\ntags: [health, supplements]\n---\n# Supplements\n\n## Shopping List\n\n- Omega 3\n- Vitamin D\n\n## Notes\n\nTake with food.",
       "mtime" => 1_000.0
     })
 
-    Engram.Notes.upsert_note(user, %{
+    Engram.Notes.upsert_note(user, vault, %{
       "path" => "Health/Exercise.md",
       "content" => "---\ntags: [health, fitness]\n---\n# Exercise\n\nDaily routine.",
       "mtime" => 1_000.0
     })
 
-    Engram.Notes.upsert_note(user, %{
+    Engram.Notes.upsert_note(user, vault, %{
       "path" => "Work/Project.md",
       "content" => "---\ntags: [work]\n---\n# Project\n\nProject notes.",
       "mtime" => 1_000.0

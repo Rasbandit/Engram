@@ -90,6 +90,7 @@ defmodule EngramWeb.AuthControllerTest do
   describe "POST /api-keys" do
     setup %{conn: conn} do
       user = insert(:user)
+      insert(:vault, user: user, is_default: true)
       {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "setup-key")
       authed = put_req_header(conn, "authorization", "Bearer #{api_key}")
       %{conn: authed, user: user}
@@ -110,11 +111,11 @@ defmodule EngramWeb.AuthControllerTest do
         |> post("/api/api-keys", %{name: "usable-key"})
         |> json_response(200)
 
-      # Use the newly created key to make an authenticated request
+      # Use the newly created key to make an authenticated request (user-scoped endpoint)
       conn2 =
         build_conn()
         |> put_req_header("authorization", "Bearer #{new_key}")
-        |> get("/api/tags")
+        |> get("/api/me")
 
       assert json_response(conn2, 200)
     end
@@ -154,10 +155,11 @@ defmodule EngramWeb.AuthControllerTest do
         |> post("/api/users/register", %{email: "jwt@test.com", password: "password123"})
         |> json_response(200)
 
+      # Use a user-scoped endpoint (no vault required)
       conn2 =
         build_conn()
         |> put_req_header("authorization", "Bearer #{jwt}")
-        |> get("/api/tags")
+        |> get("/api/me")
 
       assert json_response(conn2, 200)
     end
@@ -170,10 +172,11 @@ defmodule EngramWeb.AuthControllerTest do
         |> post("/api/users/login", %{email: "jwt2@test.com", password: "password123"})
         |> json_response(200)
 
+      # Use a user-scoped endpoint (no vault required)
       conn2 =
         build_conn()
         |> put_req_header("authorization", "Bearer #{jwt}")
-        |> get("/api/tags")
+        |> get("/api/me")
 
       assert json_response(conn2, 200)
     end

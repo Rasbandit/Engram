@@ -7,18 +7,25 @@ defmodule EngramWeb.SearchController do
 
   def search(conn, %{"query" => query} = params) do
     user = conn.assigns.current_user
+    vault = conn.assigns.current_vault
     limit = params["limit"] |> clamp_limit()
     tags = params["tags"]
     folder = params["folder"]
+    cross_vault = Map.get(params, "cross_vault", false)
 
     opts =
-      [limit: limit]
+      [limit: limit, cross_vault: cross_vault]
       |> then(&if(tags, do: Keyword.put(&1, :tags, tags), else: &1))
       |> then(&if(folder, do: Keyword.put(&1, :folder, folder), else: &1))
 
-    case Search.search(user, query, opts) do
+    case Search.search(user, vault, query, opts) do
       {:ok, results} ->
         json(conn, %{results: results})
+
+      {:error, :feature_not_available} ->
+        conn
+        |> put_status(403)
+        |> json(%{error: "Cross-vault search requires Pro plan"})
 
       {:error, reason} ->
         require Logger
