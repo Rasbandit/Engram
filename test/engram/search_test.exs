@@ -228,5 +228,45 @@ defmodule Engram.SearchTest do
 
       assert {:ok, []} = Search.search(user, vault, "nothing")
     end
+
+    test "cross-vault search returns error when feature disabled (free plan)", %{user: user, vault: vault} do
+      # Free plan user has no plan_id; @default_limits has cross_vault_search: false
+      assert user.plan_id == nil
+
+      assert {:error, :feature_not_available} =
+               Search.search(user, vault, "query", cross_vault: true)
+    end
+
+    test "cross-vault search proceeds past billing gate when feature enabled (pro plan)", %{bypass: bypass, vault: vault} do
+      plan = insert(:plan, limits: %{"cross_vault_search" => true})
+      pro_user = insert(:user, plan_id: plan.id)
+
+      Engram.MockEmbedder
+      |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
+
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": []}))
+      end)
+
+      result = Search.search(pro_user, vault, "query", cross_vault: true)
+      refute result == {:error, :feature_not_available}
+    end
+
+    test "default (non-cross-vault) search skips billing gate for free plan user", %{bypass: bypass, user: user, vault: vault} do
+      # Free plan user — no cross_vault opt — should never hit the billing check
+      Engram.MockEmbedder
+      |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
+
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": []}))
+      end)
+
+      result = Search.search(user, vault, "query")
+      refute result == {:error, :feature_not_available}
+    end
   end
 end
