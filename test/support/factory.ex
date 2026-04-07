@@ -34,6 +34,25 @@ defmodule Engram.Factory do
     }
   end
 
+  def plan_factory do
+    %Engram.Billing.Plan{
+      name: sequence(:plan_name, &"plan_#{&1}"),
+      limits: %{
+        "max_vaults" => 1,
+        "cross_vault_search" => false,
+        "vault_scoped_keys" => false
+      }
+    }
+  end
+
+  def user_override_factory do
+    %Engram.Billing.UserOverride{
+      user: build(:user),
+      overrides: %{},
+      reason: "test override"
+    }
+  end
+
   def subscription_factory do
     %Engram.Billing.Subscription{
       stripe_customer_id: sequence(:stripe_customer_id, &"cus_test#{&1}"),
