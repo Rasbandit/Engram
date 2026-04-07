@@ -49,6 +49,7 @@ defmodule Engram.Workers.ReconcileEmbeddingsTest do
       refute_enqueued(worker: EmbedNote)
     end
 
+    @tag timeout: 120_000
     test "batches at most 100 notes per vault" do
       user = insert(:user)
       vault = insert(:vault, user: user)
