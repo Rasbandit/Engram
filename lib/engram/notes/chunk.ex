@@ -11,6 +11,7 @@ defmodule Engram.Notes.Chunk do
 
     belongs_to :note, Engram.Notes.Note
     belongs_to :user, Engram.Accounts.User
+    belongs_to :vault, Engram.Vaults.Vault
 
     timestamps(type: :utc_datetime, inserted_at: :created_at, updated_at: false)
   end
@@ -24,7 +25,8 @@ defmodule Engram.Notes.Chunk do
       :char_end,
       :qdrant_point_id,
       :note_id,
-      :user_id
+      :user_id,
+      :vault_id
     ])
     |> validate_required([
       :position,
@@ -32,7 +34,8 @@ defmodule Engram.Notes.Chunk do
       :char_end,
       :qdrant_point_id,
       :note_id,
-      :user_id
+      :user_id,
+      :vault_id
     ])
     |> unique_constraint([:note_id, :position])
   end

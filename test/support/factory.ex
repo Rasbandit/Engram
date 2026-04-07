@@ -11,6 +11,8 @@ defmodule Engram.Factory do
   end
 
   def note_factory do
+    user = build(:user)
+
     %Engram.Notes.Note{
       path: sequence(:path, &"test/note-#{&1}.md"),
       title: sequence(:title, &"Note #{&1}"),
@@ -20,7 +22,22 @@ defmodule Engram.Factory do
       version: 1,
       content_hash: :crypto.hash(:sha256, "# Test note content") |> Base.encode16(case: :lower),
       embed_hash: nil,
-      user: build(:user)
+      user: user,
+      vault: build(:vault, user: user)
+    }
+  end
+
+  def attachment_factory do
+    user = build(:user)
+
+    %Engram.Attachments.Attachment{
+      path: sequence(:attachment_path, &"test/attachment-#{&1}.png"),
+      content: <<0, 1, 2, 3>>,
+      content_hash: :crypto.hash(:sha256, <<0, 1, 2, 3>>) |> Base.encode16(case: :lower),
+      mime_type: "image/png",
+      size_bytes: 4,
+      user: user,
+      vault: build(:vault, user: user)
     }
   end
 
