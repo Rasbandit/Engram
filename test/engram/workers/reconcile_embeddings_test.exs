@@ -49,11 +49,12 @@ defmodule Engram.Workers.ReconcileEmbeddingsTest do
       refute_enqueued(worker: EmbedNote)
     end
 
-    test "batches at most 100 notes" do
+    test "batches at most 100 notes per vault" do
       user = insert(:user)
+      vault = insert(:vault, user: user)
 
       for i <- 1..105 do
-        insert(:note, user: user, path: "batch/note-#{i}.md", embed_hash: nil)
+        insert(:note, user: user, vault: vault, path: "batch/note-#{i}.md", embed_hash: nil)
       end
 
       assert :ok = perform_job(ReconcileEmbeddings, %{})

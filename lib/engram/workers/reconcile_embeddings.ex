@@ -23,6 +23,7 @@ defmodule Engram.Workers.ReconcileEmbeddings do
 
   alias Engram.Notes.Note
   alias Engram.Repo
+  alias Engram.Vaults.Vault
   alias Engram.Workers.EmbedNote
 
   @batch_size 100
@@ -31,22 +32,31 @@ defmodule Engram.Workers.ReconcileEmbeddings do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
-    note_ids =
-      from(n in Note,
-        where:
-          is_nil(n.deleted_at) and
-            (is_nil(n.embed_hash) or n.embed_hash != n.content_hash),
-        select: n.id,
-        limit: @batch_size,
-        order_by: [asc: n.updated_at]
-      )
+    vaults =
+      Vault
+      |> where([v], is_nil(v.deleted_at))
       |> Repo.all(skip_tenant_check: true)
 
-    if note_ids != [] do
-      Logger.info("reconcile_embeddings: queueing #{length(note_ids)} stale notes")
-      jobs = Enum.map(note_ids, &EmbedNote.new_debounced/1)
-      Oban.insert_all(jobs)
-    end
+    Enum.each(vaults, fn vault ->
+      note_ids =
+        Note
+        |> where([n], n.vault_id == ^vault.id)
+        |> where([n], is_nil(n.deleted_at))
+        |> where([n], is_nil(n.embed_hash) or n.embed_hash != n.content_hash)
+        |> order_by([n], asc: n.updated_at)
+        |> limit(@batch_size)
+        |> select([n], n.id)
+        |> Repo.all(skip_tenant_check: true)
+
+      if note_ids != [] do
+        Logger.info(
+          "reconcile_embeddings: vault=#{vault.id} queueing #{length(note_ids)} stale notes"
+        )
+
+        jobs = Enum.map(note_ids, &EmbedNote.new_debounced/1)
+        Oban.insert_all(jobs)
+      end
+    end)
 
     :ok
   end
