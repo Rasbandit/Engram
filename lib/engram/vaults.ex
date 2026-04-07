@@ -36,9 +36,8 @@ defmodule Engram.Vaults do
 
           vault_attrs =
             attrs
-            |> Map.put(:slug, slug)
-            |> Map.put(:user_id, user.id)
-            |> Map.put(:is_default, is_default)
+            |> atomize_keys()
+            |> Map.merge(%{slug: slug, user_id: user.id, is_default: is_default})
 
           %Vault{}
           |> Vault.changeset(vault_attrs)
@@ -172,9 +171,9 @@ defmodule Engram.Vaults do
           {:error, :not_found}
 
         vault ->
-          attrs = maybe_regenerate_slug(user.id, vault, attrs)
+          attrs = attrs |> atomize_keys() |> then(&maybe_regenerate_slug(user.id, vault, &1))
 
-          if Map.get(attrs, :is_default) == true or Map.get(attrs, "is_default") == true do
+          if Map.get(attrs, :is_default) == true do
             clear_defaults(user.id, vault_id)
           end
 
@@ -332,4 +331,12 @@ defmodule Engram.Vaults do
   defp unwrap_register_transaction({:ok, {:ok, vault, tag}}), do: {:ok, vault, tag}
   defp unwrap_register_transaction({:ok, {:error, reason}}), do: {:error, reason}
   defp unwrap_register_transaction({:error, _} = err), do: err
+
+  # Converts string-keyed maps to atom-keyed so atom merges don't produce mixed maps.
+  defp atomize_keys(attrs) when is_map(attrs) do
+    Map.new(attrs, fn
+      {k, v} when is_binary(k) -> {String.to_existing_atom(k), v}
+      {k, v} -> {k, v}
+    end)
+  end
 end
