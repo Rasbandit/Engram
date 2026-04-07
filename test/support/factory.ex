@@ -34,6 +34,15 @@ defmodule Engram.Factory do
     }
   end
 
+  def vault_factory do
+    %Engram.Vaults.Vault{
+      user: build(:user),
+      name: sequence(:vault_name, &"Vault #{&1}"),
+      slug: sequence(:vault_slug, &"vault-#{&1}"),
+      is_default: false
+    }
+  end
+
   def plan_factory do
     %Engram.Billing.Plan{
       name: sequence(:plan_name, &"plan_#{&1}"),

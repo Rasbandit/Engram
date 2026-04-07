@@ -14,7 +14,7 @@ defmodule Engram.Accounts.User do
     belongs_to :plan, Engram.Billing.Plan
     has_many :notes, Engram.Notes.Note
     has_many :api_keys, Engram.Accounts.ApiKey
-    # has_many :vaults, Engram.Vaults.Vault  # added in Task 3 once Vault schema exists
+    has_many :vaults, Engram.Vaults.Vault
 
     timestamps(type: :utc_datetime, inserted_at: :created_at)
   end
