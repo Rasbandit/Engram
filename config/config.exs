@@ -53,7 +53,8 @@ config :engram, Oban,
     Oban.Plugins.Lifeline,
     {Oban.Plugins.Cron,
      crontab: [
-       {"*/15 * * * *", Engram.Workers.ReconcileEmbeddings}
+       {"*/15 * * * *", Engram.Workers.ReconcileEmbeddings},
+       {"0 * * * *", Engram.Workers.CleanupDeviceAuthWorker}
      ]}
   ]
 
