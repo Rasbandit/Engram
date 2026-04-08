@@ -126,6 +126,7 @@ See `docs/context/testing-strategy.md` for full strategy, tooling, and CI pipeli
 | `docs/context/production-deployment.md` | Fly.io deploy, backups, observability, security checklist |
 | `docs/context/pricing-strategy.md` | Full SaaS pricing model |
 | `docs/context/benchmark-plan.md` | Embedding/chunking/reranker benchmark methodology |
+| `docs/context/code-audit-2026-04.md` | Full codebase audit: 7 CRITICAL, 18 HIGH, 30 MEDIUM findings |
 
 ## Life OS
 project: engram

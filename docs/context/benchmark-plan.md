@@ -432,7 +432,7 @@ After benchmarks, use this to make final calls:
 ## Related
 
 - SaaS migration plan: `.claude/plans/flickering-watching-clover.md`
-- Current search pipeline: `api/search.py`
-- Current chunking: `api/parsers/markdown.py`
-- Current embedders: `api/embedders/ollama.py`, `api/embedders/openai.py`
-- Existing manual query test: `query_test.py`
+- Current search pipeline: `lib/engram/search.ex`
+- Current chunking: `lib/engram/parsers/markdown.ex`
+- Current embedders: `lib/engram/embedders/ollama.ex`, `lib/engram/embedders/voyage.ex`
+- Test suite: `mix test`
