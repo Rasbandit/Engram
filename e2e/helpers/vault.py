@@ -13,6 +13,13 @@ def write_note(vault_path: Path, rel_path: str, content: str) -> None:
     full.write_text(content, encoding="utf-8")
 
 
+def write_binary(vault_path: Path, rel_path: str, data: bytes) -> None:
+    """Write a binary file (attachment) to the vault, creating parent dirs."""
+    full = vault_path / rel_path
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_bytes(data)
+
+
 def read_note(vault_path: Path, rel_path: str) -> str:
     """Read file content. Raises FileNotFoundError if missing."""
     return (vault_path / rel_path).read_text(encoding="utf-8")
@@ -35,6 +42,19 @@ def wait_for_file(
             return full.read_text(encoding="utf-8")
         time.sleep(poll)
     raise TimeoutError(f"File {rel_path} did not appear within {timeout}s")
+
+
+def wait_for_binary(
+    vault_path: Path, rel_path: str, timeout: float = 15, poll: float = 0.3
+) -> bytes:
+    """Poll until binary file exists, return bytes. Raise TimeoutError."""
+    full = vault_path / rel_path
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if full.exists() and full.stat().st_size > 0:
+            return full.read_bytes()
+        time.sleep(poll)
+    raise TimeoutError(f"Binary file {rel_path} did not appear within {timeout}s")
 
 
 def wait_for_file_gone(
