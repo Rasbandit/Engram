@@ -438,6 +438,8 @@ defmodule Engram.Notes do
       # files at old paths after a folder rename.
       old_paths = Enum.map(updates, fn {_id, old_path, _new, _folder, _title} -> old_path end)
 
+      mtime_float = DateTime.to_unix(now) + 0.0
+
       tombstones =
         Enum.map(old_paths, fn old_path ->
           %{
@@ -447,7 +449,7 @@ defmodule Engram.Notes do
             folder: Helpers.extract_folder(old_path),
             tags: [],
             content_hash: "",
-            mtime: now,
+            mtime: mtime_float,
             user_id: user.id,
             vault_id: vault.id,
             created_at: now,
