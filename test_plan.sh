@@ -196,6 +196,22 @@ if [[ -z "$API_KEY" || "$API_KEY" == "null" ]]; then
 fi
 pass "Extracted API key: ${API_KEY:0:20}..."
 
+# Register a default vault (required for all vault-scoped endpoints)
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/vaults/register" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{\"name\": \"Test Vault\", \"client_id\": \"testplan-${TIMESTAMP}\"}")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /vaults/register (default vault)" 200 "$STATUS"
+DEFAULT_VAULT_ID=$(echo "$BODY" | jq -r '.vault.id')
+if [[ -z "$DEFAULT_VAULT_ID" || "$DEFAULT_VAULT_ID" == "null" ]]; then
+    fail "Could not extract vault ID from registration response"
+    echo "FATAL: Cannot continue without a vault"
+    exit 1
+fi
+pass "Registered default vault (ID: $DEFAULT_VAULT_ID)"
+
 # ============================================================================
 # SECTION 3: Auth — API Key Validation
 # ============================================================================
