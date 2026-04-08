@@ -1,19 +1,71 @@
-"""Test 16: Remote logging pipeline — logs ingest and retrieve correctly.
+"""Test 16: Remote logging pipeline — end-to-end through plugin and API.
 
-Exercises the full POST /logs → GET /logs pipeline: ingest batches with
-various levels, verify retrieval, field presence, level filtering, and
-multi-tenant isolation. The plugin's RemoteLogger flush mechanism is
-covered by plugin unit tests (remote-log.test.ts).
+Two test paths:
+1. Plugin-driven E2E: enable remote logging via CDP → trigger sync (generates
+   rlog entries) → flush → verify logs arrive via GET /logs.
+2. API-only integration: direct POST /logs → GET /logs to validate backend
+   ingest, retrieval, field presence, and level filtering.
+3. Multi-tenant isolation: user C cannot see sync-user's logs.
 """
+
+import asyncio
 
 import pytest
 
+from helpers.vault import write_note
+
 
 @pytest.mark.asyncio
-async def test_remote_logging_pipeline(api_sync):
-    """Logs ingest via POST /logs and are retrievable via GET /logs."""
+async def test_remote_logging_plugin_pipeline(vault_a, cdp_a, api_sync):
+    """Plugin rlog entries flow through flush → POST /logs → GET /logs."""
+    # Enable remote logging through the real plugin settings path
+    await cdp_a.enable_remote_logging()
 
-    marker = "e2e-test-16-marker"
+    # Create a note to trigger push → generates rlog entries
+    # (push start, push ok, etc.)
+    write_note(vault_a, "E2E/Rlog16/trigger.md", "# Rlog trigger\nForce rlog entries")
+    api_sync.wait_for_note("E2E/Rlog16/trigger.md", timeout=15)
+
+    # Trigger a full sync — generates pull started/done rlog entries
+    await cdp_a.trigger_full_sync()
+
+    # Force flush via visibilitychange simulation
+    await cdp_a.flush_remote_logs()
+
+    # Poll GET /logs for plugin-generated entries
+    # rlog entries include category "push", "pull", "lifecycle"
+    logs_resp = api_sync.get_logs(limit=100)
+    logs = logs_resp.get("logs", [])
+
+    plugin_categories = {"push", "pull", "lifecycle", "pacer"}
+    plugin_logs = [
+        l for l in logs
+        if l.get("category") in plugin_categories
+        and l.get("plugin_version")  # real rlog entries always have this
+    ]
+
+    assert len(plugin_logs) >= 1, (
+        f"Expected at least 1 plugin-generated rlog entry, got {len(plugin_logs)}. "
+        f"All log categories: {[l.get('category') for l in logs]}"
+    )
+
+    # Verify rlog entry fields match RemoteLogEntry shape
+    for log in plugin_logs:
+        assert "id" in log, "Log entry should have id"
+        assert "ts" in log, "Log entry should have timestamp"
+        assert log["level"] in ("info", "warn", "error"), f"Bad level: {log['level']}"
+        assert log.get("platform") in ("desktop", "mobile"), f"Bad platform: {log.get('platform')}"
+        assert log.get("plugin_version"), "Plugin-generated log must have plugin_version"
+
+
+@pytest.mark.asyncio
+async def test_remote_logging_api_ingest(api_sync):
+    """API-only: POST /logs ingest and GET /logs retrieval work correctly.
+
+    This validates the backend endpoints in isolation. Plugin flush path
+    is tested separately in test_remote_logging_plugin_pipeline.
+    """
+    marker = "e2e-test-16-api-marker"
 
     # Ingest a batch with info + warn levels
     status = api_sync.ingest_logs([

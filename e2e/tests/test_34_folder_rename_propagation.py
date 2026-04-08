@@ -4,9 +4,12 @@ A creates notes in a folder. Server-side folder rename moves all notes
 (in-place path update, no soft-delete of old path). B syncs and sees
 notes under the new folder path.
 
-Old-path cleanup is tested separately as xfail: the server updates paths
-in place (no delete event), so the plugin has no signal to remove old
-files. Requires manifest-based reconciliation (not yet implemented).
+Old-path cleanup (test_folder_rename_old_paths_cleaned) is marked
+xfail(strict=True): the server renames paths in place without emitting
+delete events, so the plugin retains stale files at old paths. This is a
+known user-visible bug that BLOCKS shipping folder rename as complete.
+Fix: emit explicit delete events for old paths, or add manifest-based
+reconciliation to prune stale local files.
 """
 
 import pytest
@@ -50,8 +53,10 @@ async def test_folder_rename_new_paths(vault_a, vault_b, cdp_a, cdp_b, api_sync)
 
 
 @pytest.mark.xfail(
-    reason="Server renames paths in place (no delete event) — plugin has no signal "
-           "to remove old files. Needs manifest-based reconciliation."
+    strict=True,
+    reason="BLOCKS SHIP: Server renames paths in place (no delete event) — plugin "
+           "has no signal to remove old files. Must emit delete events for old paths "
+           "or add manifest-based reconciliation before shipping folder rename.",
 )
 @pytest.mark.asyncio
 async def test_folder_rename_old_paths_cleaned(vault_a, vault_b, cdp_a, cdp_b, api_sync):

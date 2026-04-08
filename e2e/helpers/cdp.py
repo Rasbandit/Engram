@@ -339,3 +339,45 @@ class CdpClient:
         """Read the engine's last error message."""
         result = await self.evaluate(f"{ENGINE_PATH}.lastError")
         return result if isinstance(result, str) else ""
+
+    async def enable_remote_logging(self) -> None:
+        """Enable remote logging via plugin settings and trigger save."""
+        js = f"""
+        (async function() {{
+            const plugin = {PLUGIN_PATH};
+            plugin.settings.remoteLoggingEnabled = true;
+            await plugin.saveSettings();
+            return 'enabled';
+        }})()
+        """
+        result = await self.evaluate(js, await_promise=True)
+        logger.info("Remote logging enabled on CDP port %d: %s", self.port, result)
+
+    async def flush_remote_logs(self) -> None:
+        """Force-flush remote logs by simulating document hidden state.
+
+        The plugin flushes rlog on visibilitychange→hidden. We temporarily
+        override visibilityState, dispatch the event, then restore it.
+        """
+        js = """
+        (async function() {
+            const desc = Object.getOwnPropertyDescriptor(
+                Document.prototype, 'visibilityState'
+            );
+            Object.defineProperty(document, 'visibilityState', {
+                value: 'hidden', configurable: true
+            });
+            document.dispatchEvent(new Event('visibilitychange'));
+            // Restore original descriptor
+            if (desc) {
+                Object.defineProperty(Document.prototype, 'visibilityState', desc);
+            } else {
+                delete document.visibilityState;
+            }
+            // Wait for the async flush HTTP request to complete
+            await new Promise(r => setTimeout(r, 2000));
+            return 'flushed';
+        })()
+        """
+        result = await self.evaluate(js, await_promise=True)
+        logger.info("Remote logs flushed on CDP port %d: %s", self.port, result)
