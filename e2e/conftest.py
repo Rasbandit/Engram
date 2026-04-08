@@ -68,7 +68,13 @@ def isolation_user(ts):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
-def obsidian_a(sync_user):
+def sync_client_id(ts):
+    """Shared client_id so A and B register the same server vault."""
+    return f"e2e-sync-pair-{ts}"
+
+
+@pytest.fixture(scope="session")
+def obsidian_a(sync_user, sync_client_id):
 
     inst = ObsidianInstance(
         name="A",
@@ -79,6 +85,7 @@ def obsidian_a(sync_user):
         api_key=sync_user[1],
         plugin_src=PLUGIN_SRC,
         obsidian_bin=OBSIDIAN_BIN,
+        client_id=sync_client_id,
     )
     inst.start()
     yield inst
@@ -86,7 +93,7 @@ def obsidian_a(sync_user):
 
 
 @pytest.fixture(scope="session")
-def obsidian_b(sync_user):
+def obsidian_b(sync_user, sync_client_id):
     """Same user as A — proves two-machine sync."""
 
     inst = ObsidianInstance(
@@ -98,6 +105,7 @@ def obsidian_b(sync_user):
         api_key=sync_user[1],
         plugin_src=PLUGIN_SRC,
         obsidian_bin=OBSIDIAN_BIN,
+        client_id=sync_client_id,
     )
     inst.start()
     yield inst

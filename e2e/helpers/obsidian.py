@@ -41,6 +41,7 @@ class ObsidianInstance:
         api_key: str,
         plugin_src: Path,
         obsidian_bin: Path = DEFAULT_OBSIDIAN_BIN,
+        client_id: str | None = None,
     ):
         self.name = name
         self.vault_path = vault_path
@@ -50,6 +51,7 @@ class ObsidianInstance:
         self.api_key = api_key
         self.plugin_src = plugin_src
         self.obsidian_bin = obsidian_bin
+        self.client_id = client_id
         # Isolated config dir per instance
         self.config_dir = Path(f"/tmp/e2e-obsidian-config-{name.lower()}")
         self.vault_id = hashlib.md5(str(vault_path).encode()).hexdigest()[:16]
@@ -118,16 +120,19 @@ class ObsidianInstance:
             else:
                 raise FileNotFoundError(f"Plugin file not found: {src}")
 
+        settings = {
+            "apiUrl": re.sub(r"/api/?$", "", self.api_url),
+            "apiKey": self.api_key,
+            "ignorePatterns": "",
+            "syncIntervalMinutes": 1,
+            "debounceMs": 500,
+            "liveSyncEnabled": True,
+            "maxFileSizeMB": 5,
+        }
+        if self.client_id:
+            settings["clientId"] = self.client_id
         data = {
-            "settings": {
-                "apiUrl": re.sub(r"/api/?$", "", self.api_url),
-                "apiKey": self.api_key,
-                "ignorePatterns": "",
-                "syncIntervalMinutes": 1,
-                "debounceMs": 500,
-                "liveSyncEnabled": True,
-                "maxFileSizeMB": 5,
-            },
+            "settings": settings,
             "lastSync": "2020-01-01T00:00:00Z",
             "offlineQueue": [],
         }
