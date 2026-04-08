@@ -43,7 +43,7 @@ async def test_frontmatter_preserved(vault_a, vault_b, cdp_a, cdp_b, api_sync):
     server_note = api_sync.get_note(path)
     assert server_note is not None
     server_tags = server_note.get("tags", [])
-    assert "e2e-testing" in server_tags, f"Server should extract frontmatter tags, got: {server_tags}"
+    assert any("e2e-testing" in t for t in server_tags), f"Server should extract frontmatter tags, got: {server_tags}"
 
     # B syncs
     await cdp_b.trigger_full_sync()

@@ -6,7 +6,7 @@ B syncs and sees notes under the new folder path.
 
 import pytest
 
-from helpers.vault import wait_for_file, write_note
+from helpers.vault import wait_for_file, wait_for_file_gone, write_note
 
 
 @pytest.mark.asyncio
@@ -38,11 +38,15 @@ async def test_folder_rename_propagation(vault_a, vault_b, cdp_a, cdp_b, api_syn
     api_sync.wait_for_note(new_note1, timeout=10)
     api_sync.wait_for_note(new_note2, timeout=10)
 
-    # B syncs — should see new paths
+    # B syncs — should see new paths (may need two rounds: one for
+    # new notes, one for old path deletions in the changes feed)
     await cdp_b.trigger_full_sync()
     wait_for_file(vault_b, new_note1, timeout=15)
     wait_for_file(vault_b, new_note2, timeout=15)
 
+    # Second sync to pick up deletions at old paths
+    await cdp_b.trigger_full_sync()
+
     # Old paths should be gone on B
-    assert not (vault_b / note1).exists(), "B should not have old Note1 path"
-    assert not (vault_b / note2).exists(), "B should not have old Note2 path"
+    wait_for_file_gone(vault_b, note1, timeout=15)
+    wait_for_file_gone(vault_b, note2, timeout=15)

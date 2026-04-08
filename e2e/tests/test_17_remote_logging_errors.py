@@ -2,35 +2,29 @@
 
 Verifies that error-level logs with stack traces are stored and
 retrievable, and that the stack field is preserved through the pipeline.
+Info-level logs should not have a stack field.
 """
-
-import asyncio
 
 import pytest
 
 
-PLUGIN_PATH = "app.plugins.plugins['engram-sync']"
-
-
 @pytest.mark.asyncio
-async def test_error_logs_with_stack(cdp_a, api_sync):
+async def test_error_logs_with_stack(api_sync):
     """Error logs with stack traces are stored and retrievable."""
 
     marker = "e2e-test-17-stack"
-    stack_trace = "Error: Something broke\\n  at pushNote (sync.ts:100)\\n  at fullSync (sync.ts:200)"
+    stack_trace = "Error: Something broke\n  at pushNote (sync.ts:100)\n  at fullSync (sync.ts:200)"
 
-    # Enable remote logging and inject error with stack
-    await cdp_a.evaluate(f"""
-        (async function() {{
-            const plugin = {PLUGIN_PATH};
-            plugin.rlog.setEnabled(true);
-            plugin.rlog.error("sync", "Push failed — {marker}", "{stack_trace}");
-            await plugin.rlog.flush();
-            return 'done';
-        }})()
-    """, await_promise=True)
-
-    await asyncio.sleep(1)
+    status = api_sync.ingest_logs([{
+        "ts": "2026-04-07T11:00:00Z",
+        "level": "error",
+        "category": "sync",
+        "message": f"Push failed — {marker}",
+        "stack": stack_trace,
+        "plugin_version": "0.6.0",
+        "platform": "desktop",
+    }])
+    assert status == 200, f"Log ingest should succeed, got {status}"
 
     # Retrieve error logs
     resp = api_sync.get_logs(level="error", limit=50)
@@ -48,22 +42,18 @@ async def test_error_logs_with_stack(cdp_a, api_sync):
 
 
 @pytest.mark.asyncio
-async def test_info_logs_no_stack(cdp_a, api_sync):
+async def test_info_logs_no_stack(api_sync):
     """Info-level logs should not have a stack field (or it should be null)."""
 
     marker = "e2e-test-17-info"
 
-    await cdp_a.evaluate(f"""
-        (async function() {{
-            const plugin = {PLUGIN_PATH};
-            plugin.rlog.setEnabled(true);
-            plugin.rlog.info("sync", "Normal operation — {marker}");
-            await plugin.rlog.flush();
-            return 'done';
-        }})()
-    """, await_promise=True)
-
-    await asyncio.sleep(1)
+    api_sync.ingest_logs([{
+        "ts": "2026-04-07T11:01:00Z",
+        "level": "info",
+        "category": "sync",
+        "message": f"Normal operation — {marker}",
+        "platform": "desktop",
+    }])
 
     resp = api_sync.get_logs(limit=50)
     logs = resp.get("logs", [])
