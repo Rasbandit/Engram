@@ -6,8 +6,8 @@ defmodule EngramWeb.FoldersController do
   def index(conn, _params) do
     user = conn.assigns.current_user
     vault = conn.assigns.current_vault
-    {:ok, folders} = Notes.list_folders(user, vault)
-    json(conn, %{folders: Enum.map(folders, &%{folder: &1})})
+    {:ok, folders} = Notes.list_folders_with_counts(user, vault)
+    json(conn, %{folders: Enum.map(folders, fn f -> %{name: f.folder, count: f.count} end)})
   end
 
   def list(conn, %{"folder" => folder}) do

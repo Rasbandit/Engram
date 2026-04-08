@@ -136,6 +136,44 @@ defmodule Engram.NotesTest do
   end
 
   # ---------------------------------------------------------------------------
+  # Note.changeset/2 defense-in-depth
+  # ---------------------------------------------------------------------------
+
+  describe "Note.changeset/2 nil content guard" do
+    test "defaults nil content to empty string" do
+      cs = Engram.Notes.Note.changeset(%Engram.Notes.Note{}, %{
+        path: "test.md",
+        user_id: 1,
+        vault_id: 1,
+        content: nil
+      })
+
+      assert Ecto.Changeset.get_field(cs, :content) == ""
+    end
+
+    test "preserves non-nil content" do
+      cs = Engram.Notes.Note.changeset(%Engram.Notes.Note{}, %{
+        path: "test.md",
+        user_id: 1,
+        vault_id: 1,
+        content: "# Hello"
+      })
+
+      assert Ecto.Changeset.get_field(cs, :content) == "# Hello"
+    end
+
+    test "defaults missing content key to empty string" do
+      cs = Engram.Notes.Note.changeset(%Engram.Notes.Note{}, %{
+        path: "test.md",
+        user_id: 1,
+        vault_id: 1
+      })
+
+      assert Ecto.Changeset.get_field(cs, :content) == ""
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # get_note/3
   # ---------------------------------------------------------------------------
 
