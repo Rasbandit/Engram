@@ -8,7 +8,7 @@ Two test paths:
 3. Multi-tenant isolation: user C cannot see sync-user's logs.
 """
 
-import asyncio
+import time
 
 import pytest
 
@@ -32,17 +32,22 @@ async def test_remote_logging_plugin_pipeline(vault_a, cdp_a, api_sync):
     # Force flush via visibilitychange simulation
     await cdp_a.flush_remote_logs()
 
-    # Poll GET /logs for plugin-generated entries
-    # rlog entries include category "push", "pull", "lifecycle"
-    logs_resp = api_sync.get_logs(limit=100)
-    logs = logs_resp.get("logs", [])
-
+    # Poll GET /logs for plugin-generated entries (retry for timing)
     plugin_categories = {"push", "pull", "lifecycle", "pacer"}
-    plugin_logs = [
-        l for l in logs
-        if l.get("category") in plugin_categories
-        and l.get("plugin_version")  # real rlog entries always have this
-    ]
+    plugin_logs = []
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        logs_resp = api_sync.get_logs(limit=100)
+        logs = logs_resp.get("logs", [])
+        plugin_logs = [
+            l for l in logs
+            if l.get("category") in plugin_categories
+            and l.get("plugin_version")
+        ]
+        if plugin_logs:
+            break
+        # Retry flush in case first attempt hit a timing edge
+        await cdp_a.flush_remote_logs()
 
     assert len(plugin_logs) >= 1, (
         f"Expected at least 1 plugin-generated rlog entry, got {len(plugin_logs)}. "

@@ -357,25 +357,19 @@ class CdpClient:
         """Force-flush remote logs by simulating document hidden state.
 
         The plugin flushes rlog on visibilitychange→hidden. We temporarily
-        override visibilityState, dispatch the event, then restore it.
+        override visibilityState on the document instance, dispatch the
+        event, then delete the override to restore the prototype getter.
         """
         js = """
         (async function() {
-            const desc = Object.getOwnPropertyDescriptor(
-                Document.prototype, 'visibilityState'
-            );
             Object.defineProperty(document, 'visibilityState', {
                 value: 'hidden', configurable: true
             });
             document.dispatchEvent(new Event('visibilitychange'));
-            // Restore original descriptor
-            if (desc) {
-                Object.defineProperty(Document.prototype, 'visibilityState', desc);
-            } else {
-                delete document.visibilityState;
-            }
+            // Remove instance override to restore prototype getter
+            delete document.visibilityState;
             // Wait for the async flush HTTP request to complete
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, 3000));
             return 'flushed';
         })()
         """
