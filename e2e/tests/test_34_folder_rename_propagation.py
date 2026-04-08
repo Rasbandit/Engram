@@ -1,20 +1,16 @@
 """Test 34: Folder rename propagates — notes appear at new paths on B.
 
 A creates notes in a folder. Server-side folder rename moves all notes
-(in-place path update, no soft-delete of old path). B syncs and sees
-notes under the new folder path.
-
-Old-path cleanup (test_folder_rename_old_paths_cleaned) is marked
-xfail(strict=True): the server renames paths in place without emitting
-delete events, so the plugin retains stale files at old paths. This is a
-known user-visible bug that BLOCKS shipping folder rename as complete.
-Fix: emit explicit delete events for old paths, or add manifest-based
-reconciliation to prune stale local files.
+(in-place path update + soft-deleted tombstone for old path). B syncs
+and sees notes under the new folder path. Old paths are cleaned up via
+the tombstone delete signals in the changes feed.
 """
+
+import time
 
 import pytest
 
-from helpers.vault import wait_for_file, write_note
+from helpers.vault import wait_for_file, wait_for_file_gone, write_note
 
 
 @pytest.mark.asyncio
@@ -52,12 +48,6 @@ async def test_folder_rename_new_paths(vault_a, vault_b, cdp_a, cdp_b, api_sync)
     wait_for_file(vault_b, new_note2, timeout=15)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BLOCKS SHIP: Server renames paths in place (no delete event) — plugin "
-           "has no signal to remove old files. Must emit delete events for old paths "
-           "or add manifest-based reconciliation before shipping folder rename.",
-)
 @pytest.mark.asyncio
 async def test_folder_rename_old_paths_cleaned(vault_a, vault_b, cdp_a, cdp_b, api_sync):
     """After folder rename, old paths should be removed from B's vault."""
@@ -74,9 +64,6 @@ async def test_folder_rename_old_paths_cleaned(vault_a, vault_b, cdp_a, cdp_b, a
     api_sync.rename_folder(old_folder, new_folder)
     api_sync.wait_for_note(f"{new_folder}/Cleanup.md", timeout=10)
 
-    # Multiple syncs to give plugin every chance
+    # B syncs — tombstone delete signal should remove old path
     await cdp_b.trigger_full_sync()
-    await cdp_b.trigger_full_sync()
-
-    # Old path should be gone (this currently fails — documents the gap)
-    assert not (vault_b / note).exists(), "B should not have old path after folder rename"
+    wait_for_file_gone(vault_b, note, timeout=15)
