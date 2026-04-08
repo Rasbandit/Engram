@@ -2,13 +2,7 @@
 
 A creates a small PNG in the vault. The plugin detects it as a binary
 extension, pushes via pushAttachment. B syncs and receives the file
-with identical bytes.
-
-Attachment deletion propagation (test_attachment_delete_propagation) is
-marked xfail(strict=True): the plugin's pull does not delete local
-attachments when they are removed from the server. The server returns
-404, but the plugin has no reconciliation to remove stale local files.
-Same class of bug as folder rename stale files (test_34).
+with identical bytes. Deletion on A propagates to server and then to B.
 """
 
 import time
@@ -54,11 +48,6 @@ async def test_attachment_push_and_pull(vault_a, vault_b, cdp_a, cdp_b, api_sync
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BLOCKS SHIP: Plugin pull does not delete local attachments removed "
-           "from server. Needs manifest-based reconciliation to prune stale files.",
-)
 @pytest.mark.asyncio
 async def test_attachment_delete_propagation(vault_a, vault_b, cdp_a, cdp_b, api_sync):
     """Deleting an attachment on A removes it from server and B."""
