@@ -21,7 +21,7 @@ defmodule EngramWeb.VaultsController do
       {:ok, vault} ->
         conn
         |> put_status(201)
-        |> json(vault_json(vault))
+        |> json(%{vault: vault_json(vault)})
 
       {:error, :vault_limit_reached} ->
         limit = Billing.effective_limit(user, "max_vaults")
@@ -45,7 +45,7 @@ defmodule EngramWeb.VaultsController do
     case parse_id(id) do
       {:ok, vault_id} ->
         case Vaults.get_vault(user, vault_id) do
-          {:ok, vault} -> json(conn, vault_json(vault))
+          {:ok, vault} -> json(conn, %{vault: vault_json(vault)})
           {:error, :not_found} -> not_found(conn)
         end
 
@@ -63,7 +63,7 @@ defmodule EngramWeb.VaultsController do
     case parse_id(id) do
       {:ok, vault_id} ->
         case Vaults.update_vault(user, vault_id, attrs) do
-          {:ok, vault} -> json(conn, vault_json(vault))
+          {:ok, vault} -> json(conn, %{vault: vault_json(vault)})
           {:error, :not_found} -> not_found(conn)
 
           {:error, changeset} ->

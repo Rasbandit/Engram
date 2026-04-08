@@ -2,6 +2,8 @@ defmodule Engram.Workers.CleanupVaultTest do
   use Engram.DataCase, async: false
   use Oban.Testing, repo: Engram.Repo
 
+  import ExUnit.CaptureLog
+
   alias Engram.Attachments.Attachment
   alias Engram.Notes.{Chunk, Note}
   alias Engram.Repo
@@ -122,7 +124,12 @@ defmodule Engram.Workers.CleanupVaultTest do
         |> Plug.Conn.send_resp(400, ~s({"status": "error"}))
       end)
 
-      assert :ok = CleanupVault.perform_cleanup(vault.id, user.id)
+      log =
+        capture_log(fn ->
+          assert :ok = CleanupVault.perform_cleanup(vault.id, user.id)
+        end)
+
+      assert log =~ "Qdrant delete failed"
 
       # DB cleanup still happened despite Qdrant error
       refute Repo.get(Note, note.id, skip_tenant_check: true)
@@ -162,7 +169,13 @@ defmodule Engram.Workers.CleanupVaultTest do
         |> Plug.Conn.send_resp(200, ~s({"result": {"status": "acknowledged"}}))
       end)
 
-      assert :ok = CleanupVault.perform_cleanup(vault.id, user.id)
+      log =
+        capture_log(fn ->
+          assert :ok = CleanupVault.perform_cleanup(vault.id, user.id)
+        end)
+
+      # storage_key "test/blob.png" is invalid format → raises ArgumentError
+      assert log =~ "storage delete raised"
 
       # DB cleanup completed successfully
       refute Repo.get(Note, note.id, skip_tenant_check: true)

@@ -1,6 +1,7 @@
 defmodule Engram.AttachmentsTest do
   use Engram.DataCase, async: false
 
+  import ExUnit.CaptureLog
   import Mox
 
   alias Engram.Attachments
@@ -146,7 +147,12 @@ defmodule Engram.AttachmentsTest do
         {:error, :not_found}
       end)
 
-      assert {:error, {:storage, :blob_missing}} = Attachments.get_attachment(user, vault, @path)
+      log =
+        capture_log(fn ->
+          assert {:error, {:storage, :blob_missing}} = Attachments.get_attachment(user, vault, @path)
+        end)
+
+      assert log =~ "Attachment blob missing"
     end
   end
 end

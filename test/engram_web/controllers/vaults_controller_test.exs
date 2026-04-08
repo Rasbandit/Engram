@@ -56,9 +56,9 @@ defmodule EngramWeb.VaultsControllerTest do
     test "creates a vault and returns 201", %{conn: conn} do
       conn = post(conn, "/api/vaults", %{name: "Work Notes"})
       body = json_response(conn, 201)
-      assert body["name"] == "Work Notes"
-      assert is_integer(body["id"])
-      assert is_binary(body["slug"])
+      assert body["vault"]["name"] == "Work Notes"
+      assert is_integer(body["vault"]["id"])
+      assert is_binary(body["vault"]["slug"])
     end
 
     test "returns 402 when vault limit reached", %{conn: conn, user: user} do
@@ -87,8 +87,8 @@ defmodule EngramWeb.VaultsControllerTest do
       {:ok, vault} = Vaults.create_vault(user, %{name: "Fetched"})
       conn = get(conn, "/api/vaults/#{vault.id}")
       body = json_response(conn, 200)
-      assert body["id"] == vault.id
-      assert body["name"] == "Fetched"
+      assert body["vault"]["id"] == vault.id
+      assert body["vault"]["name"] == "Fetched"
     end
 
     test "returns 404 for non-existent vault", %{conn: conn} do
@@ -111,7 +111,7 @@ defmodule EngramWeb.VaultsControllerTest do
       {:ok, vault} = Vaults.create_vault(user, %{name: "Old Name"})
       conn = patch(conn, "/api/vaults/#{vault.id}", %{name: "New Name"})
       body = json_response(conn, 200)
-      assert body["name"] == "New Name"
+      assert body["vault"]["name"] == "New Name"
     end
 
     test "returns 404 for non-existent vault", %{conn: conn} do
