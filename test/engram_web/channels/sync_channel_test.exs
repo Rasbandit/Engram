@@ -83,6 +83,22 @@ defmodule EngramWeb.SyncChannelTest do
                subscribe_and_join(socket, EngramWeb.SyncChannel, "sync:#{user.id}")
     end
 
+    test "backwards-compat: receives vault-scoped broadcasts", %{user: user, vault: vault} do
+      socket = user_socket(user)
+      {:ok, _, _socket} =
+        subscribe_and_join(socket, EngramWeb.SyncChannel, "sync:#{user.id}")
+
+      # Broadcast to the vault-scoped topic (what Notes.broadcast_change uses)
+      EngramWeb.Endpoint.broadcast("sync:#{user.id}:#{vault.id}", "note_changed", %{
+        "event_type" => "upsert",
+        "path" => "test.md",
+        "vault_id" => vault.id
+      })
+
+      # The backwards-compat client should receive it
+      assert_push "note_changed", %{"event_type" => "upsert", "path" => "test.md"}
+    end
+
     test "backwards-compat: returns error when no default vault exists" do
       # New user with no vault inserted
       bare_user = insert(:user)
