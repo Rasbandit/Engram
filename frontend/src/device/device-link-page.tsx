@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '@clerk/clerk-react'
+import { useNavigate } from 'react-router'
 import { api } from '../api/client'
 
 type Vault = { id: number; name: string; note_count: number }
@@ -8,6 +9,7 @@ type Step = 'enter-code' | 'pick-vault' | 'success' | 'error'
 
 export default function DeviceLinkPage() {
   const { isSignedIn } = useAuth()
+  const navigate = useNavigate()
   const [step, setStep] = useState<Step>('enter-code')
   const [userCode, setUserCode] = useState('')
   const [vaults, setVaults] = useState<Vault[]>([])
@@ -32,8 +34,12 @@ export default function DeviceLinkPage() {
     setError('')
     try {
       const data = await api.get<{ vaults: Vault[] }>('/vaults')
-      setVaults(data.vaults)
-      setUserCode(formatted.slice(0, 4) + '-' + formatted.slice(4))
+      const formattedCode = formatted.slice(0, 4) + '-' + formatted.slice(4)
+      setUserCode(formattedCode)
+      setVaults(data.vaults ?? [])
+      if (!data.vaults || data.vaults.length === 0) {
+        setCreateNew(true)
+      }
       setStep('pick-vault')
     } catch {
       setError('Failed to load vaults. Please try again.')
@@ -52,6 +58,7 @@ export default function DeviceLinkPage() {
 
       await api.post('/auth/device/authorize', body)
       setStep('success')
+      setTimeout(() => navigate('/'), 1500)
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Authorization failed'
       if (message.includes('404') || message.includes('not found')) {
@@ -90,7 +97,7 @@ export default function DeviceLinkPage() {
 
       {step === 'pick-vault' && (
         <section>
-          <p>Code verified. Choose which vault to sync:</p>
+          <p>{vaults.length > 0 ? 'Code verified. Choose which vault to sync:' : 'Code verified. Create a vault to get started:'}</p>
           <fieldset style={{ border: 'none', padding: 0 }}>
             {vaults.map((v) => (
               <label key={v.id} style={{ display: 'block', padding: '0.5rem 0', cursor: 'pointer' }}>
@@ -103,15 +110,17 @@ export default function DeviceLinkPage() {
                 {' '}{v.name} ({v.note_count} notes)
               </label>
             ))}
-            <label style={{ display: 'block', padding: '0.5rem 0', cursor: 'pointer' }}>
-              <input
-                type="radio"
-                name="vault"
-                checked={createNew}
-                onChange={() => { setCreateNew(true); setSelectedVaultId(null) }}
-              />
-              {' '}+ Create new vault
-            </label>
+            {vaults.length > 0 && (
+              <label style={{ display: 'block', padding: '0.5rem 0', cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="vault"
+                  checked={createNew}
+                  onChange={() => { setCreateNew(true); setSelectedVaultId(null) }}
+                />
+                {' '}+ Create new vault
+              </label>
+            )}
           </fieldset>
 
           {createNew && (
@@ -133,7 +142,7 @@ export default function DeviceLinkPage() {
       {step === 'success' && (
         <section>
           <h2>Vault linked!</h2>
-          <p>Your Obsidian plugin is now connected. You can close this tab.</p>
+          <p>Your Obsidian plugin is now connected. Redirecting to your vault...</p>
         </section>
       )}
 
