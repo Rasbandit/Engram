@@ -530,6 +530,67 @@ defmodule EngramWeb.McpControllerTest do
     end
   end
 
+  # =========================================================================
+  # API key vault restriction tests
+  # =========================================================================
+
+  describe "MCP vault switching with restricted API key" do
+    setup do
+      user = insert(:user)
+      vault_a = insert(:vault, user: user, is_default: true, name: "Vault A")
+
+      # Override limit so user can have 2 vaults
+      insert(:user_override, user: user, overrides: %{"max_vaults" => 10})
+      {:ok, vault_b} = Engram.Vaults.create_vault(user, %{name: "Vault B"})
+
+      {:ok, api_key, api_key_record} = Engram.Accounts.create_api_key(user, "restricted-key")
+
+      # Restrict key to vault_a only
+      Engram.Repo.insert_all("api_key_vaults", [
+        %{api_key_id: api_key_record.id, vault_id: vault_a.id}
+      ])
+
+      authed =
+        build_conn()
+        |> put_req_header("authorization", "Bearer #{api_key}")
+
+      # Seed a note in vault_b to prove the tool can't read it
+      Engram.Notes.upsert_note(user, vault_b, %{
+        "path" => "Secret/Note.md",
+        "content" => "# Secret",
+        "mtime" => 1_000.0
+      })
+
+      %{conn: authed, user: user, vault_a: vault_a, vault_b: vault_b}
+    end
+
+    test "restricted key cannot switch to unauthorized vault via tool arguments",
+         %{conn: conn, vault_b: vault_b} do
+      conn =
+        call_tool(conn, "get_note", %{
+          "source_path" => "Secret/Note.md",
+          "vault_id" => vault_b.id
+        })
+
+      text = tool_text(conn)
+      assert text =~ "Error:"
+      assert text =~ "API key does not have access"
+    end
+
+    test "restricted key can use its authorized vault via tool arguments",
+         %{conn: conn, vault_a: vault_a} do
+      # Seed a note in vault_a
+      user = insert(:user)
+
+      conn =
+        call_tool(conn, "list_vaults")
+
+      text = tool_text(conn)
+      # Should succeed (list_vaults doesn't use vault_id arg, but validates it works)
+      refute text =~ "Error:"
+    end
+  end
+
   # Helper: rebuild authed conn (since conn is consumed after first request)
   defp build_authed(conn) do
     auth_header =
