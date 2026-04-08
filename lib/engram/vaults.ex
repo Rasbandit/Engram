@@ -228,6 +228,34 @@ defmodule Engram.Vaults do
     |> unwrap_transaction()
   end
 
+  # ── API key access check ────────────────────────────────────────────────
+
+  @doc """
+  Checks whether an API key is allowed to access a given vault.
+
+  - If `api_key` is nil (JWT auth), access is always granted.
+  - If the key has no rows in api_key_vaults, it has unrestricted access.
+  - Otherwise the vault must appear in the key's allowed list.
+
+  Returns `:ok` or `:forbidden`.
+  """
+  def check_api_key_access(nil, _vault), do: :ok
+
+  def check_api_key_access(api_key, vault) do
+    restricted_vault_ids =
+      from(akv in "api_key_vaults",
+        where: akv.api_key_id == ^api_key.id,
+        select: akv.vault_id
+      )
+      |> Repo.all(skip_tenant_check: true)
+
+    cond do
+      restricted_vault_ids == [] -> :ok
+      vault.id in restricted_vault_ids -> :ok
+      true -> :forbidden
+    end
+  end
+
   # ── Private helpers ─────────────────────────────────────────────────────────
 
   defp count_vaults(user_id) do

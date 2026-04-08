@@ -161,6 +161,67 @@ class ApiClient:
         )
         return resp.status_code
 
+    # -- Vault endpoints --------------------------------------------------
+
+    def list_vaults(self) -> list[dict]:
+        """GET /vaults. Returns list of vault dicts."""
+        resp = self.session.get(f"{self.base_url}/vaults", timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("vaults", [])
+
+    def register_vault(self, name: str, client_id: str) -> tuple[dict, int]:
+        """POST /vaults/register. Returns (response_json, status_code)."""
+        resp = self.session.post(
+            f"{self.base_url}/vaults/register",
+            json={"name": name, "client_id": client_id},
+            timeout=10,
+        )
+        return resp.json() if resp.status_code in (200, 201) else {}, resp.status_code
+
+    def create_vault(self, name: str) -> tuple[dict, int]:
+        """POST /vaults. Returns (response_json, status_code)."""
+        resp = self.session.post(
+            f"{self.base_url}/vaults",
+            json={"name": name},
+            timeout=10,
+        )
+        return resp.json() if resp.status_code in (200, 201) else {}, resp.status_code
+
+    def get_vault(self, vault_id: int) -> tuple[dict | None, int]:
+        """GET /vaults/:id. Returns (vault_dict or None, status_code)."""
+        resp = self.session.get(f"{self.base_url}/vaults/{vault_id}", timeout=10)
+        if resp.status_code == 404:
+            return None, 404
+        return resp.json(), resp.status_code
+
+    def delete_vault(self, vault_id: int) -> int:
+        """DELETE /vaults/:id. Returns HTTP status code."""
+        resp = self.session.delete(f"{self.base_url}/vaults/{vault_id}", timeout=10)
+        return resp.status_code
+
+    def with_vault(self, vault_id: int) -> "ApiClient":
+        """Return a new ApiClient that sends X-Vault-ID header on all requests."""
+        clone = ApiClient.__new__(ApiClient)
+        clone.base_url = self.base_url
+        clone.session = requests.Session()
+        clone.session.headers.update(self.session.headers)
+        clone.session.headers["X-Vault-ID"] = str(vault_id)
+        return clone
+
+    def mcp_call(self, tool_name: str, arguments: dict) -> tuple[dict, int]:
+        """POST /mcp — JSON-RPC tools/call. Returns (response_json, status)."""
+        resp = self.session.post(
+            f"{self.base_url}/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": tool_name, "arguments": arguments},
+            },
+            timeout=10,
+        )
+        return resp.json(), resp.status_code
+
     def get_manifest(self) -> dict:
         """GET /sync/manifest. Returns manifest dict."""
         resp = self.session.get(f"{self.base_url}/sync/manifest", timeout=10)

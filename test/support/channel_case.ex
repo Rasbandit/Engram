@@ -13,9 +13,20 @@ defmodule EngramWeb.ChannelCase do
 
       @endpoint EngramWeb.Endpoint
 
-      @doc "Build a socket assigned to the given user."
+      @doc "Build a socket assigned to the given user (JWT-like, no API key restriction)."
       def user_socket(user) do
-        socket(EngramWeb.UserSocket, "user_#{user.id}", %{current_user: user})
+        socket(EngramWeb.UserSocket, "user_#{user.id}", %{
+          current_user: user,
+          current_api_key: nil
+        })
+      end
+
+      @doc "Build a socket assigned to the given user with an API key."
+      def user_socket(user, api_key) do
+        socket(EngramWeb.UserSocket, "user_#{user.id}", %{
+          current_user: user,
+          current_api_key: api_key
+        })
       end
 
       @doc "Join the sync channel and allow the channel pid to use the sandbox."

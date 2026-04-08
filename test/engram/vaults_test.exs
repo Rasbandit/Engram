@@ -323,4 +323,46 @@ defmodule Engram.VaultsTest do
       assert {:error, :not_found} = Vaults.delete_vault(user, 0)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # check_api_key_access/2
+  # ---------------------------------------------------------------------------
+
+  describe "check_api_key_access/2" do
+    test "nil api_key (JWT auth) always returns :ok", %{user: user} do
+      {:ok, vault} = Vaults.create_vault(user, %{name: "V"})
+      assert :ok = Vaults.check_api_key_access(nil, vault)
+    end
+
+    test "unrestricted key (no api_key_vaults rows) returns :ok", %{user: user} do
+      {:ok, vault} = Vaults.create_vault(user, %{name: "V"})
+      {:ok, _raw, api_key} = Engram.Accounts.create_api_key(user, "unrestricted")
+
+      assert :ok = Vaults.check_api_key_access(api_key, vault)
+    end
+
+    test "restricted key with matching vault returns :ok", %{user: user} do
+      {:ok, vault} = Vaults.create_vault(user, %{name: "V"})
+      {:ok, _raw, api_key} = Engram.Accounts.create_api_key(user, "restricted")
+
+      Engram.Repo.insert_all("api_key_vaults", [
+        %{api_key_id: api_key.id, vault_id: vault.id}
+      ])
+
+      assert :ok = Vaults.check_api_key_access(api_key, vault)
+    end
+
+    test "restricted key without matching vault returns :forbidden", %{user: user, other_user: other_user} do
+      {:ok, vault} = Vaults.create_vault(user, %{name: "V"})
+      {:ok, other_vault} = Vaults.create_vault(other_user, %{name: "Other"})
+      {:ok, _raw, api_key} = Engram.Accounts.create_api_key(user, "restricted")
+
+      # Restrict to other vault only
+      Engram.Repo.insert_all("api_key_vaults", [
+        %{api_key_id: api_key.id, vault_id: other_vault.id}
+      ])
+
+      assert :forbidden = Vaults.check_api_key_access(api_key, vault)
+    end
+  end
 end

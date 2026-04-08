@@ -15,7 +15,19 @@ defmodule Engram.Vector.Qdrant do
   defp collection, do: Application.get_env(:engram, :qdrant_collection, @default_collection)
 
   defp req_opts do
-    base = [receive_timeout: 30_000, retry: :transient, max_retries: 3, retry_log_level: :warning, connect_options: [protocols: [:http1]]]
+    {retry, max_retries} =
+      case Application.get_env(:engram, :qdrant_retry, :transient) do
+        false -> {false, 0}
+        mode -> {mode, 3}
+      end
+
+    base = [
+      receive_timeout: 30_000,
+      retry: retry,
+      max_retries: max_retries,
+      retry_log_level: :warning,
+      connect_options: [protocols: [:http1]]
+    ]
 
     case Application.get_env(:engram, :qdrant_api_key) do
       nil -> base

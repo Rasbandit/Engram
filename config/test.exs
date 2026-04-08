@@ -35,8 +35,12 @@ config :engram, EngramWeb.Endpoint,
 # Use mock embedder in tests — never hits Voyage AI
 config :engram, :embedder, Engram.MockEmbedder
 
-# Qdrant collection name for tests (matches Bypass URL expectations)
+# Qdrant config for tests — disable retries so fire-and-forget Tasks
+# (e.g. Notes.delete_note → Indexing.delete_note_index) fail fast and
+# silently instead of retrying 3x with noisy warnings against localhost:6333.
+# Tests that need real Qdrant interaction use Bypass and override :qdrant_url.
 config :engram, :qdrant_collection, "engram_notes"
+config :engram, :qdrant_retry, false
 
 # Use real database storage in tests (backward-compatible default)
 config :engram, :storage, Engram.Storage.Database

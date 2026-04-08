@@ -2,6 +2,8 @@ defmodule Engram.Workers.CleanupVaultTest do
   use Engram.DataCase, async: false
   use Oban.Testing, repo: Engram.Repo
 
+  import ExUnit.CaptureLog
+
   alias Engram.Attachments.Attachment
   alias Engram.Notes.{Chunk, Note}
   alias Engram.Repo
@@ -122,10 +124,62 @@ defmodule Engram.Workers.CleanupVaultTest do
         |> Plug.Conn.send_resp(400, ~s({"status": "error"}))
       end)
 
-      assert :ok = CleanupVault.perform_cleanup(vault.id, user.id)
+      log =
+        capture_log(fn ->
+          assert :ok = CleanupVault.perform_cleanup(vault.id, user.id)
+        end)
+
+      assert log =~ "Qdrant delete failed"
 
       # DB cleanup still happened despite Qdrant error
       refute Repo.get(Note, note.id, skip_tenant_check: true)
+      refute Repo.get(Vault, vault.id, skip_tenant_check: true)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # perform_cleanup/2 — blob ordering (post-commit)
+  # ---------------------------------------------------------------------------
+
+  describe "perform_cleanup/2 — blob deletion ordering" do
+    setup do
+      bypass = Bypass.open()
+      Application.put_env(:engram, :qdrant_url, "http://localhost:#{bypass.port}")
+      on_exit(fn -> Application.delete_env(:engram, :qdrant_url) end)
+
+      user = insert(:user)
+      vault = insert(:vault, user: user, deleted_at: DateTime.utc_now())
+      note = insert(:note, user: user, vault: vault)
+      attachment = insert(:attachment, user: user, vault: vault, storage_key: "test/blob.png")
+
+      %{bypass: bypass, user: user, vault: vault, note: note, attachment: attachment}
+    end
+
+    test "DB rows are deleted even if storage adapter fails", %{
+      bypass: bypass,
+      user: user,
+      vault: vault,
+      note: note,
+      attachment: attachment
+    } do
+      # Qdrant succeeds, but we can verify that DB cleanup is not blocked by blob issues
+      Bypass.expect(bypass, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": {"status": "acknowledged"}}))
+      end)
+
+      log =
+        capture_log(fn ->
+          assert :ok = CleanupVault.perform_cleanup(vault.id, user.id)
+        end)
+
+      # storage_key "test/blob.png" is invalid format → raises ArgumentError
+      assert log =~ "storage delete raised"
+
+      # DB cleanup completed successfully
+      refute Repo.get(Note, note.id, skip_tenant_check: true)
+      refute Repo.get(Attachment, attachment.id, skip_tenant_check: true)
       refute Repo.get(Vault, vault.id, skip_tenant_check: true)
     end
   end

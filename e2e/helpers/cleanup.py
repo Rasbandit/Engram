@@ -17,6 +17,14 @@ VAULT_PATHS = [
     Path("/tmp/e2e-vault-c"),
 ]
 
+# Obsidian config dirs — created by ObsidianInstance._prepare_config,
+# normally cleaned up in stop(), but left behind on crashes.
+CONFIG_PATHS = [
+    Path("/tmp/e2e-obsidian-config-a"),
+    Path("/tmp/e2e-obsidian-config-b"),
+    Path("/tmp/e2e-obsidian-config-c"),
+]
+
 # CI compose project name — matches the directory name where docker-compose.ci.yml lives
 CI_POSTGRES_CONTAINER = os.environ.get("CI_POSTGRES_CONTAINER", "engram-postgres-1")
 
@@ -36,11 +44,19 @@ def cleanup_test_data(email_pattern: str = "e2e-%@test.local") -> None:
     # Pattern is validated by _SAFE_EMAIL_PATTERN above, safe to interpolate.
     # psql -c does not expand :variable substitution, so we use a parameterized
     # query via psql's stdin with \set + :'var' quoting.
-    # Elixir schema: notes.user_id and api_keys.user_id are integer (not text)
+    # Elixir schema: notes.user_id and chunks.user_id have on_delete: :nothing,
+    # so we must delete in FK-safe order (children before parents).
     sql_script = (
         f"\\set pat '{email_pattern}'\n"
+        "DELETE FROM api_key_vaults WHERE api_key_id IN (SELECT id FROM api_keys WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat'));\n"
         "DELETE FROM api_keys WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
+        "DELETE FROM client_logs WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
+        "DELETE FROM chunks WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
         "DELETE FROM notes WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
+        "DELETE FROM attachments WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
+        "DELETE FROM subscriptions WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
+        "DELETE FROM user_overrides WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
+        "DELETE FROM vaults WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
         "DELETE FROM users WHERE email LIKE :'pat';\n"
     )
 
@@ -60,11 +76,11 @@ def cleanup_test_data(email_pattern: str = "e2e-%@test.local") -> None:
 
 
 def cleanup_vaults() -> None:
-    """Remove all E2E vault directories."""
-    for vault in VAULT_PATHS:
-        if vault.exists():
-            shutil.rmtree(vault)
-            logger.info("Removed %s", vault)
+    """Remove all E2E vault and config directories."""
+    for path in VAULT_PATHS + CONFIG_PATHS:
+        if path.exists():
+            shutil.rmtree(path)
+            logger.info("Removed %s", path)
 
 
 def full_cleanup() -> None:
