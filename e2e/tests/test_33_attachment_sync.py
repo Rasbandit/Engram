@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from helpers.vault import write_binary, wait_for_binary
+from helpers.vault import write_binary, wait_for_binary, wait_for_file_gone
 
 
 # Minimal valid PNG: 1x1 red pixel
@@ -60,8 +60,10 @@ async def test_attachment_delete_propagation(vault_a, vault_b, cdp_a, cdp_b, api
         if api_sync.get_attachment(att_path).status_code == 200:
             break
         time.sleep(0.5)
+
+    # B syncs and should receive the attachment
     await cdp_b.trigger_full_sync()
-    assert (vault_b / att_path).exists(), "B should have attachment before delete"
+    wait_for_binary(vault_b, att_path, timeout=15)
 
     # A deletes the attachment
     (vault_a / att_path).unlink()
@@ -75,7 +77,6 @@ async def test_attachment_delete_propagation(vault_a, vault_b, cdp_a, cdp_b, api
         time.sleep(0.5)
     assert resp.status_code == 404, f"Attachment should be gone from server, got {resp.status_code}"
 
-    # B syncs — file should disappear
+    # B syncs — file should disappear (poll instead of fixed sleep)
     await cdp_b.trigger_full_sync()
-    time.sleep(2)
-    assert not (vault_b / att_path).exists(), "B should not have deleted attachment"
+    wait_for_file_gone(vault_b, att_path, timeout=15)
