@@ -1993,6 +1993,51 @@ assert_status "POST /auth/device/token (consumed)" 410 "$STATUS"
 OAUTH_ACCESS_TOKEN="$NEW_ACCESS_TOKEN"
 
 # ============================================================================
+# SECTION 54: OAuth Token CRUD Smoke Test
+# ============================================================================
+echo ""
+echo "=== 54. OAuth Token CRUD Smoke ==="
+
+OAUTH_NOTE_PATH="Test/OAuthSmoke.md"
+OAUTH_NOTE_CONTENT="# OAuth Smoke Test\nCreated with device flow access token."
+OAUTH_NOTE_ENCODED=$(urlencode "$OAUTH_NOTE_PATH")
+
+# 54.1 Create note via OAuth
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_NOTES" \
+    -H "Authorization: Bearer $OAUTH_ACCESS_TOKEN" \
+    -H "X-Vault-ID: $OAUTH_VAULT_ID" \
+    -H "Content-Type: application/json" \
+    -d "{\"path\":\"$OAUTH_NOTE_PATH\",\"content\":\"$OAUTH_NOTE_CONTENT\",\"mtime\":$(date +%s)}")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /notes (OAuth create)" 200 "$STATUS"
+
+# 54.2 Read note via OAuth
+RESP=$(curl -s -w "\n%{http_code}" "$EP_NOTES/$OAUTH_NOTE_ENCODED" \
+    -H "Authorization: Bearer $OAUTH_ACCESS_TOKEN" \
+    -H "X-Vault-ID: $OAUTH_VAULT_ID")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET /notes (OAuth read)" 200 "$STATUS"
+assert_contains "OAuth note content" "$(echo "$BODY" | jq -r '.content')" "OAuth Smoke Test"
+
+# 54.3 Sync manifest via OAuth
+RESP=$(curl -s -w "\n%{http_code}" "$EP_SYNC_MANIFEST" \
+    -H "Authorization: Bearer $OAUTH_ACCESS_TOKEN" \
+    -H "X-Vault-ID: $OAUTH_VAULT_ID")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET /sync/manifest (OAuth)" 200 "$STATUS"
+assert_contains "Manifest contains OAuth note" "$BODY" "OAuthSmoke.md"
+
+# 54.4 Delete note via OAuth
+RESP=$(curl -s -w "\n%{http_code}" -X DELETE "$EP_NOTES/$OAUTH_NOTE_ENCODED" \
+    -H "Authorization: Bearer $OAUTH_ACCESS_TOKEN" \
+    -H "X-Vault-ID: $OAUTH_VAULT_ID")
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "DELETE /notes (OAuth delete)" 200 "$STATUS"
+
+# ============================================================================
 # Cleanup — Delete test notes
 # ============================================================================
 echo ""
