@@ -6,9 +6,14 @@ defmodule EngramWeb.UserSocket do
   @impl true
   def connect(%{"token" => token}, socket, _connect_info) do
     case Engram.Auth.TokenResolver.resolve(token) do
-      {:ok, user} -> {:ok, assign(socket, :current_user, user)}
-      {:ok, user, _api_key} -> {:ok, assign(socket, :current_user, user)}
-      {:error, _reason} -> :error
+      {:ok, user} ->
+        {:ok, assign(socket, %{current_user: user, current_api_key: nil})}
+
+      {:ok, user, api_key} ->
+        {:ok, assign(socket, %{current_user: user, current_api_key: api_key})}
+
+      {:error, _reason} ->
+        :error
     end
   end
 

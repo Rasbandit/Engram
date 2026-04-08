@@ -13,10 +13,7 @@ defmodule EngramWeb.Plugs.VaultPlug do
 
   import Plug.Conn
 
-  alias Engram.Repo
   alias Engram.Vaults
-
-  import Ecto.Query, only: [from: 2]
 
   def init(opts), do: opts
 
@@ -25,7 +22,9 @@ defmodule EngramWeb.Plugs.VaultPlug do
 
     case resolve_vault(conn, user) do
       {:ok, vault} ->
-        case check_api_key_access(conn, vault) do
+        api_key = conn.assigns[:current_api_key]
+
+        case Vaults.check_api_key_access(api_key, vault) do
           :ok -> assign(conn, :current_vault, vault)
           :forbidden -> halt_with(conn, 403, "API key does not have access to this vault")
         end
@@ -50,28 +49,6 @@ defmodule EngramWeb.Plugs.VaultPlug do
 
       [] ->
         Vaults.get_default_vault(user)
-    end
-  end
-
-  defp check_api_key_access(conn, vault) do
-    case conn.assigns[:current_api_key] do
-      nil ->
-        # JWT auth — no key-level restriction
-        :ok
-
-      api_key ->
-        restricted_vault_ids =
-          from(akv in "api_key_vaults",
-            where: akv.api_key_id == ^api_key.id,
-            select: akv.vault_id
-          )
-          |> Repo.all(skip_tenant_check: true)
-
-        cond do
-          restricted_vault_ids == [] -> :ok
-          vault.id in restricted_vault_ids -> :ok
-          true -> :forbidden
-        end
     end
   end
 

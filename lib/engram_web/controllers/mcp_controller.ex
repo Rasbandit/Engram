@@ -49,31 +49,14 @@ defmodule EngramWeb.McpController do
     case Tools.get(name) do
       {:ok, tool} ->
         user = conn.assigns.current_user
-        vault = resolve_mcp_vault(user, args, conn)
 
-        try do
-          case tool.handler.(user, vault, args) do
-            {:ok, text} ->
-              {:ok, %{"content" => [%{"type" => "text", "text" => text}], "isError" => false}}
-
-            {:error, msg} ->
-              {:ok,
-               %{"content" => [%{"type" => "text", "text" => "Error: #{msg}"}], "isError" => true}}
-          end
-        catch
-          kind, reason ->
-            message =
-              case kind do
-                :error -> Exception.message(reason)
-                :exit -> "Process exited: #{inspect(reason)}"
-                :throw -> "Unexpected throw: #{inspect(reason)}"
-              end
-
+        case resolve_mcp_vault(user, args, conn) do
+          {:error, msg} ->
             {:ok,
-             %{
-               "content" => [%{"type" => "text", "text" => "Error: #{message}"}],
-               "isError" => true
-             }}
+             %{"content" => [%{"type" => "text", "text" => "Error: #{msg}"}], "isError" => true}}
+
+          {:ok, vault} ->
+            call_tool(tool, user, vault, args)
         end
 
       :error ->
@@ -89,17 +72,50 @@ defmodule EngramWeb.McpController do
     {:error, -32601, "Method not found"}
   end
 
+  defp call_tool(tool, user, vault, args) do
+    case tool.handler.(user, vault, args) do
+      {:ok, text} ->
+        {:ok, %{"content" => [%{"type" => "text", "text" => text}], "isError" => false}}
+
+      {:error, msg} ->
+        {:ok,
+         %{"content" => [%{"type" => "text", "text" => "Error: #{msg}"}], "isError" => true}}
+    end
+  catch
+    kind, reason ->
+      message =
+        case kind do
+          :error -> Exception.message(reason)
+          :exit -> "Process exited: #{inspect(reason)}"
+          :throw -> "Unexpected throw: #{inspect(reason)}"
+        end
+
+      {:ok,
+       %{
+         "content" => [%{"type" => "text", "text" => "Error: #{message}"}],
+         "isError" => true
+       }}
+  end
+
   # -- Vault resolution --
 
   defp resolve_mcp_vault(user, args, conn) do
     case args["vault_id"] do
       nil ->
-        conn.assigns.current_vault
+        {:ok, conn.assigns.current_vault}
 
       vault_id ->
         case Engram.Vaults.get_vault(user, vault_id) do
-          {:ok, vault} -> vault
-          _ -> conn.assigns.current_vault
+          {:ok, vault} ->
+            api_key = conn.assigns[:current_api_key]
+
+            case Engram.Vaults.check_api_key_access(api_key, vault) do
+              :ok -> {:ok, vault}
+              :forbidden -> {:error, "API key does not have access to vault #{vault_id}"}
+            end
+
+          _ ->
+            {:ok, conn.assigns.current_vault}
         end
     end
   end

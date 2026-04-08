@@ -13,8 +13,7 @@ defmodule EngramWeb.SyncChannel do
 
   use Phoenix.Channel
 
-  alias Engram.Notes
-  alias Engram.Vaults
+  alias Engram.{Notes, Vaults}
   alias EngramWeb.Presence
 
   # ---------------------------------------------------------------------------
@@ -32,9 +31,15 @@ defmodule EngramWeb.SyncChannel do
             {vault_id, ""} ->
               case Vaults.get_vault(user, vault_id) do
                 {:ok, vault} ->
-                  socket = assign(socket, :vault, vault)
-                  send(self(), {:after_join, params})
-                  {:ok, socket}
+                  case check_api_key_access(socket, vault) do
+                    :ok ->
+                      socket = assign(socket, :vault, vault)
+                      send(self(), {:after_join, params})
+                      {:ok, socket}
+
+                    :forbidden ->
+                      {:error, %{reason: "api_key_vault_forbidden"}}
+                  end
 
                 {:error, _} ->
                   {:error, %{reason: "vault_not_found"}}
@@ -52,9 +57,15 @@ defmodule EngramWeb.SyncChannel do
         if to_string(user.id) == user_id_str do
           case Vaults.get_default_vault(user) do
             {:ok, vault} ->
-              socket = assign(socket, :vault, vault)
-              send(self(), {:after_join, params})
-              {:ok, socket}
+              case check_api_key_access(socket, vault) do
+                :ok ->
+                  socket = assign(socket, :vault, vault)
+                  send(self(), {:after_join, params})
+                  {:ok, socket}
+
+                :forbidden ->
+                  {:error, %{reason: "api_key_vault_forbidden"}}
+              end
 
             {:error, _} ->
               {:error, %{reason: "no_default_vault"}}
@@ -198,4 +209,8 @@ defmodule EngramWeb.SyncChannel do
   end
 
   defp format_errors(changeset), do: EngramWeb.format_errors(changeset)
+
+  defp check_api_key_access(socket, vault) do
+    Vaults.check_api_key_access(socket.assigns[:current_api_key], vault)
+  end
 end

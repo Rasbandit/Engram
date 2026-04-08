@@ -67,18 +67,53 @@ defmodule Engram.Repo.Migrations.AddVaultsAndBilling do
 
     create unique_index(:api_key_vaults, [:api_key_id, :vault_id])
 
-    # ── Add vault_id to notes, chunks, attachments ─────────────────
+    # ── Add vault_id to notes, chunks, attachments (nullable for backfill) ──
     alter table(:notes) do
-      add :vault_id, references(:vaults, on_delete: :delete_all), null: false
+      add :vault_id, references(:vaults, on_delete: :delete_all)
     end
 
     alter table(:chunks) do
-      add :vault_id, references(:vaults, on_delete: :delete_all), null: false
+      add :vault_id, references(:vaults, on_delete: :delete_all)
     end
 
     alter table(:attachments) do
-      add :vault_id, references(:vaults, on_delete: :delete_all), null: false
+      add :vault_id, references(:vaults, on_delete: :delete_all)
     end
+
+    # ── Backfill: create default vault per user with existing data ──
+    # For each user who has notes/chunks/attachments, create a default vault
+    # and assign all their rows to it.
+    execute """
+    INSERT INTO vaults (user_id, name, slug, is_default, created_at, updated_at)
+    SELECT DISTINCT u.id, 'Default', 'default', true, NOW(), NOW()
+    FROM users u
+    WHERE EXISTS (SELECT 1 FROM notes n WHERE n.user_id = u.id)
+       OR EXISTS (SELECT 1 FROM attachments a WHERE a.user_id = u.id)
+    ON CONFLICT DO NOTHING
+    """
+
+    execute """
+    UPDATE notes SET vault_id = v.id
+    FROM vaults v
+    WHERE notes.user_id = v.user_id AND v.is_default = true AND notes.vault_id IS NULL
+    """
+
+    execute """
+    UPDATE chunks SET vault_id = n.vault_id
+    FROM notes n
+    WHERE chunks.note_id = n.id AND chunks.vault_id IS NULL
+    """
+
+    execute """
+    UPDATE attachments SET vault_id = v.id
+    FROM vaults v
+    WHERE attachments.user_id = v.user_id AND v.is_default = true AND attachments.vault_id IS NULL
+    """
+
+    # ── Now enforce NOT NULL after backfill ──
+    execute "ALTER TABLE notes ALTER COLUMN vault_id SET NOT NULL"
+    execute "ALTER TABLE chunks ALTER COLUMN vault_id SET NOT NULL"
+    execute "ALTER TABLE attachments ALTER COLUMN vault_id SET NOT NULL"
 
     # Drop old unique indexes on notes and attachments
     drop index(:notes, [:user_id, :path], name: :notes_user_id_path_index)

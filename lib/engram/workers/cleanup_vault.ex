@@ -6,9 +6,10 @@ defmodule Engram.Workers.CleanupVault do
   or doesn't exist, the job is a no-op.
 
   Cleanup order:
-  1. Qdrant points (best-effort, non-fatal)
-  2. Storage blobs for attachments (best-effort, non-fatal)
+  1. Collect storage keys from DB (before deleting rows)
+  2. Qdrant points (best-effort, non-fatal)
   3. DB records in a transaction: chunks → notes → attachments → api_key_vaults → vault
+  4. Storage blobs (post-commit, best-effort) — only after DB is authoritative
   """
 
   use Oban.Worker, queue: :cleanup, max_attempts: 3
@@ -62,9 +63,14 @@ defmodule Engram.Workers.CleanupVault do
   # ---------------------------------------------------------------------------
 
   defp run_cleanup(vault) do
-    delete_qdrant_points(vault)
-    delete_storage_blobs(vault)
+    # Collect storage keys BEFORE deleting DB rows
+    storage_keys = collect_storage_keys(vault)
 
+    # Qdrant is best-effort — okay to do before DB transaction since
+    # Qdrant points are derived data that can be re-indexed
+    delete_qdrant_points(vault)
+
+    # DB transaction: delete all rows, making DB authoritative
     Repo.transaction(fn ->
       vault_id = vault.id
 
@@ -86,8 +92,20 @@ defmodule Engram.Workers.CleanupVault do
       Repo.delete!(vault)
     end)
 
+    # Post-commit: delete storage blobs (best-effort)
+    # If this fails, we have orphan blobs but no ghost rows — safe to retry
+    delete_storage_blobs(storage_keys)
+
     Logger.info("CleanupVault: completed hard-delete for vault #{vault.id}")
     :ok
+  end
+
+  defp collect_storage_keys(vault) do
+    Attachment
+    |> where(vault_id: ^vault.id)
+    |> where([a], not is_nil(a.storage_key))
+    |> select([a], a.storage_key)
+    |> Repo.all(skip_tenant_check: true)
   end
 
   defp delete_qdrant_points(vault) do
@@ -105,14 +123,7 @@ defmodule Engram.Workers.CleanupVault do
       Logger.warning("CleanupVault: Qdrant delete raised for vault #{vault.id}: #{inspect(e)}")
   end
 
-  defp delete_storage_blobs(vault) do
-    keys =
-      Attachment
-      |> where(vault_id: ^vault.id)
-      |> where([a], not is_nil(a.storage_key))
-      |> select([a], a.storage_key)
-      |> Repo.all(skip_tenant_check: true)
-
+  defp delete_storage_blobs(keys) do
     Enum.each(keys, &delete_storage_blob/1)
   end
 
