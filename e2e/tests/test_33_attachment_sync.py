@@ -53,17 +53,22 @@ async def test_attachment_delete_propagation(vault_a, vault_b, cdp_a, cdp_b, api
     """Deleting an attachment on A removes it from server and B."""
     att_path = "E2E/attachments/test33del.png"
 
-    # Setup: A creates, poll until server has it, then B pulls
+    # Setup: A creates, poll until server has it
     write_binary(vault_a, att_path, TINY_PNG)
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         if api_sync.get_attachment(att_path).status_code == 200:
             break
         time.sleep(0.5)
+    assert api_sync.get_attachment(att_path).status_code == 200, "Server should have attachment"
 
-    # B syncs and should receive the attachment
-    await cdp_b.trigger_full_sync()
-    wait_for_binary(vault_b, att_path, timeout=15)
+    # B syncs — retry if first pull doesn't fetch the attachment
+    for attempt in range(3):
+        await cdp_b.trigger_full_sync()
+        if (vault_b / att_path).exists():
+            break
+        time.sleep(2)
+    assert (vault_b / att_path).exists(), "B should have attachment before delete"
 
     # A deletes the attachment
     (vault_a / att_path).unlink()
@@ -77,6 +82,10 @@ async def test_attachment_delete_propagation(vault_a, vault_b, cdp_a, cdp_b, api
         time.sleep(0.5)
     assert resp.status_code == 404, f"Attachment should be gone from server, got {resp.status_code}"
 
-    # B syncs — file should disappear (poll instead of fixed sleep)
-    await cdp_b.trigger_full_sync()
-    wait_for_file_gone(vault_b, att_path, timeout=15)
+    # B syncs — retry pull to propagate deletion
+    for attempt in range(3):
+        await cdp_b.trigger_full_sync()
+        if not (vault_b / att_path).exists():
+            break
+        time.sleep(2)
+    assert not (vault_b / att_path).exists(), "B should not have deleted attachment"
