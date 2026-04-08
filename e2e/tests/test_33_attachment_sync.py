@@ -5,7 +5,7 @@ extension, pushes via pushAttachment. B syncs and receives the file
 with identical bytes.
 """
 
-import asyncio
+import time
 
 import pytest
 
@@ -29,11 +29,13 @@ async def test_attachment_push_and_pull(vault_a, vault_b, cdp_a, cdp_b, api_sync
     # A creates attachment
     write_binary(vault_a, att_path, TINY_PNG)
 
-    # Wait for plugin to detect and push
-    await asyncio.sleep(5)
-
-    # Verify server has it
-    resp = api_sync.get_attachment(att_path)
+    # Poll until plugin pushes attachment to server
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        resp = api_sync.get_attachment(att_path)
+        if resp.status_code == 200:
+            break
+        time.sleep(0.5)
     assert resp.status_code == 200, f"Attachment should be on server, got {resp.status_code}"
 
     # B syncs
@@ -51,21 +53,29 @@ async def test_attachment_delete_propagation(vault_a, vault_b, cdp_a, cdp_b, api
     """Deleting an attachment on A removes it from server and B."""
     att_path = "E2E/attachments/test33del.png"
 
-    # Setup: A creates, B pulls
+    # Setup: A creates, poll until server has it, then B pulls
     write_binary(vault_a, att_path, TINY_PNG)
-    await asyncio.sleep(5)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if api_sync.get_attachment(att_path).status_code == 200:
+            break
+        time.sleep(0.5)
     await cdp_b.trigger_full_sync()
     assert (vault_b / att_path).exists(), "B should have attachment before delete"
 
     # A deletes the attachment
     (vault_a / att_path).unlink()
-    await asyncio.sleep(5)
 
-    # Server should reflect deletion
-    resp = api_sync.get_attachment(att_path)
+    # Poll until server reflects deletion
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        resp = api_sync.get_attachment(att_path)
+        if resp.status_code == 404:
+            break
+        time.sleep(0.5)
     assert resp.status_code == 404, f"Attachment should be gone from server, got {resp.status_code}"
 
     # B syncs — file should disappear
     await cdp_b.trigger_full_sync()
-    await asyncio.sleep(2)
+    time.sleep(2)
     assert not (vault_b / att_path).exists(), "B should not have deleted attachment"
