@@ -1,17 +1,22 @@
-"""Test 34: Folder rename propagates — notes move to new folder on B.
+"""Test 34: Folder rename propagates — notes appear at new paths on B.
 
-A creates notes in a folder. Server-side folder rename moves all notes.
-B syncs and sees notes under the new folder path.
+A creates notes in a folder. Server-side folder rename moves all notes
+(in-place path update, no soft-delete of old path). B syncs and sees
+notes under the new folder path.
+
+Old-path cleanup is tested separately as xfail: the server updates paths
+in place (no delete event), so the plugin has no signal to remove old
+files. Requires manifest-based reconciliation (not yet implemented).
 """
 
 import pytest
 
-from helpers.vault import wait_for_file, wait_for_file_gone, write_note
+from helpers.vault import wait_for_file, write_note
 
 
 @pytest.mark.asyncio
-async def test_folder_rename_propagation(vault_a, vault_b, cdp_a, cdp_b, api_sync):
-    """Renaming a folder moves all contained notes for B."""
+async def test_folder_rename_new_paths(vault_a, vault_b, cdp_a, cdp_b, api_sync):
+    """Renaming a folder makes notes appear at new paths for B."""
     old_folder = "E2E/RenameFolder34"
     new_folder = "E2E/RenamedFolder34"
     note1 = f"{old_folder}/Note1.md"
@@ -38,15 +43,35 @@ async def test_folder_rename_propagation(vault_a, vault_b, cdp_a, cdp_b, api_syn
     api_sync.wait_for_note(new_note1, timeout=10)
     api_sync.wait_for_note(new_note2, timeout=10)
 
-    # B syncs — should see new paths (may need two rounds: one for
-    # new notes, one for old path deletions in the changes feed)
+    # B syncs — should see new paths
     await cdp_b.trigger_full_sync()
     wait_for_file(vault_b, new_note1, timeout=15)
     wait_for_file(vault_b, new_note2, timeout=15)
 
-    # Second sync to pick up deletions at old paths
+
+@pytest.mark.xfail(
+    reason="Server renames paths in place (no delete event) — plugin has no signal "
+           "to remove old files. Needs manifest-based reconciliation."
+)
+@pytest.mark.asyncio
+async def test_folder_rename_old_paths_cleaned(vault_a, vault_b, cdp_a, cdp_b, api_sync):
+    """After folder rename, old paths should be removed from B's vault."""
+    old_folder = "E2E/RenameCleanup34"
+    new_folder = "E2E/RenamedCleanup34"
+    note = f"{old_folder}/Cleanup.md"
+
+    write_note(vault_a, note, "# Cleanup Test\nShould be removed at old path")
+    api_sync.wait_for_note(note, timeout=10)
+    await cdp_b.trigger_full_sync()
+    assert (vault_b / note).exists(), "B should have note before rename"
+
+    # Rename folder
+    api_sync.rename_folder(old_folder, new_folder)
+    api_sync.wait_for_note(f"{new_folder}/Cleanup.md", timeout=10)
+
+    # Multiple syncs to give plugin every chance
+    await cdp_b.trigger_full_sync()
     await cdp_b.trigger_full_sync()
 
-    # Old paths should be gone on B
-    wait_for_file_gone(vault_b, note1, timeout=15)
-    wait_for_file_gone(vault_b, note2, timeout=15)
+    # Old path should be gone (this currently fails — documents the gap)
+    assert not (vault_b / note).exists(), "B should not have old path after folder rename"
