@@ -37,7 +37,7 @@ defmodule Engram.Auth.DeviceFlowTest do
       {:ok, auth} = DeviceFlow.start_device_flow("client_1")
 
       auth
-      |> Ecto.Changeset.change(%{expires_at: DateTime.add(DateTime.utc_now(), -60, :second)})
+      |> Ecto.Changeset.change(%{expires_at: DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.truncate(:second)})
       |> Repo.update!()
 
       user = insert(:user)
@@ -136,7 +136,7 @@ defmodule Engram.Auth.DeviceFlowTest do
       {:ok, auth} = DeviceFlow.start_device_flow("client_1")
 
       auth
-      |> Ecto.Changeset.change(%{expires_at: DateTime.add(DateTime.utc_now(), -7200, :second)})
+      |> Ecto.Changeset.change(%{expires_at: DateTime.utc_now() |> DateTime.add(-7200, :second) |> DateTime.truncate(:second)})
       |> Repo.update!()
 
       {deleted, _} = DeviceFlow.cleanup_expired()
