@@ -56,6 +56,8 @@ def cleanup_test_data(email_pattern: str = "e2e-%@test.local") -> None:
         "DELETE FROM attachments WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
         "DELETE FROM subscriptions WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
         "DELETE FROM user_overrides WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
+        "DELETE FROM device_refresh_tokens WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
+        "DELETE FROM device_authorizations WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
         "DELETE FROM vaults WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
         "DELETE FROM users WHERE email LIKE :'pat';\n"
     )

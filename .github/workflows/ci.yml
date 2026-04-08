@@ -96,6 +96,10 @@ jobs:
             fi
             sleep 1
           done
+        env:
+          CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
+          CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
 
       - name: Run integration tests
         if: github.event_name != 'repository_dispatch'
@@ -119,6 +123,10 @@ jobs:
             fi
             sleep 1
           done
+        env:
+          CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
+          CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
 
       - name: Checkout plugin
         uses: actions/checkout@v6
@@ -151,6 +159,11 @@ jobs:
             echo "Ollama OK"
           fi
 
+      - name: Install Playwright
+        run: |
+          pip install 'playwright>=1.48'
+          playwright install chromium
+
       - name: Run E2E tests
         working-directory: e2e
         run: python3 -m pytest tests/ -v --timeout=300
@@ -158,6 +171,7 @@ jobs:
           ENGRAM_API_URL: http://localhost:8100/api
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
           CI_POSTGRES_CONTAINER: engram-ci-postgres-1
+          E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
 
       # ------------------------------------------------------------------
       # Cleanup — MUST kill everything, even on cancel/failure

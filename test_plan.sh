@@ -41,6 +41,10 @@ EP_ME="$BASE/me"
 EP_ATTACHMENTS="$BASE/attachments"
 EP_LOGS="$BASE/logs"
 EP_MCP="$BASE/mcp"
+EP_DEVICE_AUTH="$BASE/auth/device"
+EP_DEVICE_AUTHORIZE="$BASE/auth/device/authorize"
+EP_DEVICE_TOKEN="$BASE/auth/device/token"
+EP_TOKEN_REFRESH="$BASE/auth/token/refresh"
 
 PASS=0
 FAIL=0
@@ -1876,6 +1880,162 @@ pass "Vault-scoped test notes cleaned up"
 
 # Skip vault deletion — default vault is needed by cleanup section below
 pass "Vault soft-delete tested via unit tests (620 tests)"
+
+# ============================================================================
+# SECTION 53: Device Auth Flow
+# ============================================================================
+echo ""
+echo "=== 53. Device Auth Flow ==="
+
+# 53.1 Start device flow
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_DEVICE_AUTH" \
+    -H "Content-Type: application/json" \
+    -d '{"client_id":"test-plan-client"}')
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /auth/device (start)" 200 "$STATUS"
+assert_json_not_empty "Device flow returns device_code" "$BODY" '.device_code'
+assert_json_not_empty "Device flow returns user_code" "$BODY" '.user_code'
+assert_contains "Device flow returns verification_url" "$(echo "$BODY" | jq -r '.verification_url')" "/app/link"
+assert_json_field "Device flow expires_in" "$BODY" '.expires_in' '300'
+assert_json_field "Device flow interval" "$BODY" '.interval' '5'
+
+DEVICE_CODE=$(echo "$BODY" | jq -r '.device_code')
+USER_CODE=$(echo "$BODY" | jq -r '.user_code')
+pass "Captured device_code=${DEVICE_CODE:0:16}... user_code=$USER_CODE"
+
+# 53.2 Poll before authorization — should get 428
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_DEVICE_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"device_code\":\"$DEVICE_CODE\"}")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /auth/device/token (before auth)" 428 "$STATUS"
+assert_contains "Pending response" "$(echo "$BODY" | jq -r '.error')" "authorization_pending"
+
+# 53.3 Authorize — use JWT from registration + default vault
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_DEVICE_AUTHORIZE" \
+    -H "Authorization: Bearer $JWT_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"user_code\":\"$USER_CODE\",\"vault_id\":$DEFAULT_VAULT_ID}")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /auth/device/authorize" 200 "$STATUS"
+assert_json_field "Authorize returns ok" "$BODY" '.ok' 'true'
+
+# 53.4 Exchange device code for tokens
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_DEVICE_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"device_code\":\"$DEVICE_CODE\"}")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /auth/device/token (exchange)" 200 "$STATUS"
+assert_json_not_empty "Exchange returns access_token" "$BODY" '.access_token'
+assert_json_not_empty "Exchange returns refresh_token" "$BODY" '.refresh_token'
+assert_json_not_empty "Exchange returns vault_id" "$BODY" '.vault_id'
+assert_json_not_empty "Exchange returns user_email" "$BODY" '.user_email'
+assert_json_field "Exchange expires_in" "$BODY" '.expires_in' '3600'
+
+OAUTH_ACCESS_TOKEN=$(echo "$BODY" | jq -r '.access_token')
+OAUTH_REFRESH_TOKEN=$(echo "$BODY" | jq -r '.refresh_token')
+OAUTH_VAULT_ID=$(echo "$BODY" | jq -r '.vault_id')
+
+# Verify refresh_token has correct prefix
+REFRESH_PREFIX="${OAUTH_REFRESH_TOKEN:0:10}"
+if [[ "$REFRESH_PREFIX" == "engram_rt_" ]]; then
+    pass "Refresh token has engram_rt_ prefix"
+else
+    fail "Refresh token prefix — expected 'engram_rt_', got '$REFRESH_PREFIX'"
+fi
+
+# 53.5 Use access token on protected endpoint
+RESP=$(curl -s -w "\n%{http_code}" "$EP_FOLDERS" \
+    -H "Authorization: Bearer $OAUTH_ACCESS_TOKEN" \
+    -H "X-Vault-ID: $OAUTH_VAULT_ID")
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET /folders (OAuth access_token)" 200 "$STATUS"
+
+# 53.6 Refresh token rotation
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_TOKEN_REFRESH" \
+    -H "Content-Type: application/json" \
+    -d "{\"refresh_token\":\"$OAUTH_REFRESH_TOKEN\"}")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /auth/token/refresh" 200 "$STATUS"
+assert_json_not_empty "Refresh returns new access_token" "$BODY" '.access_token'
+assert_json_not_empty "Refresh returns new refresh_token" "$BODY" '.refresh_token'
+
+NEW_ACCESS_TOKEN=$(echo "$BODY" | jq -r '.access_token')
+NEW_REFRESH_TOKEN=$(echo "$BODY" | jq -r '.refresh_token')
+
+# Verify tokens actually rotated
+if [[ "$NEW_REFRESH_TOKEN" != "$OAUTH_REFRESH_TOKEN" ]]; then
+    pass "Refresh token was rotated (different from original)"
+else
+    fail "Refresh token was NOT rotated — same as original"
+fi
+
+# 53.7 Old refresh token should be rejected
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_TOKEN_REFRESH" \
+    -H "Content-Type: application/json" \
+    -d "{\"refresh_token\":\"$OAUTH_REFRESH_TOKEN\"}")
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /auth/token/refresh (old token)" 401 "$STATUS"
+
+# 53.8 Consumed device code should be rejected
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_DEVICE_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"device_code\":\"$DEVICE_CODE\"}")
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /auth/device/token (consumed)" 410 "$STATUS"
+
+# Update access token for next section
+OAUTH_ACCESS_TOKEN="$NEW_ACCESS_TOKEN"
+
+# ============================================================================
+# SECTION 54: OAuth Token CRUD Smoke Test
+# ============================================================================
+echo ""
+echo "=== 54. OAuth Token CRUD Smoke ==="
+
+OAUTH_NOTE_PATH="Test/OAuthSmoke.md"
+OAUTH_NOTE_CONTENT="# OAuth Smoke Test\nCreated with device flow access token."
+OAUTH_NOTE_ENCODED=$(urlencode "$OAUTH_NOTE_PATH")
+
+# 54.1 Create note via OAuth
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_NOTES" \
+    -H "Authorization: Bearer $OAUTH_ACCESS_TOKEN" \
+    -H "X-Vault-ID: $OAUTH_VAULT_ID" \
+    -H "Content-Type: application/json" \
+    -d "{\"path\":\"$OAUTH_NOTE_PATH\",\"content\":\"$OAUTH_NOTE_CONTENT\",\"mtime\":$(date +%s)}")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "POST /notes (OAuth create)" 200 "$STATUS"
+
+# 54.2 Read note via OAuth
+RESP=$(curl -s -w "\n%{http_code}" "$EP_NOTES/$OAUTH_NOTE_ENCODED" \
+    -H "Authorization: Bearer $OAUTH_ACCESS_TOKEN" \
+    -H "X-Vault-ID: $OAUTH_VAULT_ID")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET /notes (OAuth read)" 200 "$STATUS"
+assert_contains "OAuth note content" "$(echo "$BODY" | jq -r '.content')" "OAuth Smoke Test"
+
+# 54.3 Sync manifest via OAuth
+RESP=$(curl -s -w "\n%{http_code}" "$EP_SYNC_MANIFEST" \
+    -H "Authorization: Bearer $OAUTH_ACCESS_TOKEN" \
+    -H "X-Vault-ID: $OAUTH_VAULT_ID")
+BODY=$(echo "$RESP" | head -1)
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "GET /sync/manifest (OAuth)" 200 "$STATUS"
+assert_contains "Manifest contains OAuth note" "$BODY" "OAuthSmoke.md"
+
+# 54.4 Delete note via OAuth
+RESP=$(curl -s -w "\n%{http_code}" -X DELETE "$EP_NOTES/$OAUTH_NOTE_ENCODED" \
+    -H "Authorization: Bearer $OAUTH_ACCESS_TOKEN" \
+    -H "X-Vault-ID: $OAUTH_VAULT_ID")
+STATUS=$(echo "$RESP" | tail -1)
+assert_status "DELETE /notes (OAuth delete)" 200 "$STATUS"
 
 # ============================================================================
 # Cleanup — Delete test notes
