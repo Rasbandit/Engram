@@ -8,7 +8,7 @@ defmodule Engram.Notes do
 
   alias Engram.Repo
   alias Engram.Notes.{Note, Helpers, PathSanitizer}
-  alias Engram.Workers.EmbedNote
+  alias Engram.Workers.{DeleteNoteIndex, EmbedNote}
 
   @doc """
   Creates or updates a note. Sanitizes path, extracts metadata, computes content_hash.
@@ -196,7 +196,12 @@ defmodule Engram.Notes do
         |> Repo.update_all(set: [deleted_at: now, updated_at: now])
       end)
 
-      Task.start(fn -> Engram.Indexing.delete_note_index(note) end)
+      Oban.insert(DeleteNoteIndex.new(%{
+        note_id: note.id,
+        user_id: note.user_id,
+        vault_id: note.vault_id,
+        path: note.path
+      }))
     end
 
     broadcast_change(user.id, vault.id, "delete", path)
