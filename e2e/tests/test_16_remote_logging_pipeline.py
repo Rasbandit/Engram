@@ -9,10 +9,16 @@ Two test paths:
 """
 
 import time
+from datetime import datetime, timezone
 
 import pytest
 
 from helpers.vault import write_note
+
+
+def _now_iso() -> str:
+    """Current UTC timestamp in ISO 8601 for log entries."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 @pytest.mark.asyncio
@@ -72,10 +78,11 @@ async def test_remote_logging_api_ingest(api_sync):
     """
     marker = "e2e-test-16-api-marker"
 
-    # Ingest a batch with info + warn levels
+    # Ingest a batch with info + warn levels (use current timestamps to
+    # avoid being pushed out of the result window by plugin rlog entries)
     status = api_sync.ingest_logs([
         {
-            "ts": "2026-04-07T10:00:00Z",
+            "ts": _now_iso(),
             "level": "info",
             "category": "sync",
             "message": f"Test log entry 1 — {marker}",
@@ -83,7 +90,7 @@ async def test_remote_logging_api_ingest(api_sync):
             "platform": "desktop",
         },
         {
-            "ts": "2026-04-07T10:00:01Z",
+            "ts": _now_iso(),
             "level": "warn",
             "category": "lifecycle",
             "message": f"Test warning — {marker}",
@@ -93,8 +100,8 @@ async def test_remote_logging_api_ingest(api_sync):
     ])
     assert status == 200, f"Log ingest should succeed, got {status}"
 
-    # Retrieve logs
-    logs_resp = api_sync.get_logs(limit=50)
+    # Retrieve logs (high limit to avoid being crowded out by plugin rlog entries)
+    logs_resp = api_sync.get_logs(limit=200)
     logs = logs_resp.get("logs", [])
     marker_logs = [l for l in logs if marker in l.get("message", "")]
 
@@ -111,7 +118,7 @@ async def test_remote_logging_api_ingest(api_sync):
         assert log.get("category") in ("sync", "lifecycle"), f"Bad category: {log.get('category')}"
 
     # Verify level filter works
-    warn_resp = api_sync.get_logs(level="warn", limit=50)
+    warn_resp = api_sync.get_logs(level="warn", limit=200)
     warn_logs = [l for l in warn_resp.get("logs", []) if marker in l.get("message", "")]
     assert len(warn_logs) >= 1, "Should find at least 1 warn-level marker log"
     assert all(l["level"] == "warn" for l in warn_logs), "Level filter should only return warn"
@@ -120,9 +127,9 @@ async def test_remote_logging_api_ingest(api_sync):
 @pytest.mark.asyncio
 async def test_remote_logging_isolation(api_sync, api_iso):
     """User C cannot see sync-user's logs."""
-    # Seed a log for sync-user
+    # Seed a log for sync-user (current timestamp to stay in result window)
     api_sync.ingest_logs([{
-        "ts": "2026-04-07T00:00:00Z",
+        "ts": _now_iso(),
         "level": "info",
         "category": "sync",
         "message": "isolation-check-16",
@@ -130,12 +137,12 @@ async def test_remote_logging_isolation(api_sync, api_iso):
     }])
 
     # sync-user sees their logs
-    sync_logs = api_sync.get_logs(limit=50)
+    sync_logs = api_sync.get_logs(limit=200)
     assert any("isolation-check-16" in l.get("message", "") for l in sync_logs.get("logs", [])), \
         "sync-user should see their own log"
 
     # isolation-user should NOT see them
-    iso_logs = api_iso.get_logs(limit=50)
+    iso_logs = api_iso.get_logs(limit=200)
     iso_messages = [l.get("message", "") for l in iso_logs.get("logs", [])]
     assert not any("isolation-check-16" in m for m in iso_messages), \
         "isolation-user must not see sync-user's logs"

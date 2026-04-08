@@ -5,7 +5,13 @@ retrievable, and that the stack field is preserved through the pipeline.
 Info-level logs should not have a stack field.
 """
 
+from datetime import datetime, timezone
+
 import pytest
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 @pytest.mark.asyncio
@@ -16,7 +22,7 @@ async def test_error_logs_with_stack(api_sync):
     stack_trace = "Error: Something broke\n  at pushNote (sync.ts:100)\n  at fullSync (sync.ts:200)"
 
     status = api_sync.ingest_logs([{
-        "ts": "2026-04-07T11:00:00Z",
+        "ts": _now_iso(),
         "level": "error",
         "category": "sync",
         "message": f"Push failed — {marker}",
@@ -27,7 +33,7 @@ async def test_error_logs_with_stack(api_sync):
     assert status == 200, f"Log ingest should succeed, got {status}"
 
     # Retrieve error logs
-    resp = api_sync.get_logs(level="error", limit=50)
+    resp = api_sync.get_logs(level="error", limit=200)
     logs = resp.get("logs", [])
     marker_logs = [l for l in logs if marker in l.get("message", "")]
 
@@ -48,14 +54,14 @@ async def test_info_logs_no_stack(api_sync):
     marker = "e2e-test-17-info"
 
     api_sync.ingest_logs([{
-        "ts": "2026-04-07T11:01:00Z",
+        "ts": _now_iso(),
         "level": "info",
         "category": "sync",
         "message": f"Normal operation — {marker}",
         "platform": "desktop",
     }])
 
-    resp = api_sync.get_logs(limit=50)
+    resp = api_sync.get_logs(limit=200)
     logs = resp.get("logs", [])
     marker_logs = [l for l in logs if marker in l.get("message", "")]
 
