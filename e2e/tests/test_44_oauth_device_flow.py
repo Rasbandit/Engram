@@ -18,6 +18,7 @@ from datetime import datetime
 from urllib.parse import quote
 
 import pytest
+import requests
 from playwright.async_api import async_playwright, Page
 
 from helpers.clerk import ClerkClient
@@ -81,59 +82,60 @@ async def test_full_device_flow(
         finally:
             await browser.close()
 
-    # ── 4. Poll for tokens ────────────────────────────────────────
-    tokens = poll_for_tokens(API_URL, device_code, timeout=30)
-    assert "access_token" in tokens, "No access_token in exchange response"
-    assert tokens["refresh_token"].startswith("engram_rt_"), (
-        f"Refresh token missing prefix: {tokens['refresh_token'][:20]}"
-    )
-    assert "vault_id" in tokens
-    assert tokens.get("user_email") == test_email
-    logger.info("Tokens received: vault_id=%s", tokens["vault_id"])
-
-    # ── 5. Reconfigure Obsidian A to use OAuth ────────────────────
-    original_settings = await cdp_a.evaluate(
-        f"JSON.stringify({{apiKey: {_P}.settings.apiKey, "
-        f"refreshToken: {_P}.settings.refreshToken, "
-        f"vaultId: {_P}.settings.vaultId, "
-        f"userEmail: {_P}.settings.userEmail, "
-        f"authMethod: {_P}.settings.authMethod || 'apikey'}})"
-    )
-
+    # Wrap everything after sign-up in try/finally so Clerk user is always cleaned up
     try:
-        await _swap_to_oauth(cdp_a, tokens)
-
-        # Write a test note and sync
-        path = "E2E/OAuthDeviceFlowTest.md"
-        content = "# OAuth Device Flow E2E\nSynced with OAuth tokens from Playwright test."
-        write_note(vault_a, path, content)
-
-        # Trigger sync
-        result = await cdp_a.trigger_full_sync()
-        logger.info("Sync result: %s", result)
-        assert result.get("pushed", 0) >= 1, f"Expected push, got: {result}"
-
-        # Verify note reached server using OAuth access token
-        import requests as req
-
-        resp = req.get(
-            f"{API_URL}/notes/{quote(path, safe='')}",
-            headers={
-                "Authorization": f"Bearer {tokens['access_token']}",
-                "X-Vault-ID": str(tokens["vault_id"]),
-            },
-            timeout=10,
+        # ── 4. Poll for tokens ────────────────────────────────────
+        tokens = poll_for_tokens(API_URL, device_code, timeout=30)
+        assert "access_token" in tokens, "No access_token in exchange response"
+        assert tokens["refresh_token"].startswith("engram_rt_"), (
+            f"Refresh token missing prefix: {tokens['refresh_token'][:20]}"
         )
-        assert resp.status_code == 200, f"Server GET returned {resp.status_code}"
-        assert "OAuth Device Flow E2E" in resp.json().get("content", "")
+        assert "vault_id" in tokens
+        assert tokens.get("user_email") == test_email
+        logger.info("Tokens received: vault_id=%s", tokens["vault_id"])
+
+        # ── 5. Reconfigure Obsidian A to use OAuth ────────────────
+        original_settings = await cdp_a.evaluate(
+            f"JSON.stringify({{apiKey: {_P}.settings.apiKey, "
+            f"refreshToken: {_P}.settings.refreshToken, "
+            f"vaultId: {_P}.settings.vaultId, "
+            f"userEmail: {_P}.settings.userEmail, "
+            f"authMethod: {_P}.settings.authMethod || 'apikey'}})"
+        )
+
+        try:
+            await _swap_to_oauth(cdp_a, tokens)
+
+            # Write a test note and sync
+            path = "E2E/OAuthDeviceFlowTest.md"
+            content = "# OAuth Device Flow E2E\nSynced with OAuth tokens from Playwright test."
+            write_note(vault_a, path, content)
+
+            # Trigger sync
+            result = await cdp_a.trigger_full_sync()
+            logger.info("Sync result: %s", result)
+            assert result.get("pushed", 0) >= 1, f"Expected push, got: {result}"
+
+            # Verify note reached server using OAuth access token
+            resp = requests.get(
+                f"{API_URL}/notes/{quote(path, safe='')}",
+                headers={
+                    "Authorization": f"Bearer {tokens['access_token']}",
+                    "X-Vault-ID": str(tokens["vault_id"]),
+                },
+                timeout=10,
+            )
+            assert resp.status_code == 200, f"Server GET returned {resp.status_code}"
+            assert "OAuth Device Flow E2E" in resp.json().get("content", "")
+
+        finally:
+            # ── 6. Restore original API key auth ──────────────────
+            await _restore_auth(cdp_a, original_settings)
 
     finally:
-        # ── 6. Restore original API key auth ──────────────────────
-        await _restore_auth(cdp_a, original_settings)
-
-    # ── 7. Cleanup: delete Clerk user ─────────────────────────────
-    clerk_client.cleanup_user(test_email)
-    logger.info("Clerk user cleaned up: %s", test_email)
+        # ── 7. Cleanup: delete Clerk user ─────────────────────────
+        clerk_client.cleanup_user(test_email)
+        logger.info("Clerk user cleaned up: %s", test_email)
 
 
 # ── Private helpers ───────────────────────────────────────────────
