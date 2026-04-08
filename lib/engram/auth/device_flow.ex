@@ -134,7 +134,7 @@ defmodule Engram.Auth.DeviceFlow do
 
     {token_count, _} =
       from(rt in DeviceRefreshToken,
-        where: not is_nil(rt.revoked_at) and rt.inserted_at < ^revoke_cutoff
+        where: not is_nil(rt.revoked_at) and rt.revoked_at < ^revoke_cutoff
       )
       |> Repo.delete_all(skip_tenant_check: true)
 

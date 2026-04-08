@@ -9,7 +9,7 @@ defmodule Engram.Auth.DeviceFlowTest do
       assert auth.status == "pending"
       assert auth.client_id == "test_client_id"
       assert byte_size(auth.device_code) == 64
-      assert String.match?(auth.user_code, ~r/^[A-Z2-9]{4}-[A-Z2-9]{4}$/)
+      assert String.match?(auth.user_code, ~r/^[ABCDEFGHJKMNPQRSTUVWXYZ2345679]{4}-[ABCDEFGHJKMNPQRSTUVWXYZ2345679]{4}$/)
       assert DateTime.compare(auth.expires_at, DateTime.utc_now()) == :gt
     end
 
