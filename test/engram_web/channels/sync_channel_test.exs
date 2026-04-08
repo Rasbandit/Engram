@@ -146,7 +146,7 @@ defmodule EngramWeb.SyncChannelTest do
                )
     end
 
-    test "restricted key on backwards-compat topic checks default vault access", %{user: user, vault: vault} do
+    test "restricted key on backwards-compat topic checks default vault access", %{user: user, vault: _vault} do
       {:ok, _raw, api_key_record} = Engram.Accounts.create_api_key(user, "restricted-compat")
 
       # Restrict to a non-default vault (create another first)

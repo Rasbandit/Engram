@@ -240,8 +240,10 @@ defmodule Mix.Tasks.Parity.Validate do
             display_name: "Parity Pipeline"
           })
 
+        {:ok, vault} = Engram.Vaults.create_vault(user, %{name: "Parity Pipeline"})
+
         {:ok, note} =
-          Notes.upsert_note(user, %{
+          Notes.upsert_note(user, vault, %{
             "path" => "Parity/Pipeline.md",
             "content" =>
               "---\ntags: [parity]\n---\n# Pipeline Validation\n\nThis note validates the full embedding pipeline: Voyage AI embeds the content, Qdrant stores and searches the vectors, and the Elixir backend orchestrates it all.",
@@ -324,8 +326,10 @@ defmodule Mix.Tasks.Parity.Validate do
           display_name: "Parity Embed Hash"
         })
 
+      {:ok, vault} = Engram.Vaults.create_vault(user, %{name: "Parity Embed Hash"})
+
       {:ok, note} =
-        Notes.upsert_note(user, %{
+        Notes.upsert_note(user, vault, %{
           "path" => "Parity/EmbedHash.md",
           "content" => "# Embed Hash Test\n\nValidates the embed_hash tracking lifecycle.",
           "mtime" => :os.system_time(:second) / 1
@@ -362,7 +366,7 @@ defmodule Mix.Tasks.Parity.Validate do
 
       check("content update creates embed_hash mismatch", fn ->
         {:ok, updated} =
-          Notes.upsert_note(user, %{
+          Notes.upsert_note(user, vault, %{
             "path" => "Parity/EmbedHash.md",
             "content" => "# Embed Hash Test\n\nUpdated content to trigger re-embed.",
             "mtime" => :os.system_time(:second) / 1 + 1

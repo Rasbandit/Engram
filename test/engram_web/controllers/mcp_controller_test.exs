@@ -578,10 +578,7 @@ defmodule EngramWeb.McpControllerTest do
     end
 
     test "restricted key can use its authorized vault via tool arguments",
-         %{conn: conn, vault_a: vault_a} do
-      # Seed a note in vault_a
-      user = insert(:user)
-
+         %{conn: conn, vault_a: _vault_a} do
       conn =
         call_tool(conn, "list_vaults")
 
