@@ -203,7 +203,7 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/vaults/register" \
     -d "{\"name\": \"Test Vault\", \"client_id\": \"testplan-${TIMESTAMP}\"}")
 BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /vaults/register (default vault)" 200 "$STATUS"
+assert_status "POST /vaults/register (default vault)" 201 "$STATUS"
 DEFAULT_VAULT_ID=$(echo "$BODY" | jq -r '.vault.id')
 if [[ -z "$DEFAULT_VAULT_ID" || "$DEFAULT_VAULT_ID" == "null" ]]; then
     fail "Could not extract vault ID from registration response"
@@ -1758,7 +1758,7 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_VAULTS/register" \
     -d "{\"name\": \"Test Vault A\", \"client_id\": \"testplan-a-${TIMESTAMP}\"}")
 BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /vaults/register (vault A)" 200 "$STATUS"
+assert_status "POST /vaults/register (vault A)" 201 "$STATUS"
 VAULT_A_ID=$(echo "$BODY" | jq -r '.vault.id')
 assert_json_field "Vault A is default" "$BODY" '.vault.is_default' 'true'
 assert_json_field "Vault A status" "$BODY" '.status' 'created'

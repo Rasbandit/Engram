@@ -110,10 +110,10 @@ defmodule EngramWeb.VaultsController do
         {:ok, vault, :created} ->
           conn
           |> put_status(201)
-          |> json(vault_json(vault))
+          |> json(%{vault: vault_json(vault), status: "created"})
 
         {:ok, vault, :existing} ->
-          json(conn, vault_json(vault))
+          json(conn, %{vault: vault_json(vault), status: "existing"})
 
         {:error, :vault_limit_reached} ->
           limit = Billing.effective_limit(user, "max_vaults")
