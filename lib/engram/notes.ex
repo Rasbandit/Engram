@@ -218,7 +218,7 @@ defmodule Engram.Notes do
       Repo.with_tenant(user.id, fn ->
         Repo.all(
           from(n in Note,
-            where: n.user_id == ^user.id and n.vault_id == ^vault.id and n.updated_at > ^since,
+            where: n.user_id == ^user.id and n.vault_id == ^vault.id and n.updated_at >= ^since,
             order_by: [asc: n.updated_at]
           )
         )
@@ -433,9 +433,39 @@ defmodule Engram.Notes do
         end)
       end)
 
+      # Insert soft-deleted tombstones for old paths so the HTTP changes feed
+      # includes delete signals. Without these, polling clients retain stale
+      # files at old paths after a folder rename.
+      old_paths = Enum.map(updates, fn {_id, old_path, _new, _folder, _title} -> old_path end)
+
+      mtime_float = DateTime.to_unix(now) + 0.0
+
+      tombstones =
+        Enum.map(old_paths, fn old_path ->
+          %{
+            path: old_path,
+            content: "",
+            title: "",
+            folder: Helpers.extract_folder(old_path),
+            tags: [],
+            content_hash: "",
+            mtime: mtime_float,
+            user_id: user.id,
+            vault_id: vault.id,
+            created_at: now,
+            updated_at: now,
+            deleted_at: now
+          }
+        end)
+
+      Repo.with_tenant(user.id, fn ->
+        Repo.insert_all(Note, tombstones, on_conflict: :nothing)
+      end)
+
       # Side effects outside the transaction — broadcast + reindex
       Enum.each(updates, fn {id, old_note_path, new_path, _folder, _title} ->
         Oban.insert(Engram.Workers.EmbedNote.new_debounced(id, old_path: old_note_path))
+        broadcast_change(user.id, vault.id, "delete", old_note_path)
         broadcast_change(user.id, vault.id, "upsert", new_path)
       end)
 

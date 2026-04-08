@@ -148,7 +148,7 @@ defmodule Engram.Attachments do
   def list_changes(user, vault, since) do
     Repo.with_tenant(user.id, fn ->
       from(a in Attachment,
-        where: a.user_id == ^user.id and a.vault_id == ^vault.id and a.updated_at > ^since,
+        where: a.user_id == ^user.id and a.vault_id == ^vault.id and a.updated_at >= ^since,
         order_by: [asc: a.updated_at],
         select: %{
           path: a.path,
