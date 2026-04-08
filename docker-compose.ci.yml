@@ -16,7 +16,10 @@ name: engram-ci
 
 services:
   engram:
-    build: .
+    build:
+      context: .
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:-}
     ports:
       - "8100:4000"
     environment:
@@ -32,6 +35,8 @@ services:
       EMBED_BACKEND: ollama
       RERANKER_BACKEND: jina
       JINA_URL: http://10.0.20.214:8082
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
+      CLERK_ISSUER: ${CLERK_ISSUER:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4000/api/health || exit 1"]
       start_period: 10s
