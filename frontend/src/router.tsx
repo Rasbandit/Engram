@@ -3,6 +3,7 @@ import AuthGuard from './auth/auth-guard'
 import SignInPage from './auth/sign-in'
 import SignUpPage from './auth/sign-up'
 import BillingPage from './billing/billing-page'
+import DeviceLinkPage from './device/device-link-page'
 import AppLayout from './layout/app-layout'
 import Dashboard from './viewer/dashboard'
 import NotePage from './viewer/note-page'
@@ -27,6 +28,7 @@ export const router = createBrowserRouter(
             { path: '/billing', element: <BillingPage /> },
           ],
         },
+        { path: '/link', element: <DeviceLinkPage /> },
       ],
     },
   ],
