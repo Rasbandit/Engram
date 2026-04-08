@@ -8,7 +8,7 @@ import asyncio
 
 import pytest
 
-from helpers.vault import write_note
+from helpers.vault import wait_for_file, write_note
 
 
 @pytest.mark.asyncio
@@ -42,7 +42,5 @@ async def test_concurrent_push_different_notes(vault_a, vault_b, cdp_a, cdp_b, a
         cdp_b.trigger_full_sync(),
     )
 
-    assert (vault_a / path_b).exists() or api_sync.get_note(path_b) is not None, \
-        "A should eventually get B's note"
-    assert (vault_b / path_a).exists() or api_sync.get_note(path_a) is not None, \
-        "B should eventually get A's note"
+    wait_for_file(vault_a, path_b, timeout=15)
+    wait_for_file(vault_b, path_a, timeout=15)
