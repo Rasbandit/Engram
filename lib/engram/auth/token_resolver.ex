@@ -61,7 +61,15 @@ defmodule Engram.Auth.TokenResolver do
          email when is_binary(email) <- claims["email"] do
       Accounts.find_or_create_by_clerk_id(clerk_id, %{email: email})
     else
-      _ -> {:error, :invalid_clerk_token}
+      {:error, reason} ->
+        require Logger
+        Logger.warning("Clerk JWT auth failed: #{inspect(reason)}")
+        {:error, :invalid_clerk_token}
+
+      other ->
+        require Logger
+        Logger.warning("Clerk JWT auth failed at claim extraction: #{inspect(other)}")
+        {:error, :invalid_clerk_token}
     end
   end
 
