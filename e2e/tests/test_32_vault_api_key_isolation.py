@@ -16,6 +16,7 @@ Note: WebSocket/SyncChannel API key restriction is covered by unit tests
 
 import os
 import secrets
+import subprocess
 import time
 
 import pytest
@@ -24,26 +25,31 @@ import requests
 from helpers.api import ApiClient, register_user
 
 API_URL = os.environ.get("ENGRAM_API_URL", "http://localhost:8100/api")
+CI_POSTGRES_CONTAINER = os.environ.get("CI_POSTGRES_CONTAINER", "engram-postgres-1")
 
 
-@pytest.fixture(scope="module")
-def vault_setup():
-    """Create a user with two vaults and a restricted API key.
+def _set_vault_limit(user_id: int, limit: int) -> None:
+    """Insert/update a user_overrides row to set max_vaults via docker exec SQL."""
+    sql = (
+        f"INSERT INTO user_overrides (user_id, overrides, reason, created_at, updated_at) "
+        f"VALUES ({user_id}, '{{\"max_vaults\": {limit}}}', 'e2e-test', NOW(), NOW()) "
+        f"ON CONFLICT (user_id) DO UPDATE SET overrides = "
+        f"jsonb_set(user_overrides.overrides, '{{max_vaults}}', '{limit}'), updated_at = NOW()"
+    )
+    result = subprocess.run(
+        ["docker", "exec", "-i", CI_POSTGRES_CONTAINER,
+         "psql", "-U", "engram", "-d", "engram", "-c", sql],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to set vault limit: {result.stderr}")
 
-    Returns dict with:
-    - jwt: JWT token for the user
-    - unrestricted_api: ApiClient with unrestricted key
-    - vault_a: dict with vault A info (default, restricted key has access)
-    - vault_b: dict with vault B info (restricted key does NOT have access)
-    - restricted_api: ApiClient with key restricted to vault_a only
-    - restricted_api_for_b: ApiClient with restricted key + X-Vault-ID pointing to vault_b
-    """
-    ts = int(time.time())
+
+def _register_test_user(base: str, ts: int):
+    """Register a user and return (user_id, jwt, unrestricted ApiClient)."""
     email = f"e2e-vault-iso-{ts}@test.local"
     password = secrets.token_urlsafe(32)
 
-    # Register user and get unrestricted API key
-    base = API_URL.rstrip("/")
     resp = requests.post(
         f"{base}/users/register",
         json={"email": email, "password": password},
@@ -56,7 +62,9 @@ def vault_setup():
             timeout=10,
         )
     resp.raise_for_status()
-    jwt = resp.json()["token"]
+    data = resp.json()
+    jwt = data["token"]
+    user_id = data["user"]["id"]
 
     # Create unrestricted API key
     resp = requests.post(
@@ -69,20 +77,49 @@ def vault_setup():
     unrestricted_key = resp.json()["key"]
     unrestricted_api = ApiClient(API_URL, unrestricted_key)
 
-    # Override vault limit so we can create 2 vaults
-    # (We use the unrestricted key to register vaults)
+    return user_id, jwt, unrestricted_api
+
+
+@pytest.fixture(scope="module")
+def vault_setup():
+    """Create a user with two vaults for multi-vault isolation testing.
+
+    Workflow:
+    1. Register user (default: max_vaults=1)
+    2. Create vault A (succeeds — first vault)
+    3. Verify vault B blocked by limit (402)
+    4. Lift limit via user_overrides SQL
+    5. Create vault B (succeeds now)
+    6. Seed notes in both vaults
+
+    Returns dict with vault IDs, API clients, and JWT.
+    """
+    ts = int(time.time())
+    base = API_URL.rstrip("/")
+
+    user_id, jwt, unrestricted_api = _register_test_user(base, ts)
+
+    # Create vault A (within default limit of 1)
     vault_a_data, status = unrestricted_api.register_vault("Vault A", f"client-a-{ts}")
     assert status in (200, 201), f"Failed to register vault A: {status}"
     vault_a_id = vault_a_data["id"]
 
+    # Vault B should be blocked by free plan limit
     vault_b_data, status = unrestricted_api.register_vault("Vault B", f"client-b-{ts}")
-    # May get 402 if free plan limits to 1 vault — handle gracefully
-    if status == 402:
-        pytest.skip("Free plan limits vaults to 1 — cannot test multi-vault isolation")
-    assert status in (200, 201), f"Failed to register vault B: {status}"
+    assert status == 402, (
+        f"Expected 402 (vault limit), got {status} — "
+        f"free plan should block second vault creation"
+    )
+
+    # Lift the limit via user_overrides
+    _set_vault_limit(user_id, 5)
+
+    # Now vault B should succeed
+    vault_b_data, status = unrestricted_api.register_vault("Vault B", f"client-b-{ts}")
+    assert status in (200, 201), f"Failed to register vault B after limit lift: {status}"
     vault_b_id = vault_b_data["id"]
 
-    # Seed notes in both vaults using the unrestricted key
+    # Seed notes in both vaults
     api_a = unrestricted_api.with_vault(vault_a_id)
     api_a.create_note("E2E/VaultA-Secret.md", "# Vault A Secret\nOnly for vault A")
     api_a.wait_for_note("E2E/VaultA-Secret.md", timeout=10)
@@ -91,17 +128,9 @@ def vault_setup():
     api_b.create_note("E2E/VaultB-Secret.md", "# Vault B Secret\nOnly for vault B")
     api_b.wait_for_note("E2E/VaultB-Secret.md", timeout=10)
 
-    # Now create a RESTRICTED API key (via JWT, then we'll add api_key_vaults)
-    # We need to use a direct DB insert or admin endpoint for api_key_vaults
-    # Since there's no public endpoint, we create the restricted key via JWT
-    # and insert the vault restriction via a raw SQL approach through MCP or
-    # direct HTTP endpoint.
-    #
-    # For now, we test the VaultPlug enforcement by using X-Vault-ID header
-    # with the unrestricted key to prove vault scoping works at the API level.
-
     return {
         "jwt": jwt,
+        "user_id": user_id,
         "unrestricted_api": unrestricted_api,
         "vault_a_id": vault_a_id,
         "vault_b_id": vault_b_id,
