@@ -265,6 +265,23 @@ defmodule Engram.NotesTest do
       {:ok, changes} = Notes.list_changes(user, vault, ~U[2099-01-01 00:00:00Z])
       assert changes == []
     end
+
+    test "includes changes when since equals updated_at (>= not >)", %{user: user, vault: vault} do
+      {:ok, note} =
+        Notes.upsert_note(user, vault, %{
+          "path" => "Test/SameSecond.md",
+          "content" => "# Same second test",
+          "mtime" => 1_000.0
+        })
+
+      # The server_time returned to clients is truncated to seconds.
+      # Changes must still appear when queried with that truncated value.
+      # This guards against > vs >= regressions in the list_changes query.
+      since_truncated = DateTime.truncate(note.updated_at, :second)
+      {:ok, changes} = Notes.list_changes(user, vault, since_truncated)
+      assert Enum.any?(changes, &(&1.path == "Test/SameSecond.md")),
+        "Changes in the same second as truncated server_time must be included"
+    end
   end
 
   # ---------------------------------------------------------------------------

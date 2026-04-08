@@ -1,20 +1,12 @@
-"""Test 15: Merge resolution should auto-push merged content to server.
+"""Test 15: Merge resolution auto-pushes merged content to server.
 
-This test exposes a known plugin bug: after merge conflict resolution,
-the automatic pushFile call (sync.ts:691) is blocked by echo suppression.
-Line 690 sets syncedHash to the merged content hash, then line 691 calls
-pushFile which reads the file back, sees hash === syncedHash, and skips.
-
-This test SHOULD pass once the bug is fixed (e.g. pushFile(existing, true)
-to force past echo suppression). Until then it is marked xfail.
+After merge conflict resolution, the merged content is written locally
+and pushed to the server with force=true to bypass echo suppression.
 """
 
 import pytest
 
 from helpers.vault import read_note, write_note
-
-
-@pytest.mark.xfail(reason="Plugin bug: echo suppression blocks merge auto-push (sync.ts:690-691) — Rasbandit/Engram-obsidian-sync#2")
 @pytest.mark.asyncio
 async def test_merge_auto_pushes_to_server(vault_a, vault_b, cdp_a, cdp_b, api_sync):
     """After merge resolution, server should have merged content WITHOUT manual intervention."""

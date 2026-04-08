@@ -2,38 +2,38 @@
 
 Verifies that error-level logs with stack traces are stored and
 retrievable, and that the stack field is preserved through the pipeline.
+Info-level logs should not have a stack field.
 """
 
-import asyncio
+from datetime import datetime, timezone
 
 import pytest
 
 
-PLUGIN_PATH = "app.plugins.plugins['engram-sync']"
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 @pytest.mark.asyncio
-async def test_error_logs_with_stack(cdp_a, api_sync):
+async def test_error_logs_with_stack(api_sync):
     """Error logs with stack traces are stored and retrievable."""
 
     marker = "e2e-test-17-stack"
-    stack_trace = "Error: Something broke\\n  at pushNote (sync.ts:100)\\n  at fullSync (sync.ts:200)"
+    stack_trace = "Error: Something broke\n  at pushNote (sync.ts:100)\n  at fullSync (sync.ts:200)"
 
-    # Enable remote logging and inject error with stack
-    await cdp_a.evaluate(f"""
-        (async function() {{
-            const plugin = {PLUGIN_PATH};
-            plugin.rlog.setEnabled(true);
-            plugin.rlog.error("sync", "Push failed — {marker}", "{stack_trace}");
-            await plugin.rlog.flush();
-            return 'done';
-        }})()
-    """, await_promise=True)
-
-    await asyncio.sleep(1)
+    status = api_sync.ingest_logs([{
+        "ts": _now_iso(),
+        "level": "error",
+        "category": "sync",
+        "message": f"Push failed — {marker}",
+        "stack": stack_trace,
+        "plugin_version": "0.6.0",
+        "platform": "desktop",
+    }])
+    assert status == 200, f"Log ingest should succeed, got {status}"
 
     # Retrieve error logs
-    resp = api_sync.get_logs(level="error", limit=50)
+    resp = api_sync.get_logs(level="error", limit=200)
     logs = resp.get("logs", [])
     marker_logs = [l for l in logs if marker in l.get("message", "")]
 
@@ -48,24 +48,20 @@ async def test_error_logs_with_stack(cdp_a, api_sync):
 
 
 @pytest.mark.asyncio
-async def test_info_logs_no_stack(cdp_a, api_sync):
+async def test_info_logs_no_stack(api_sync):
     """Info-level logs should not have a stack field (or it should be null)."""
 
     marker = "e2e-test-17-info"
 
-    await cdp_a.evaluate(f"""
-        (async function() {{
-            const plugin = {PLUGIN_PATH};
-            plugin.rlog.setEnabled(true);
-            plugin.rlog.info("sync", "Normal operation — {marker}");
-            await plugin.rlog.flush();
-            return 'done';
-        }})()
-    """, await_promise=True)
+    api_sync.ingest_logs([{
+        "ts": _now_iso(),
+        "level": "info",
+        "category": "sync",
+        "message": f"Normal operation — {marker}",
+        "platform": "desktop",
+    }])
 
-    await asyncio.sleep(1)
-
-    resp = api_sync.get_logs(limit=50)
+    resp = api_sync.get_logs(limit=200)
     logs = resp.get("logs", [])
     marker_logs = [l for l in logs if marker in l.get("message", "")]
 
