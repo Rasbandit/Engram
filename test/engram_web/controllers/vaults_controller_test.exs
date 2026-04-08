@@ -142,8 +142,8 @@ defmodule EngramWeb.VaultsControllerTest do
     test "creates vault on first call (201)", %{conn: conn} do
       conn = post(conn, "/api/vaults/register", %{name: "My Mac", client_id: "mac-001"})
       body = json_response(conn, 201)
-      assert body["vault"]["name"] == "My Mac"
-      assert is_integer(body["vault"]["id"])
+      assert body["name"] == "My Mac"
+      assert is_integer(body["id"])
       assert body["status"] == "created"
     end
 
@@ -151,7 +151,7 @@ defmodule EngramWeb.VaultsControllerTest do
       post(conn, "/api/vaults/register", %{name: "My Mac", client_id: "mac-dup"})
       conn2 = post(conn, "/api/vaults/register", %{name: "My Mac", client_id: "mac-dup"})
       body = json_response(conn2, 200)
-      assert body["vault"]["name"] == "My Mac"
+      assert body["name"] == "My Mac"
       assert body["status"] == "existing"
     end
 

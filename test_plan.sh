@@ -204,7 +204,7 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/vaults/register" \
 BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /vaults/register (default vault)" 201 "$STATUS"
-DEFAULT_VAULT_ID=$(echo "$BODY" | jq -r '.vault.id')
+DEFAULT_VAULT_ID=$(echo "$BODY" | jq -r '.id')
 if [[ -z "$DEFAULT_VAULT_ID" || "$DEFAULT_VAULT_ID" == "null" ]]; then
     fail "Could not extract vault ID from registration response"
     echo "FATAL: Cannot continue without a vault"
@@ -1763,7 +1763,7 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_VAULTS/register" \
 BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
 assert_status "POST /vaults/register (idempotent)" 200 "$STATUS"
-VAULT_A_ID_AGAIN=$(echo "$BODY" | jq -r '.vault.id')
+VAULT_A_ID_AGAIN=$(echo "$BODY" | jq -r '.id')
 assert_json_field "Idempotent returns same vault" "$BODY" '.status' 'existing'
 if [[ "$VAULT_A_ID" == "$VAULT_A_ID_AGAIN" ]]; then
     pass "Idempotent vault ID matches"

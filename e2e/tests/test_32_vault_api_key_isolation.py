@@ -72,15 +72,15 @@ def vault_setup():
     # Override vault limit so we can create 2 vaults
     # (We use the unrestricted key to register vaults)
     vault_a_data, status = unrestricted_api.register_vault("Vault A", f"client-a-{ts}")
-    assert status == 200, f"Failed to register vault A: {status}"
-    vault_a_id = vault_a_data["vault"]["id"]
+    assert status in (200, 201), f"Failed to register vault A: {status}"
+    vault_a_id = vault_a_data["id"]
 
     vault_b_data, status = unrestricted_api.register_vault("Vault B", f"client-b-{ts}")
     # May get 402 if free plan limits to 1 vault — handle gracefully
     if status == 402:
         pytest.skip("Free plan limits vaults to 1 — cannot test multi-vault isolation")
-    assert status == 200, f"Failed to register vault B: {status}"
-    vault_b_id = vault_b_data["vault"]["id"]
+    assert status in (200, 201), f"Failed to register vault B: {status}"
+    vault_b_id = vault_b_data["id"]
 
     # Seed notes in both vaults using the unrestricted key
     api_a = unrestricted_api.with_vault(vault_a_id)
@@ -174,12 +174,12 @@ def test_vault_registration_idempotent(vault_setup):
 
     # First registration
     data1, status1 = api.register_vault("Idempotent Test", f"client-idem-{ts}")
-    assert status1 == 200
+    assert status1 in (200, 201)
 
     # Second registration with same client_id
     data2, status2 = api.register_vault("Idempotent Test", f"client-idem-{ts}")
     assert status2 == 200
-    assert data2["vault"]["id"] == data1["vault"]["id"]
+    assert data2["id"] == data1["id"]
     assert data2["status"] == "existing"
 
 
