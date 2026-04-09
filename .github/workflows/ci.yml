@@ -266,36 +266,6 @@ jobs:
           # Add bun to PATH for E2E tests (already installed by plugin build)
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
-      - name: Reset database for E2E (reuse running stack)
-        env:
-          CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
-          CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
-          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
-        run: |
-          rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
-
-          # If stack is already running, just reset the DB
-          if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
-            echo "CI stack is running — resetting database..."
-            docker exec engram-ci-postgres-1 psql -U engram -d engram -c \
-              "DO \$\$ DECLARE r RECORD;
-               BEGIN
-                 FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename != 'schema_migrations')
-                 LOOP EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) || ' CASCADE'; END LOOP;
-               END \$\$;"
-            echo "Database reset — stack reused"
-          else
-            echo "CI stack not running — starting fresh..."
-            docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
-            for i in $(seq 1 30); do
-              if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
-                echo "engram is healthy"
-                break
-              fi
-              sleep 1
-            done
-          fi
-
       - name: Run E2E tests
         working-directory: e2e
         run: python3 -m pytest tests/ -v --timeout=300
