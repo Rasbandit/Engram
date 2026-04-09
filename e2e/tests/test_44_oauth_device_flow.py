@@ -10,6 +10,7 @@ Skipped automatically if E2E_CLERK_SECRET_KEY is not set.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -78,6 +79,8 @@ async def test_full_device_flow(
 
         try:
             await _clerk_sign_up(page, test_email, test_password)
+            # Brief pause for Clerk session cookie to settle
+            await asyncio.sleep(1)
             await _complete_device_flow(page, user_code)
         finally:
             await browser.close()
@@ -193,9 +196,24 @@ async def _complete_device_flow(page: Page, user_code: str) -> None:
     """Navigate to /app/link and complete the device flow authorization."""
     await page.goto(f"{WEB_APP_URL}/link", wait_until="networkidle")
 
-    # Enter user code (remove dash for input — the form formats it)
+    # Wait for Clerk to finish initializing (AuthGuard shows "Loading..." until ready)
+    # Then the DeviceLinkPage renders the input
     code_input = page.locator('input[placeholder="XXXX-XXXX"]')
-    await code_input.wait_for(state="visible", timeout=10000)
+    try:
+        await code_input.wait_for(state="visible", timeout=20000)
+    except Exception:
+        # Capture diagnostics before failing
+        current_url = page.url
+        body_text = await page.inner_text("body")
+        logger.error(
+            "Device link page did not render input.\n"
+            "  URL: %s\n  Body: %.500s",
+            current_url,
+            body_text,
+        )
+        raise
+
+    # Enter user code (remove dash for input — the form formats it)
     await code_input.fill(user_code.replace("-", ""))
 
     # Click Verify

@@ -57,6 +57,6 @@ async def test_deep_folder_multiple_notes(vault_a, vault_b, cdp_a, cdp_b, api_sy
 
     # Verify folder listing includes nested folders
     folders = api_sync.get_folders()
-    folder_names = [f["folder"] if isinstance(f, dict) else f for f in folders]
+    folder_names = [f["name"] if isinstance(f, dict) else f for f in folders]
     assert any("Depth43/Sub/Deep" in str(f) for f in folder_names), \
         f"Nested folder should appear in folder list: {folder_names[:20]}"
