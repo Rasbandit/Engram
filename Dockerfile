@@ -7,7 +7,8 @@ ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-$
 ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"
 
 # ─── Frontend build ──────────────────────────────────────────────────────
-FROM node:20-slim AS frontend
+ARG NODE_IMAGE="node:20-slim"
+FROM ${NODE_IMAGE} AS frontend
 
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
