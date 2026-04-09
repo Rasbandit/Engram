@@ -3,39 +3,6 @@ defmodule EngramWeb.AuthController do
 
   alias Engram.Accounts
 
-  def register(conn, params) do
-    case Accounts.register_user(params) do
-      {:ok, user} ->
-        token = Accounts.generate_jwt(user)
-        json(conn, %{user: %{id: user.id, email: user.email}, token: token})
-
-      {:error, changeset} ->
-        conn
-        |> put_status(422)
-        |> json(%{errors: format_errors(changeset)})
-    end
-  end
-
-  def login(conn, %{"email" => email, "password" => password})
-      when is_binary(email) and is_binary(password) do
-    case Accounts.authenticate_user(email, password) do
-      {:ok, user} ->
-        token = Accounts.generate_jwt(user)
-        json(conn, %{user: %{id: user.id, email: user.email}, token: token})
-
-      {:error, :invalid_credentials} ->
-        conn
-        |> put_status(401)
-        |> json(%{error: "invalid credentials"})
-    end
-  end
-
-  def login(conn, _params) do
-    conn
-    |> put_status(422)
-    |> json(%{error: "email and password are required"})
-  end
-
   def create_api_key(conn, %{"name" => name}) do
     user = conn.assigns.current_user
 
