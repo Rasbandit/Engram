@@ -216,6 +216,26 @@ if [[ -z "$DEFAULT_VAULT_ID" || "$DEFAULT_VAULT_ID" == "null" ]]; then
 fi
 pass "Registered default vault (ID: $DEFAULT_VAULT_ID)"
 
+# Seed a trial subscription so vault-scoped routes don't return 403.
+# RequireActiveSubscription blocks all notes/search/attachments without one.
+# Only runs when ENGRAM_TEST_DB_URL is set (CI docker-compose exposes the DB).
+if [[ -n "${ENGRAM_TEST_DB_URL:-}" ]]; then
+    # Get user ID from /api/me
+    ME_RESP=$(curl -s "$BASE/me" -H "Authorization: Bearer $JWT_TOKEN")
+    TEST_USER_ID=$(echo "$ME_RESP" | jq -r '.id' 2>/dev/null || echo "")
+    if [[ -n "$TEST_USER_ID" && "$TEST_USER_ID" != "null" ]]; then
+        psql "$ENGRAM_TEST_DB_URL" -c \
+            "INSERT INTO subscriptions (user_id, stripe_customer_id, stripe_subscription_id, tier, status, current_period_end, created_at, updated_at)
+             VALUES ($TEST_USER_ID, 'cus_ci_test', 'sub_ci_test', 'starter', 'trialing', NOW() + INTERVAL '14 days', NOW(), NOW())
+             ON CONFLICT (user_id) DO NOTHING;" > /dev/null 2>&1
+        pass "Seeded trial subscription for test user (ID: $TEST_USER_ID)"
+    else
+        fail "Could not extract user ID from /api/me — subscription not seeded"
+    fi
+else
+    echo "  ℹ ENGRAM_TEST_DB_URL not set — skipping subscription seed (vault routes may return 403)"
+fi
+
 # ============================================================================
 # SECTION 3: Auth — API Key Validation
 # ============================================================================
@@ -651,6 +671,24 @@ if [[ -n "$JWT_TOKEN2" && "$JWT_TOKEN2" != "null" ]]; then
 
     if [[ -n "$API_KEY2" && "$API_KEY2" != "null" ]]; then
         pass "Second user created with API key"
+
+        # Register a vault for user 2 (required for vault-scoped endpoints)
+        curl -s -X POST "$BASE/vaults/register" \
+            -H "Authorization: Bearer $API_KEY2" \
+            -H "Content-Type: application/json" \
+            -d '{"name": "User2 Vault", "client_id": "test-user2"}' > /dev/null 2>&1
+
+        # Seed subscription for user 2
+        if [[ -n "${ENGRAM_TEST_DB_URL:-}" ]]; then
+            ME2_RESP=$(curl -s "$BASE/me" -H "Authorization: Bearer $JWT_TOKEN2")
+            USER2_ID=$(echo "$ME2_RESP" | jq -r '.id' 2>/dev/null || echo "")
+            if [[ -n "$USER2_ID" && "$USER2_ID" != "null" ]]; then
+                psql "$ENGRAM_TEST_DB_URL" -c \
+                    "INSERT INTO subscriptions (user_id, stripe_customer_id, stripe_subscription_id, tier, status, current_period_end, created_at, updated_at)
+                     VALUES ($USER2_ID, 'cus_ci_test2', 'sub_ci_test2', 'starter', 'trialing', NOW() + INTERVAL '14 days', NOW(), NOW())
+                     ON CONFLICT (user_id) DO NOTHING;" > /dev/null 2>&1
+            fi
+        fi
 
         # Second user should NOT see first user's notes
         RESP=$(curl -s -w "\n%{http_code}" "$EP_NOTES/Test/Hello%20World.md" \

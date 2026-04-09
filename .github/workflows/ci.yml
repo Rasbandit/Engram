@@ -119,7 +119,7 @@ jobs:
 
       - name: Run integration tests
         if: github.event_name != 'repository_dispatch'
-        run: ENGRAM_TEST_URL=http://localhost:8100/api bash test_plan.sh --skip-search
+        run: ENGRAM_TEST_URL=http://localhost:8100/api ENGRAM_TEST_DB_URL=postgresql://engram:engram@localhost:5433/engram bash test_plan.sh --skip-search
 
       # ------------------------------------------------------------------
       # E2E tests — full Obsidian sync cycle
