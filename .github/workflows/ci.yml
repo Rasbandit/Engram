@@ -24,9 +24,14 @@ jobs:
   ci:
     runs-on: [self-hosted, engram]
 
+    env:
+      CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
+      CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
+      VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+
     steps:
       # ------------------------------------------------------------------
-      # Cleanup + checkout
+      # Cleanup + checkout (both repos)
       # ------------------------------------------------------------------
       - name: Pre-cleanup stale resources
         run: |
@@ -34,18 +39,27 @@ jobs:
           docker rm -f engram-test-db 2>/dev/null || true
           pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
           pkill -9 Xvfb 2>/dev/null || true
-          rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
+          rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-* /tmp/ci-*.marker
 
       - uses: actions/checkout@v6
         with:
           clean: false  # Preserve _build/ and deps/ for incremental compilation
 
+      - name: Checkout plugin
+        uses: actions/checkout@v6
+        with:
+          repository: Rasbandit/Engram-obsidian-sync
+          token: ${{ secrets.CROSS_REPO_PAT }}
+          path: plugin-src
+          ref: ${{ github.event.client_payload.plugin_ref || 'main' }}
+          clean: false  # Preserve node_modules between runs
+
       # ------------------------------------------------------------------
-      # Unit tests (Elixir + E2E helpers) — run while Docker builds
+      # Launch ALL long-running prep in parallel (background)
+      # Unit tests run in foreground while these build
       # ------------------------------------------------------------------
       - name: Start test database
         run: |
-          # Use local registry if configured, otherwise Docker Hub
           if [ -n "${LOCAL_REGISTRY:-}" ]; then
             PG_IMAGE="${LOCAL_REGISTRY}/postgres:16-alpine"
             docker pull "$PG_IMAGE" 2>/dev/null || PG_IMAGE="postgres:16-alpine"
@@ -62,17 +76,71 @@ jobs:
             --health-timeout 3s \
             --health-retries 10 \
             "$PG_IMAGE"
-          for i in $(seq 1 30); do
-            if docker exec engram-test-db pg_isready -U engram > /dev/null 2>&1; then
-              echo "Test DB ready"
-              break
+
+      - name: "Background: CI stack + plugin build + Playwright"
+        run: |
+          # --- CI stack build + start (background) ---
+          # Skip on plugin dispatch (backend code didn't change)
+          if [ "${{ github.event_name }}" != "repository_dispatch" ]; then
+            (
+              docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
+              for i in $(seq 1 60); do
+                if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
+                  echo "CI stack healthy"
+                  touch /tmp/ci-stack.marker
+                  break
+                fi
+                sleep 1
+              done
+              if [ ! -f /tmp/ci-stack.marker ]; then
+                echo "ERROR: CI stack failed to start" >&2
+                touch /tmp/ci-stack-failed.marker
+              fi
+            ) > /tmp/ci-stack.log 2>&1 &
+            echo "CI stack build started (PID $!)"
+          else
+            touch /tmp/ci-stack.marker
+            echo "Skipping CI stack (repository_dispatch)"
+          fi
+
+          # --- Plugin build (background) ---
+          (
+            if [ -x "$HOME/.bun/bin/bun" ]; then
+              echo "bun already installed: $($HOME/.bun/bin/bun --version)"
+            else
+              curl -fsSL https://bun.sh/install | bash
             fi
-            sleep 1
-          done
+            export PATH="$HOME/.bun/bin:$PATH"
+            cd plugin-src
+            bun install --frozen-lockfile --registry http://10.0.20.214:4873
+            bun run build
+            # Verify build
+            if [ -f main.js ] && [ -f manifest.json ]; then
+              touch /tmp/ci-plugin.marker
+              echo "Plugin build OK: $(ls -la main.js)"
+            else
+              echo "ERROR: Plugin build failed — missing main.js or manifest.json" >&2
+              touch /tmp/ci-plugin-failed.marker
+            fi
+          ) > /tmp/ci-plugin.log 2>&1 &
+          echo "Plugin build started (PID $!)"
 
-      - name: Build CI stack image (background)
-        run: docker compose -f docker-compose.ci.yml -p engram-ci build &
+          # --- Playwright install (background) ---
+          (
+            if python3 -c "from playwright.sync_api import sync_playwright" 2>/dev/null && \
+               ls -d "$HOME/.cache/ms-playwright/chromium-"* > /dev/null 2>&1; then
+              echo "Playwright + Chromium already installed, skipping"
+            else
+              pip install 'playwright>=1.48'
+              python3 -m playwright install chromium
+            fi
+            touch /tmp/ci-playwright.marker
+          ) > /tmp/ci-playwright.log 2>&1 &
+          echo "Playwright install started (PID $!)"
 
+      # ------------------------------------------------------------------
+      # Unit tests (Elixir + E2E helpers) — foreground while prep builds
+      # ------------------------------------------------------------------
       - name: Fetch Elixir deps (skip if unchanged)
         run: |
           if [ -d deps ] && [ -f deps/.mix_lock_hash ] && [ "$(md5sum mix.lock | cut -d' ' -f1)" = "$(cat deps/.mix_lock_hash)" ]; then
@@ -86,6 +154,13 @@ jobs:
         env:
           DATABASE_URL: postgresql://engram:engram@localhost:5434/engram_test
         run: |
+          for i in $(seq 1 30); do
+            if docker exec engram-test-db pg_isready -U engram > /dev/null 2>&1; then
+              echo "Test DB ready"
+              break
+            fi
+            sleep 1
+          done
           MIX_ENV=test mix ecto.create
           MIX_ENV=test mix ecto.migrate
           mix test
@@ -98,33 +173,73 @@ jobs:
         run: python3 -m pytest e2e/unit_tests/ -v
 
       # ------------------------------------------------------------------
-      # Integration tests (test_plan.sh)
+      # Integration tests — wait for CI stack, then run
       # Skip on plugin dispatch (backend code didn't change)
       # ------------------------------------------------------------------
-      - name: Start CI stack
+      - name: Wait for CI stack
         if: github.event_name != 'repository_dispatch'
         run: |
-          docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
-              echo "engram is healthy"
+          echo "Waiting for CI stack..."
+          for i in $(seq 1 300); do
+            if [ -f /tmp/ci-stack.marker ]; then
+              echo "CI stack ready"
               break
+            fi
+            if [ -f /tmp/ci-stack-failed.marker ]; then
+              echo "CI stack failed to start. Logs:"
+              cat /tmp/ci-stack.log
+              exit 1
             fi
             sleep 1
           done
-        env:
-          CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
-          CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
-          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          if [ ! -f /tmp/ci-stack.marker ]; then
+            echo "CI stack timed out (5 min). Logs:"
+            cat /tmp/ci-stack.log
+            exit 1
+          fi
 
       - name: Run integration tests
         if: github.event_name != 'repository_dispatch'
         run: ENGRAM_TEST_URL=http://localhost:8100/api bash test_plan.sh --skip-search
 
       # ------------------------------------------------------------------
-      # E2E tests — full Obsidian sync cycle
-      # Runs on every push. Reuses CI stack, resets DB only.
+      # E2E tests — wait for plugin + Playwright, then run
+      # Reuses CI stack, resets DB only.
       # ------------------------------------------------------------------
+      - name: Wait for plugin build + Playwright
+        run: |
+          echo "Waiting for plugin build..."
+          for i in $(seq 1 300); do
+            if [ -f /tmp/ci-plugin.marker ]; then echo "Plugin ready"; break; fi
+            if [ -f /tmp/ci-plugin-failed.marker ]; then
+              echo "Plugin build failed. Logs:"; cat /tmp/ci-plugin.log; exit 1
+            fi
+            sleep 1
+          done
+          if [ ! -f /tmp/ci-plugin.marker ]; then
+            echo "Plugin build timed out. Logs:"; cat /tmp/ci-plugin.log; exit 1
+          fi
+
+          echo "Waiting for Playwright..."
+          for i in $(seq 1 300); do
+            if [ -f /tmp/ci-playwright.marker ]; then echo "Playwright ready"; break; fi
+            sleep 1
+          done
+          if [ ! -f /tmp/ci-playwright.marker ]; then
+            echo "Playwright install timed out. Logs:"; cat /tmp/ci-playwright.log; exit 1
+          fi
+
+      - name: Install bun (add to PATH for E2E)
+        run: echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+      - name: Check Ollama reachability
+        run: |
+          if ! curl -sf http://10.0.20.214:11434/api/tags > /dev/null 2>&1; then
+            echo "WARNING: Ollama on FastRaid not reachable — embedding tests may fail"
+          else
+            echo "Ollama OK"
+          fi
+
       - name: Reset database for E2E (reuse running stack)
         run: |
           rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
@@ -150,60 +265,6 @@ jobs:
               sleep 1
             done
           fi
-        env:
-          CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
-          CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
-          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
-
-      - name: Checkout plugin
-        uses: actions/checkout@v6
-        with:
-          repository: Rasbandit/Engram-obsidian-sync
-          token: ${{ secrets.CROSS_REPO_PAT }}
-          path: plugin-src
-          ref: ${{ github.event.client_payload.plugin_ref || 'main' }}
-          clean: false  # Preserve node_modules between runs
-
-      - name: Install bun
-        run: |
-          if [ -x "$HOME/.bun/bin/bun" ]; then
-            echo "bun already installed: $($HOME/.bun/bin/bun --version)"
-          else
-            curl -fsSL https://bun.sh/install | bash
-          fi
-          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
-
-      - name: Build plugin
-        working-directory: plugin-src
-        run: bun install --frozen-lockfile --registry http://10.0.20.214:4873 && bun run build
-
-      - name: Verify plugin build
-        run: |
-          for f in plugin-src/main.js plugin-src/manifest.json; do
-            if [ ! -f "$f" ]; then
-              echo "ERROR: Missing $f — plugin build failed"
-              exit 1
-            fi
-          done
-          echo "Plugin build OK: $(ls -la plugin-src/main.js)"
-
-      - name: Check Ollama reachability
-        run: |
-          if ! curl -sf http://10.0.20.214:11434/api/tags > /dev/null 2>&1; then
-            echo "WARNING: Ollama on FastRaid not reachable — embedding tests may fail"
-          else
-            echo "Ollama OK"
-          fi
-
-      - name: Install Playwright (skip if pre-installed)
-        run: |
-          if python3 -c "from playwright.sync_api import sync_playwright" 2>/dev/null && \
-             [ -d "$HOME/.cache/ms-playwright/chromium-"* ]; then
-            echo "Playwright + Chromium already installed, skipping"
-          else
-            pip install 'playwright>=1.48'
-            python3 -m playwright install chromium
-          fi
 
       - name: Run E2E tests
         working-directory: e2e
@@ -222,6 +283,10 @@ jobs:
         run: |
           mkdir -p ci-artifacts
           docker compose -f docker-compose.ci.yml -p engram-ci logs > ci-artifacts/docker-compose.log 2>&1
+          # Include background build logs
+          cp /tmp/ci-stack.log ci-artifacts/ 2>/dev/null || true
+          cp /tmp/ci-plugin.log ci-artifacts/ 2>/dev/null || true
+          cp /tmp/ci-playwright.log ci-artifacts/ 2>/dev/null || true
           for v in /tmp/e2e-vault-*; do
             if [ -d "$v" ]; then
               tar czf "ci-artifacts/$(basename $v).tar.gz" -C /tmp "$(basename $v)" 2>/dev/null || true
@@ -245,8 +310,8 @@ jobs:
           pkill -9 Xvfb 2>/dev/null || true
           # Wait for processes to die before removing their dirs
           sleep 1
-          # Remove e2e temp dirs
-          rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
+          # Remove e2e temp dirs + marker files
+          rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-* /tmp/ci-*.marker /tmp/ci-*.log
           # Tear down Docker stack
           docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
           docker rm -f engram-test-db 2>/dev/null || true
