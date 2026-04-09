@@ -12,9 +12,14 @@ defmodule EngramWeb.Plugs.RateLimitTest do
     :ok
   end
 
+  # Use a low limit (3) to minimize HTTP requests needed to trigger 429.
+  # The real plug limit is 10; we override to 3 here to keep tests fast
+  # while still validating the rate-limiting behaviour.
+  @test_limit 3
+
   setup do
-    # Drop the test-env ceiling so the real limit (10) applies.
-    Application.put_env(:engram, :rate_limit_override, nil)
+    # Override to a low limit so we only need 4 requests to trigger 429.
+    Application.put_env(:engram, :rate_limit_override, @test_limit)
 
     # Reset Hammer counters for auth paths between tests to prevent bleed.
     # In tests, build_conn() resolves remote_ip to 127.0.0.1, so the full
@@ -33,10 +38,10 @@ defmodule EngramWeb.Plugs.RateLimitTest do
     end
 
     test "spoofing x-forwarded-for does not bypass the rate limit" do
-      # Send 11 requests each with a different spoofed IP.
+      # Send @test_limit+1 requests each with a different spoofed IP.
       # If plug keys on x-forwarded-for, each would look like a fresh IP and limit never triggers.
       # Plug must key on conn.remote_ip (127.0.0.1 in test) instead.
-      for i <- 1..11 do
+      for i <- 1..(@test_limit + 1) do
         build_conn()
         |> put_req_header("x-forwarded-for", "10.0.0.#{i}")
         |> post("/api/users/login", %{email: "x@x.com", password: "wrong"})
@@ -51,7 +56,7 @@ defmodule EngramWeb.Plugs.RateLimitTest do
     end
 
     test "returns 429 after exceeding limit" do
-      for _ <- 1..11 do
+      for _ <- 1..(@test_limit + 1) do
         build_conn() |> post("/api/users/login", %{email: "x@x.com", password: "wrong"})
       end
 
@@ -63,7 +68,7 @@ defmodule EngramWeb.Plugs.RateLimitTest do
 
   describe "rate limiting on register" do
     test "returns 429 after exceeding limit on register" do
-      for _ <- 1..11 do
+      for _ <- 1..(@test_limit + 1) do
         build_conn() |> post("/api/users/register", %{email: "x@x.com", password: "wrong"})
       end
 
@@ -74,7 +79,7 @@ defmodule EngramWeb.Plugs.RateLimitTest do
 
   describe "rate limit buckets are per-path" do
     test "exhausting login limit does not affect register" do
-      for _ <- 1..11 do
+      for _ <- 1..(@test_limit + 1) do
         build_conn() |> post("/api/users/login", %{email: "x@x.com", password: "wrong"})
       end
 
