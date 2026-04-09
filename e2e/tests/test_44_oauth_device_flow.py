@@ -10,13 +10,10 @@ Skipped automatically if E2E_CLERK_SECRET_KEY is not set.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 import secrets
-import shutil
-import tempfile
 from datetime import datetime
 from urllib.parse import quote
 
@@ -76,23 +73,14 @@ async def test_full_device_flow(
 
     # ── 2-3. Browser: sign up + authorize ─────────────────────────
     async with async_playwright() as p:
-        # Clerk uses cross-domain cookies via iframe — need persistent context
-        # to preserve session across navigations in headless Chromium
-        user_data_dir = tempfile.mkdtemp(prefix="e2e-playwright-")
-        context = await p.chromium.launch_persistent_context(
-            user_data_dir,
-            headless=True,
-        )
-        page = context.pages[0] if context.pages else await context.new_page()
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
 
         try:
             await _clerk_sign_up(page, test_email, test_password)
-            # Brief pause for Clerk session cookie to settle
-            await asyncio.sleep(1)
             await _complete_device_flow(page, user_code)
         finally:
-            await context.close()
-            shutil.rmtree(user_data_dir, ignore_errors=True)
+            await browser.close()
 
     # Wrap everything after sign-up in try/finally so Clerk user is always cleaned up
     try:
@@ -202,8 +190,20 @@ async def _clerk_sign_up(page: Page, email: str, password: str) -> None:
 
 
 async def _complete_device_flow(page: Page, user_code: str) -> None:
-    """Navigate to /app/link and complete the device flow authorization."""
-    await page.goto(f"{WEB_APP_URL}/link", wait_until="networkidle")
+    """Navigate to /app/link via client-side routing (no full page reload).
+
+    Clerk's session lives in the ClerkProvider's in-memory state. A full
+    page.goto() reload forces Clerk to re-verify the session with its API,
+    which fails in headless CI. Client-side navigation via an <a> click is
+    intercepted by React Router, keeping the SPA and Clerk session intact.
+    """
+    await page.evaluate("""() => {
+        const link = document.createElement('a');
+        link.href = '/app/link';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    }""")
 
     # Wait for DeviceLinkPage to render
     code_input = page.locator('input[placeholder="XXXX-XXXX"]')
