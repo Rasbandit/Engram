@@ -1,5 +1,5 @@
 defmodule EngramWeb.Plugs.CORSTest do
-  use EngramWeb.ConnCase, async: true
+  use EngramWeb.ConnCase, async: false
 
   test "OPTIONS preflight returns 200 with CORS headers" do
     conn =
@@ -37,6 +37,7 @@ defmodule EngramWeb.Plugs.CORSTest do
   end
 
   test "CORS origin comes from config, not hardcoded *" do
+    # Shape assertion only — behavioral verification is in the test above.
     origin = Application.get_env(:engram, :cors_origin, "*")
     assert is_binary(origin) or is_list(origin)
   end
