@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 class ClerkClient:
-    """Minimal Clerk Backend API client for finding and deleting test users."""
+    """Clerk Backend API client for E2E test user lifecycle.
+
+    Supports creating users, obtaining session tokens, and cleanup —
+    all via the Backend API, no browser needed.
+    """
 
     def __init__(self, secret_key: str):
         self.session = requests.Session()
@@ -35,6 +39,56 @@ class ClerkClient:
         if not users:
             return None
         return users[0]["id"]
+
+    def create_user(self, email: str, password: str) -> str:
+        """Create a Clerk user via Backend API. Returns user_id."""
+        resp = self.session.post(
+            f"{self.base_url}/users",
+            json={
+                "email_address": [email],
+                "password": password,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        user_id = resp.json()["id"]
+        logger.info("Created Clerk user %s (%s)", user_id, email)
+        return user_id
+
+    def create_session_token(self, user_id: str) -> str:
+        """Create a session for a user and return a short-lived JWT.
+
+        Uses Clerk's Backend API to create a session, then mints a
+        session token (valid ~60s). This JWT can be used as a Bearer
+        token or injected as Clerk's __session cookie.
+        """
+        # Create session
+        resp = self.session.post(
+            f"{self.base_url}/sessions",
+            json={"user_id": user_id},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        session_id = resp.json()["id"]
+
+        # Mint session token
+        resp = self.session.post(
+            f"{self.base_url}/sessions/{session_id}/tokens",
+            timeout=10,
+        )
+        resp.raise_for_status()
+        token = resp.json()["jwt"]
+        logger.info("Created session token for user %s (session %s)", user_id, session_id)
+        return token
+
+    def get_testing_token(self) -> str:
+        """Get a Testing Token to bypass bot detection in Clerk's Frontend API."""
+        resp = self.session.post(
+            f"{self.base_url}/testing_tokens",
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json()["token"]
 
     def delete_user(self, user_id: str) -> None:
         """Delete a Clerk user by ID."""

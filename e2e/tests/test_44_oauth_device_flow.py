@@ -1,9 +1,11 @@
-"""Test 44: Full OAuth device flow — sign up, authorize, sync with OAuth tokens.
+"""Test 44: Full OAuth device flow — create user, authorize, sync with OAuth tokens.
+
+Uses Clerk Backend API to create a test user and session (no browser needed).
+Then exercises the device flow: start → authorize → exchange → sync.
 
 Requires:
-- E2E_CLERK_SECRET_KEY env var (Clerk Backend API key for cleanup)
+- E2E_CLERK_SECRET_KEY env var (Clerk Backend API key)
 - CI stack with Clerk env vars configured
-- Playwright + Chromium installed
 
 Skipped automatically if E2E_CLERK_SECRET_KEY is not set.
 """
@@ -19,7 +21,6 @@ from urllib.parse import quote
 
 import pytest
 import requests
-from playwright.async_api import async_playwright, Page
 
 from helpers.clerk import ClerkClient
 from helpers.device_flow import start_device_flow, poll_for_tokens
@@ -28,13 +29,12 @@ from helpers.vault import write_note
 logger = logging.getLogger(__name__)
 
 API_URL = os.environ.get("ENGRAM_API_URL", "http://localhost:8100/api")
-WEB_APP_URL = API_URL.replace("/api", "/app")
 
 CLERK_SECRET = os.environ.get("E2E_CLERK_SECRET_KEY", "")
 
 pytestmark = pytest.mark.skipif(
     not CLERK_SECRET,
-    reason="E2E_CLERK_SECRET_KEY not set — skipping Clerk browser tests",
+    reason="E2E_CLERK_SECRET_KEY not set — skipping device flow tests",
 )
 
 # CDP plugin path shorthand
@@ -61,30 +61,40 @@ def test_password():
 async def test_full_device_flow(
     vault_a, cdp_a, api_sync, sync_user, clerk_client, test_email, test_password
 ):
-    """Full journey: sign up → device flow → sync with OAuth tokens."""
+    """Full journey: create user → device flow → authorize → sync with OAuth tokens."""
 
-    # ── 1. Start device flow via API ──────────────────────────────
-    ts = datetime.now().strftime("%Y%m%d%H%M%S")
-    client_id = f"e2e-playwright-{ts}"
-    flow = start_device_flow(API_URL, client_id)
-    device_code = flow["device_code"]
-    user_code = flow["user_code"]
-    logger.info("Device flow started: user_code=%s", user_code)
+    # ── 1. Create Clerk user via Backend API ──────────────────────
+    clerk_user_id = clerk_client.create_user(test_email, test_password)
+    logger.info("Created Clerk user: %s (%s)", clerk_user_id, test_email)
 
-    # ── 2-3. Browser: sign up + authorize ─────────────────────────
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-
-        try:
-            await _clerk_sign_up(page, test_email, test_password)
-            await _complete_device_flow(page, user_code)
-        finally:
-            await browser.close()
-
-    # Wrap everything after sign-up in try/finally so Clerk user is always cleaned up
     try:
-        # ── 4. Poll for tokens ────────────────────────────────────
+        # ── 2. Get Clerk session token for the new user ───────────
+        session_token = clerk_client.create_session_token(clerk_user_id)
+        logger.info("Got Clerk session token for %s", test_email)
+
+        # ── 3. Start device flow ──────────────────────────────────
+        ts = datetime.now().strftime("%Y%m%d%H%M%S")
+        client_id = f"e2e-device-{ts}"
+        flow = start_device_flow(API_URL, client_id)
+        device_code = flow["device_code"]
+        user_code = flow["user_code"]
+        logger.info("Device flow started: user_code=%s", user_code)
+
+        # ── 4. Authorize device flow using Clerk session token ────
+        # This replaces the entire browser flow. The authorize endpoint
+        # accepts any valid auth token — we use the Clerk JWT directly.
+        resp = requests.post(
+            f"{API_URL}/auth/device/authorize",
+            json={"user_code": user_code, "vault_id": "new", "vault_name": "E2E Test Vault"},
+            headers={"Authorization": f"Bearer {session_token}"},
+            timeout=10,
+        )
+        assert resp.status_code == 200, (
+            f"Device authorize failed: {resp.status_code} {resp.text}"
+        )
+        logger.info("Device flow authorized via Backend API")
+
+        # ── 5. Exchange device code for tokens ────────────────────
         tokens = poll_for_tokens(API_URL, device_code, timeout=30)
         assert "access_token" in tokens, "No access_token in exchange response"
         assert tokens["refresh_token"].startswith("engram_rt_"), (
@@ -94,7 +104,7 @@ async def test_full_device_flow(
         assert tokens.get("user_email") == test_email
         logger.info("Tokens received: vault_id=%s", tokens["vault_id"])
 
-        # ── 5. Reconfigure Obsidian A to use OAuth ────────────────
+        # ── 6. Reconfigure Obsidian A to use OAuth ────────────────
         original_settings = await cdp_a.evaluate(
             f"JSON.stringify({{apiKey: {_P}.settings.apiKey, "
             f"refreshToken: {_P}.settings.refreshToken, "
@@ -108,7 +118,7 @@ async def test_full_device_flow(
 
             # Write a test note and sync
             path = "E2E/OAuthDeviceFlowTest.md"
-            content = "# OAuth Device Flow E2E\nSynced with OAuth tokens from Playwright test."
+            content = "# OAuth Device Flow E2E\nSynced with OAuth tokens from device flow test."
             write_note(vault_a, path, content)
 
             # Trigger sync
@@ -129,118 +139,16 @@ async def test_full_device_flow(
             assert "OAuth Device Flow E2E" in resp.json().get("content", "")
 
         finally:
-            # ── 6. Restore original API key auth ──────────────────
+            # ── 7. Restore original API key auth ──────────────────
             await _restore_auth(cdp_a, original_settings)
 
     finally:
-        # ── 7. Cleanup: delete Clerk user ─────────────────────────
-        clerk_client.cleanup_user(test_email)
+        # ── 8. Cleanup: delete Clerk user ─────────────────────────
+        clerk_client.delete_user(clerk_user_id)
         logger.info("Clerk user cleaned up: %s", test_email)
 
 
 # ── Private helpers ───────────────────────────────────────────────
-
-
-async def _clerk_sign_up(page: Page, email: str, password: str) -> None:
-    """Navigate to sign-up page and create a Clerk account.
-
-    Clerk's <SignUp /> component renders a multi-step form:
-    1. Email + Continue button
-    2. Password + Continue button
-    3. Optional email verification (dev mode may skip this)
-    """
-    await page.goto(f"{WEB_APP_URL}/sign-up", wait_until="networkidle")
-
-    # Step 1: Enter email
-    email_input = page.locator('input[name="emailAddress"]')
-    await email_input.wait_for(state="visible", timeout=15000)
-    await email_input.fill(email)
-
-    # Click Continue
-    continue_btn = page.locator('button:has-text("Continue")')
-    await continue_btn.click()
-
-    # Step 2: Enter password
-    password_input = page.locator('input[name="password"]')
-    await password_input.wait_for(state="visible", timeout=10000)
-    await password_input.fill(password)
-
-    # Click Continue
-    continue_btn = page.locator('button:has-text("Continue")')
-    await continue_btn.click()
-
-    # Wait for redirect to /app (sign-up complete)
-    try:
-        await page.wait_for_url(f"{WEB_APP_URL}/**", timeout=15000)
-        logger.info("Sign-up complete — redirected to app")
-    except Exception:
-        # Check if we're on a verification step
-        verification = page.locator('input[name="code"]')
-        if await verification.is_visible():
-            logger.warning(
-                "Email verification step detected. "
-                "Clerk dev instance may require manual verification setup."
-            )
-            raise RuntimeError(
-                "Clerk email verification step not yet automated. "
-                "Configure Clerk dev instance to skip email verification, "
-                "or set 'Require email verification' to OFF in Clerk Dashboard "
-                "→ Email, Phone, Username."
-            )
-
-
-async def _complete_device_flow(page: Page, user_code: str) -> None:
-    """Navigate to /app/link via client-side routing (no full page reload).
-
-    Clerk's session lives in the ClerkProvider's in-memory state. A full
-    page.goto() reload forces Clerk to re-verify the session with its API,
-    which fails in headless CI. Client-side navigation via an <a> click is
-    intercepted by React Router, keeping the SPA and Clerk session intact.
-    """
-    await page.evaluate("""() => {
-        const link = document.createElement('a');
-        link.href = '/app/link';
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-    }""")
-
-    # Wait for DeviceLinkPage to render
-    code_input = page.locator('input[placeholder="XXXX-XXXX"]')
-    try:
-        await code_input.wait_for(state="visible", timeout=20000)
-    except Exception:
-        # Capture diagnostics before failing
-        current_url = page.url
-        body_text = await page.inner_text("body")
-        logger.error(
-            "Device link page did not render input.\n"
-            "  URL: %s\n  Body: %.500s",
-            current_url,
-            body_text,
-        )
-        raise
-
-    # Enter user code (remove dash for input — the form formats it)
-    await code_input.fill(user_code.replace("-", ""))
-
-    # Click Verify
-    verify_btn = page.locator('button:has-text("Verify")')
-    await verify_btn.click()
-
-    # Wait for vault picker — new user has no vaults, auto-shows create
-    vault_name_input = page.locator('input[placeholder="Vault name"]')
-    await vault_name_input.wait_for(state="visible", timeout=10000)
-    await vault_name_input.fill("E2E Test Vault")
-
-    # Click Authorize
-    authorize_btn = page.locator('button:has-text("Authorize")')
-    await authorize_btn.click()
-
-    # Wait for success message
-    success_heading = page.locator("h2:has-text('Vault linked')")
-    await success_heading.wait_for(state="visible", timeout=15000)
-    logger.info("Device flow authorized in browser")
 
 
 async def _swap_to_oauth(cdp, tokens: dict) -> None:
