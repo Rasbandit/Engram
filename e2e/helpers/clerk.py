@@ -47,9 +47,12 @@ class ClerkClient:
             json={
                 "email_address": [email],
                 "password": password,
+                "skip_password_checks": True,
             },
             timeout=10,
         )
+        if not resp.ok:
+            logger.error("Clerk create_user failed: %s %s", resp.status_code, resp.text)
         resp.raise_for_status()
         user_id = resp.json()["id"]
         logger.info("Created Clerk user %s (%s)", user_id, email)
@@ -68,6 +71,8 @@ class ClerkClient:
             json={"user_id": user_id},
             timeout=10,
         )
+        if not resp.ok:
+            logger.error("Clerk create_session failed: %s %s", resp.status_code, resp.text)
         resp.raise_for_status()
         session_id = resp.json()["id"]
 
@@ -76,6 +81,8 @@ class ClerkClient:
             f"{self.base_url}/sessions/{session_id}/tokens",
             timeout=10,
         )
+        if not resp.ok:
+            logger.error("Clerk create_token failed: %s %s", resp.status_code, resp.text)
         resp.raise_for_status()
         token = resp.json()["jwt"]
         logger.info("Created session token for user %s (session %s)", user_id, session_id)
