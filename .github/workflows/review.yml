@@ -2,90 +2,28 @@ name: Claude Code Review
 
 on:
   pull_request:
-    types: [labeled, synchronize]
-
-concurrency:
-  group: claude-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+    types: [ready_for_review]
 
 jobs:
-  review:
-    if: contains(github.event.pull_request.labels.*.name, 'claude-review')
-    runs-on: [self-hosted, engram]
-    timeout-minutes: 15
-
+  claude-review:
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
+      issues: read
+      id-token: write
 
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout repository
+        uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Get PR diff
-        id: diff
-        run: |
-          BASE_SHA=${{ github.event.pull_request.base.sha }}
-          HEAD_SHA=${{ github.event.pull_request.head.sha }}
-          echo "Diffing ${BASE_SHA}..${HEAD_SHA}"
-          git diff "${BASE_SHA}..${HEAD_SHA}" > /tmp/pr-diff.txt
-          echo "lines=$(wc -l < /tmp/pr-diff.txt)" >> "$GITHUB_OUTPUT"
-
-      - name: Run Claude Code review
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          DIFF=$(cat /tmp/pr-diff.txt)
-
-          claude -p \
-            --output-format text \
-            "You are reviewing a pull request. Review the following diff for:
-          1. Bugs or logic errors
-          2. Security vulnerabilities (injection, auth bypass, path traversal, etc.)
-          3. Performance issues
-          4. Missing error handling at system boundaries
-          5. Test coverage gaps
-
-          Be concise. Only flag real issues — not style nits. If the code looks good, say so briefly.
-
-          PR Title: ${{ github.event.pull_request.title }}
-          PR Description: ${{ github.event.pull_request.body }}
-
-          Diff:
-          ${DIFF}" > /tmp/review-output.txt
-
-      - name: Post review comment
-        uses: actions/github-script@v7
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@v1
         with:
-          script: |
-            const fs = require('fs');
-            const review = fs.readFileSync('/tmp/review-output.txt', 'utf8');
-            const body = `## 🤖 Claude Code Review\n\n${review}\n\n---\n_Triggered by \`claude-review\` label_`;
-
-            // Find and update existing comment, or create new one
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const existing = comments.find(c =>
-              c.user.type === 'Bot' && c.body.includes('Claude Code Review')
-            );
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
+          plugins: 'code-review@claude-code-plugins'
+          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
