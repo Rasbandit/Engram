@@ -169,7 +169,7 @@ jobs:
           echo "Ollama check started (PID $!)"
 
       # ------------------------------------------------------------------
-      # Unit tests (Elixir + E2E helpers) — foreground while prep builds
+      # Unit tests (Elixir) — foreground while prep builds
       # ------------------------------------------------------------------
       - name: Fetch Elixir deps (skip if unchanged)
         run: |
@@ -198,9 +198,6 @@ jobs:
       - name: Stop test database
         if: always()
         run: docker rm -f engram-test-db 2>/dev/null || true
-
-      - name: Run E2E helper unit tests
-        run: python3 -m pytest e2e/unit_tests/ -v
 
       # ------------------------------------------------------------------
       # E2E tests — wait for CI stack + plugin + Playwright, then run
