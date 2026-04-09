@@ -61,10 +61,6 @@ config :joken, default_signer: "test-jwt-secret"
 # joken_jwks: use Erlang's built-in httpc adapter (no hackney required in tests)
 config :tesla, JokenJwks.HttpFetcher, adapter: Tesla.Adapter.Httpc
 
-# Fast Argon2 hashing in tests — production uses default (expensive) cost.
-# This alone saves ~50% of test runtime since nearly every test creates a user.
-config :argon2_elixir, t_cost: 1, m_cost: 8
-
 # Print only warnings and errors during test
 config :logger, level: :warning
 
