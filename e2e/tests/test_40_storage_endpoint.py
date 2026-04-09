@@ -8,6 +8,8 @@ import time
 
 import pytest
 
+pytestmark = pytest.mark.api_only
+
 
 @pytest.mark.asyncio
 async def test_storage_endpoint(api_sync):

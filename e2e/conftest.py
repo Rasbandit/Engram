@@ -29,6 +29,13 @@ from helpers.clerk import ClerkClient
 from helpers.clerk_auth import ClerkAuth, provision_clerk_user
 from helpers.obsidian import ObsidianInstance
 
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "api_only: tests that need no Obsidian instances"
+    )
+
+
 CLERK_SECRET = os.environ.get("E2E_CLERK_SECRET_KEY", "")
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
