@@ -166,7 +166,7 @@ jobs:
 
       - name: Build plugin
         working-directory: plugin-src
-        run: npm ci && npm run build
+        run: bun install --frozen-lockfile && bun run build
 
       - name: Verify plugin build
         run: |
