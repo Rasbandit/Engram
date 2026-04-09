@@ -6,6 +6,11 @@ defmodule EngramWeb.Plugs.RateLimit do
 
   import Plug.Conn
 
+  # Bake the build env into the module at compile time.
+  # This ensures :rate_limit_override is structurally impossible in non-test builds.
+  @build_env Application.compile_env(:engram, :env, :prod)
+  @is_test_build @build_env == :test
+
   def init(opts) do
     %{
       limit: Keyword.fetch!(opts, :limit),
@@ -16,9 +21,16 @@ defmodule EngramWeb.Plugs.RateLimit do
   def call(conn, %{limit: limit, period: period}) do
     # Allow test env to raise the limit without touching production config.
     # :rate_limit_override is set in config/test.exs to avoid false 429s
-    # when many tests share the same remote_ip (127.0.0.1). A nil override
-    # means "use the plug's configured limit".
-    effective_limit = Application.get_env(:engram, :rate_limit_override) || limit
+    # when many tests share the same remote_ip (127.0.0.1).
+    # @is_test_build is evaluated at compile time, so override is structurally
+    # impossible in non-test builds. Use || to handle nil, which allows tests
+    # to reset the override to nil and fall back to the plug's configured limit.
+    effective_limit =
+      if @is_test_build do
+        Application.get_env(:engram, :rate_limit_override) || limit
+      else
+        limit
+      end
 
     key = rate_limit_key(conn)
 

@@ -9,7 +9,8 @@ import Config
 
 config :engram,
   ecto_repos: [Engram.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  env: Mix.env()
 
 # Configure the endpoint
 config :engram, EngramWeb.Endpoint,
