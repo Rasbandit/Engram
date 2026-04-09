@@ -182,6 +182,11 @@ if config_env() == :prod do
 
   config :engram, :cors_origin, "https://#{host}"
 
+  # WebSocket origin check — runtime so PHX_HOST isn't required at deps compile time.
+  # endpoint.ex uses an MFA callback ({Endpoint, :check_origin, []}) that reads this
+  # via Application.get_env at request time rather than compile_env at build time.
+  config :engram, :websocket_check_origin, ["https://#{host}", "app://obsidian.md"]
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key
