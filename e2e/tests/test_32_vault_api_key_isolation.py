@@ -73,7 +73,7 @@ def _register_test_user(ts: int):
     api = ApiClient(API_URL, api_key)
     resp = api.session.get(f"{API_URL}/me", timeout=10)
     resp.raise_for_status()
-    user_id = resp.json()["id"]
+    user_id = resp.json()["user"]["id"]
 
     return user_id, api, clerk_client, clerk_user_id
 
