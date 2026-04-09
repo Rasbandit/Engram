@@ -22,7 +22,6 @@ from urllib.parse import quote
 import pytest
 import requests
 
-from helpers.clerk import ClerkClient
 from helpers.device_flow import start_device_flow, poll_for_tokens
 from helpers.vault import write_note
 
@@ -39,11 +38,6 @@ pytestmark = pytest.mark.skipif(
 
 # CDP plugin path shorthand
 _P = "app.plugins.plugins['engram-sync']"
-
-
-@pytest.fixture
-def clerk_client():
-    return ClerkClient(CLERK_SECRET)
 
 
 @pytest.fixture
