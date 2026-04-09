@@ -14,7 +14,6 @@ Complete PostgreSQL schema with Row-Level Security policies and the Ecto integra
 CREATE TABLE users (
   id BIGSERIAL PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,  -- Argon2id via argon2_elixir/Comeonin
   display_name TEXT,
   inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

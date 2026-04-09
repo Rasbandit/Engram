@@ -31,7 +31,7 @@ Engram is a single Elixir/Phoenix OTP application — search, MCP server, note s
 | Search | `lib/engram/search.ex` | Vector search, optional reranking |
 | MCP Server | `lib/engram/mcp/` | MCP tool definitions via Hermes MCP |
 | Attachments | `lib/engram/attachments.ex` | Fly Tigris S3 (ExAws) or local |
-| Auth | `lib/engram/auth.ex` | API keys, JWT (Joken), RLS context, Argon2 |
+| Auth | `lib/engram/auth.ex` | API keys, JWT (Joken), RLS context |
 | Oban Workers | `lib/engram/workers/` | EmbedNote, ReindexAll, PurgeSoftDeletes, RetryDiscarded, OrphanChunkScan |
 
 ### Key Patterns

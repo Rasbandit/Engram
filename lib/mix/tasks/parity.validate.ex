@@ -234,11 +234,11 @@ defmodule Mix.Tasks.Parity.Validate do
 
       try do
         {:ok, user} =
-          Accounts.register_user(%{
+          %Engram.Accounts.User{
             email: "parity-pipeline-#{System.system_time(:second)}@test.local",
-            password: "paritytest123456",
             display_name: "Parity Pipeline"
-          })
+          }
+          |> Engram.Repo.insert(skip_tenant_check: true)
 
         {:ok, vault} = Engram.Vaults.create_vault(user, %{name: "Parity Pipeline"})
 
@@ -320,11 +320,11 @@ defmodule Mix.Tasks.Parity.Validate do
 
     try do
       {:ok, user} =
-        Accounts.register_user(%{
+        %Engram.Accounts.User{
           email: "parity-embed-#{System.system_time(:second)}@test.local",
-          password: "paritytest123456",
           display_name: "Parity Embed Hash"
-        })
+        }
+        |> Engram.Repo.insert(skip_tenant_check: true)
 
       {:ok, vault} = Engram.Vaults.create_vault(user, %{name: "Parity Embed Hash"})
 
