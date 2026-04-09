@@ -8,6 +8,7 @@ defmodule EngramWeb.McpControllerTest do
   setup %{conn: conn} do
     user = insert(:user)
     vault = insert(:vault, user: user, is_default: true)
+    subscription_fixture(user)
     {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "test-key")
     authed = put_req_header(conn, "authorization", "Bearer #{api_key}")
 
@@ -538,6 +539,7 @@ defmodule EngramWeb.McpControllerTest do
     setup do
       user = insert(:user)
       vault_a = insert(:vault, user: user, is_default: true, name: "Vault A")
+      subscription_fixture(user)
 
       # Override limit so user can have 2 vaults
       insert(:user_override, user: user, overrides: %{"max_vaults" => 10})
