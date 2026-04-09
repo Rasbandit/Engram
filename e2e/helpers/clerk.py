@@ -25,6 +25,7 @@ class ClerkClient:
     def __init__(self, secret_key: str):
         self.session = requests.Session()
         self.session.headers["Authorization"] = f"Bearer {secret_key}"
+        self.session.headers["Content-Type"] = "application/json"
         self.base_url = "https://api.clerk.dev/v1"
 
     def find_user_by_email(self, email: str) -> str | None:
@@ -42,10 +43,13 @@ class ClerkClient:
 
     def create_user(self, email: str, password: str) -> str:
         """Create a Clerk user via Backend API. Returns user_id."""
+        # Derive a username from the email (Clerk instance may require it)
+        username = email.split("@")[0]
         resp = self.session.post(
             f"{self.base_url}/users",
             json={
                 "email_address": [email],
+                "username": username,
                 "password": password,
                 "skip_password_checks": True,
             },

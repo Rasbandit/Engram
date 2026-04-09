@@ -49,7 +49,7 @@ def clerk_client():
 @pytest.fixture
 def test_email():
     ts = datetime.now().strftime("%Y%m%d%H%M%S")
-    return f"e2e-clerk-{ts}@test.local"
+    return f"e2e-clerk-{ts}@example.com"
 
 
 @pytest.fixture
