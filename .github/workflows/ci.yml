@@ -164,6 +164,13 @@ jobs:
           ref: ${{ github.event.client_payload.plugin_ref || 'main' }}
           clean: false  # Preserve node_modules between runs
 
+      - name: Install bun
+        run: |
+          if ! command -v bun &>/dev/null; then
+            curl -fsSL https://bun.sh/install | bash
+            echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          fi
+
       - name: Build plugin
         working-directory: plugin-src
         run: bun install --frozen-lockfile && bun run build
