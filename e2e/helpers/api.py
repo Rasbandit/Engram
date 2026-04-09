@@ -15,10 +15,13 @@ logger = logging.getLogger(__name__)
 class ApiClient:
     """Thin wrapper around the Engram REST API."""
 
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url: str, auth):
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
-        self.session.headers["Authorization"] = f"Bearer {api_key}"
+        if isinstance(auth, str):
+            self.session.headers["Authorization"] = f"Bearer {auth}"
+        else:
+            self.session.auth = auth
 
     def ping(self) -> bool:
         """GET /folders — returns True if auth works."""
@@ -206,6 +209,8 @@ class ApiClient:
         clone.session = requests.Session()
         clone.session.headers.update(self.session.headers)
         clone.session.headers["X-Vault-ID"] = str(vault_id)
+        if self.session.auth is not None:
+            clone.session.auth = self.session.auth
         return clone
 
     def mcp_call(self, tool_name: str, arguments: dict) -> tuple[dict, int]:

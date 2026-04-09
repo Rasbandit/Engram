@@ -32,7 +32,7 @@ CI_POSTGRES_CONTAINER = os.environ.get("CI_POSTGRES_CONTAINER", "engram-postgres
 _SAFE_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9._@%+-]+$")
 
 
-def cleanup_test_data(email_pattern: str = "e2e-%@test.local") -> None:
+def cleanup_test_data(email_pattern: str = "e2e-%@example.com") -> None:
     """Run cleanup SQL via docker exec against the local CI postgres container.
 
     Deletes all users/notes/attachments/api_keys matching the email pattern.
@@ -56,6 +56,8 @@ def cleanup_test_data(email_pattern: str = "e2e-%@test.local") -> None:
         "DELETE FROM attachments WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
         "DELETE FROM subscriptions WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
         "DELETE FROM user_overrides WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
+        "DELETE FROM device_refresh_tokens WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
+        "DELETE FROM device_authorizations WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
         "DELETE FROM vaults WHERE user_id IN (SELECT id FROM users WHERE email LIKE :'pat');\n"
         "DELETE FROM users WHERE email LIKE :'pat';\n"
     )
@@ -75,6 +77,15 @@ def cleanup_test_data(email_pattern: str = "e2e-%@test.local") -> None:
     logger.info("Cleanup SQL output: %s", result.stdout.strip())
 
 
+def cleanup_clerk_users(clerk_client, clerk_user_ids: list[str]) -> None:
+    """Delete Clerk users by ID. Best-effort — logs errors but doesn't raise."""
+    for user_id in clerk_user_ids:
+        try:
+            clerk_client.delete_user(user_id)
+        except Exception as e:
+            logger.warning("Failed to delete Clerk user %s: %s", user_id, e)
+
+
 def cleanup_vaults() -> None:
     """Remove all E2E vault and config directories."""
     for path in VAULT_PATHS + CONFIG_PATHS:
@@ -85,7 +96,8 @@ def cleanup_vaults() -> None:
 
 def full_cleanup() -> None:
     """Run both DB and vault cleanup."""
-    cleanup_test_data()
+    cleanup_test_data("e2e-%@example.com")
+    cleanup_test_data("e2e-%@test.local")
     cleanup_vaults()
 
 

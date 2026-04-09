@@ -138,6 +138,7 @@ defmodule EngramWeb.Plugs.AuthTest do
       assert conn.assigns.current_user.id == user.id
     end
 
+    @tag capture_log: true
     test "rejects invalid Clerk JWT" do
       # Sign with wrong key
       other_jwk = JOSE.JWK.generate_key({:rsa, 2048})

@@ -4,8 +4,6 @@ on:
   push:
     branches: ["**"]
     tags-ignore: ["v*"]
-  pull_request:
-    branches: [main]
   repository_dispatch:
     types: [plugin-e2e-trigger]
   workflow_dispatch:
@@ -18,6 +16,9 @@ concurrency:
 env:
   DOCKER_BUILDKIT: "1"
   COMPOSE_DOCKER_CLI_BUILD: "1"
+  # LOCAL_REGISTRY is set by the runner environment after running .github/setup-runner.sh
+  # When set, docker-compose.ci.yml pulls images from the local FastRaid registry.
+  # When unset, falls back to Docker Hub.
 
 jobs:
   ci:
@@ -44,6 +45,13 @@ jobs:
       # ------------------------------------------------------------------
       - name: Start test database
         run: |
+          # Use local registry if configured, otherwise Docker Hub
+          if [ -n "${LOCAL_REGISTRY:-}" ]; then
+            PG_IMAGE="${LOCAL_REGISTRY}/postgres:16-alpine"
+            docker pull "$PG_IMAGE" 2>/dev/null || PG_IMAGE="postgres:16-alpine"
+          else
+            PG_IMAGE="postgres:16-alpine"
+          fi
           docker run -d --name engram-test-db \
             -e POSTGRES_USER=engram \
             -e POSTGRES_PASSWORD=engram \
@@ -53,7 +61,7 @@ jobs:
             --health-interval 3s \
             --health-timeout 3s \
             --health-retries 10 \
-            postgres:16-alpine
+            "$PG_IMAGE"
           for i in $(seq 1 30); do
             if docker exec engram-test-db pg_isready -U engram > /dev/null 2>&1; then
               echo "Test DB ready"
@@ -65,11 +73,19 @@ jobs:
       - name: Build CI stack image (background)
         run: docker compose -f docker-compose.ci.yml -p engram-ci build &
 
+      - name: Fetch Elixir deps (skip if unchanged)
+        run: |
+          if [ -d deps ] && [ -f deps/.mix_lock_hash ] && [ "$(md5sum mix.lock | cut -d' ' -f1)" = "$(cat deps/.mix_lock_hash)" ]; then
+            echo "mix.lock unchanged — skipping deps.get"
+          else
+            mix deps.get --only test
+            md5sum mix.lock | cut -d' ' -f1 > deps/.mix_lock_hash
+          fi
+
       - name: Run Elixir unit tests
         env:
           DATABASE_URL: postgresql://engram:engram@localhost:5434/engram_test
         run: |
-          mix deps.get --only test
           MIX_ENV=test mix ecto.create
           MIX_ENV=test mix ecto.migrate
           mix test
@@ -96,6 +112,10 @@ jobs:
             fi
             sleep 1
           done
+        env:
+          CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
+          CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
 
       - name: Run integration tests
         if: github.event_name != 'repository_dispatch'
@@ -103,22 +123,37 @@ jobs:
 
       # ------------------------------------------------------------------
       # E2E tests — full Obsidian sync cycle
-      # Runs on every push. Restarts CI stack with fresh volumes.
+      # Runs on every push. Reuses CI stack, resets DB only.
       # ------------------------------------------------------------------
-      - name: Reset CI stack for E2E (fresh database)
+      - name: Reset database for E2E (reuse running stack)
         run: |
-          echo "Tearing down CI stack to clear integration test state..."
-          docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
           rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
-          echo "Starting CI stack with fresh volumes..."
-          docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
-              echo "engram is healthy"
-              break
-            fi
-            sleep 1
-          done
+
+          # If stack is already running from integration tests, just reset the DB
+          if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
+            echo "CI stack is running — resetting database..."
+            docker exec engram-ci-postgres-1 psql -U engram -d engram -c \
+              "DO \$\$ DECLARE r RECORD;
+               BEGIN
+                 FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename != 'schema_migrations')
+                 LOOP EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) || ' CASCADE'; END LOOP;
+               END \$\$;"
+            echo "Database reset — stack reused"
+          else
+            echo "CI stack not running — starting fresh..."
+            docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
+            for i in $(seq 1 30); do
+              if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
+                echo "engram is healthy"
+                break
+              fi
+              sleep 1
+            done
+          fi
+        env:
+          CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
+          CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
 
       - name: Checkout plugin
         uses: actions/checkout@v6
@@ -151,6 +186,16 @@ jobs:
             echo "Ollama OK"
           fi
 
+      - name: Install Playwright (skip if pre-installed)
+        run: |
+          if python3 -c "from playwright.sync_api import sync_playwright" 2>/dev/null && \
+             [ -d "$HOME/.cache/ms-playwright/chromium-"* ]; then
+            echo "Playwright + Chromium already installed, skipping"
+          else
+            pip install 'playwright>=1.48'
+            python3 -m playwright install chromium
+          fi
+
       - name: Run E2E tests
         working-directory: e2e
         run: python3 -m pytest tests/ -v --timeout=300
@@ -158,6 +203,7 @@ jobs:
           ENGRAM_API_URL: http://localhost:8100/api
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
           CI_POSTGRES_CONTAINER: engram-ci-postgres-1
+          E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
 
       # ------------------------------------------------------------------
       # Cleanup — MUST kill everything, even on cancel/failure

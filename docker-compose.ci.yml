@@ -16,7 +16,11 @@ name: engram-ci
 
 services:
   engram:
-    build: .
+    build:
+      context: .
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:-}
+        NODE_IMAGE: ${LOCAL_REGISTRY:-docker.io}/node:20-slim
     ports:
       - "8100:4000"
     environment:
@@ -32,6 +36,8 @@ services:
       EMBED_BACKEND: ollama
       RERANKER_BACKEND: jina
       JINA_URL: http://10.0.20.214:8082
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
+      CLERK_ISSUER: ${CLERK_ISSUER:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4000/api/health || exit 1"]
       start_period: 10s
@@ -46,7 +52,7 @@ services:
     restart: "no"
 
   postgres:
-    image: postgres:16-alpine
+    image: ${LOCAL_REGISTRY:-docker.io}/postgres:16-alpine
     ports:
       - "5433:5432"
     environment:
@@ -61,7 +67,7 @@ services:
     restart: "no"
 
   qdrant:
-    image: qdrant/qdrant:v1.17.1
+    image: ${LOCAL_REGISTRY:-docker.io}/qdrant/qdrant:v1.17.1
     ports:
       - "6334:6333"
     healthcheck:

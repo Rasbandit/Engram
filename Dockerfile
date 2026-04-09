@@ -6,6 +6,19 @@ ARG DEBIAN_VERSION=bookworm-20241202-slim
 ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}"
 ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"
 
+# ─── Frontend build ──────────────────────────────────────────────────────
+ARG NODE_IMAGE="node:20-slim"
+FROM ${NODE_IMAGE} AS frontend
+
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+ARG VITE_CLERK_PUBLISHABLE_KEY=""
+ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
+RUN npm run build
+
+# ─── Elixir build ────────────────────────────────────────────────────────
 FROM ${BUILDER_IMAGE} AS builder
 
 # Install build tools
@@ -30,6 +43,7 @@ RUN mix deps.compile
 
 # Build release
 COPY priv priv
+COPY --from=frontend /priv/static/app priv/static/app
 COPY lib lib
 RUN mix compile
 

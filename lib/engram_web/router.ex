@@ -30,6 +30,11 @@ defmodule EngramWeb.Router do
     get "/health/deep", HealthController, :deep
     post "/users/register", AuthController, :register
     post "/users/login", AuthController, :login
+
+    # Device flow (unauthenticated — plugin initiates and polls)
+    post "/auth/device", DeviceAuthController, :start
+    post "/auth/device/token", DeviceAuthController, :token
+    post "/auth/token/refresh", DeviceAuthController, :refresh
   end
 
   # User-scoped authenticated endpoints (no vault context needed)
@@ -39,6 +44,9 @@ defmodule EngramWeb.Router do
     # User info
     get "/user/storage", StorageController, :index
     get "/me", UsersController, :me
+
+    # Device flow authorization (authenticated — web app confirms)
+    post "/auth/device/authorize", DeviceAuthController, :authorize
 
     # API key management
     post "/api-keys", AuthController, :create_api_key

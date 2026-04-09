@@ -164,11 +164,13 @@ if config_env() == :prod do
   config :joken, default_signer: jwt_secret
 
   host = System.get_env("PHX_HOST") || "example.com"
+  scheme = System.get_env("PHX_SCHEME") || "https"
+  url_port = String.to_integer(System.get_env("PHX_PORT") || "443")
 
   config :engram, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   config :engram, EngramWeb.Endpoint,
-    url: [host: host, port: 443, scheme: "https"],
+    url: [host: host, port: url_port, scheme: scheme],
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.

@@ -55,9 +55,11 @@ def test_rejects_sql_injection_patterns(pattern: str) -> None:
 # ---------------------------------------------------------------------------
 
 SAFE_PATTERNS = [
+    "e2e-%@example.com",
+    "e2e-sync-20260329120000@example.com",
+    "e2e-iso-20260329120000@example.com",
     "e2e-%@test.local",
     "e2e-sync-20260329120000@test.local",
-    "e2e-iso-20260329120000@test.local",
     "test+tag@example.com",
     "user.name@domain.co",
     "%@test.local",

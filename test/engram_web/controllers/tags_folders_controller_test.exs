@@ -49,7 +49,7 @@ defmodule EngramWeb.TagsFoldersControllerTest do
 
       conn = get(conn, "/api/folders")
       assert %{"folders" => folders} = json_response(conn, 200)
-      folder_names = Enum.map(folders, & &1["folder"])
+      folder_names = Enum.map(folders, & &1["name"])
       assert "Folder A" in folder_names
       assert "Folder B" in folder_names
       assert Enum.count(folder_names, &(&1 == "Folder A")) == 1
