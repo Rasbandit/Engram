@@ -372,8 +372,8 @@ STATUS=$(echo "$RESP" | tail -1)
 assert_status "GET /folders" 200 "$STATUS"
 assert_json_not_empty "Folders list" "$BODY" '.folders'
 
-# Check Test folder is present (folders is array of {folder: string} objects)
-FOLDER_COUNT=$(echo "$BODY" | jq '[.folders[] | select(.folder == "Test")] | length' 2>/dev/null || echo "0")
+# Check Test folder is present (folders is array of {name: string, count: number} objects)
+FOLDER_COUNT=$(echo "$BODY" | jq '[.folders[] | select(.name == "Test")] | length' 2>/dev/null || echo "0")
 if [[ "$FOLDER_COUNT" -gt 0 ]]; then
     pass "Test folder present in results"
 else
