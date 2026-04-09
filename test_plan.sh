@@ -192,7 +192,7 @@ assert_status "POST /api-keys (create)" 200 "$STATUS"
 
 # Extract the API key from the JSON response
 API_KEY=$(echo "$BODY" | jq -r '.key' 2>/dev/null || echo "")
-API_KEY_ID=$(echo "$BODY" | jq -r '.id' 2>/dev/null || echo "")
+API_KEY_ID=$(echo "$BODY" | jq -r '.user.id // .id' 2>/dev/null || echo "")
 if [[ -z "$API_KEY" || "$API_KEY" == "null" ]]; then
     fail "Could not extract API key from response"
     echo "FATAL: Cannot continue without API key"
@@ -222,7 +222,7 @@ pass "Registered default vault (ID: $DEFAULT_VAULT_ID)"
 if [[ -n "${ENGRAM_TEST_DB_URL:-}" ]]; then
     # Get user ID from /api/me
     ME_RESP=$(curl -s "$BASE/me" -H "Authorization: Bearer $JWT_TOKEN")
-    TEST_USER_ID=$(echo "$ME_RESP" | jq -r '.id' 2>/dev/null || echo "")
+    TEST_USER_ID=$(echo "$ME_RESP" | jq -r '.user.id // .id' 2>/dev/null || echo "")
     if [[ -n "$TEST_USER_ID" && "$TEST_USER_ID" != "null" ]]; then
         psql "$ENGRAM_TEST_DB_URL" -c \
             "INSERT INTO subscriptions (user_id, stripe_customer_id, stripe_subscription_id, tier, status, current_period_end, created_at, updated_at)
@@ -681,7 +681,7 @@ if [[ -n "$JWT_TOKEN2" && "$JWT_TOKEN2" != "null" ]]; then
         # Seed subscription for user 2
         if [[ -n "${ENGRAM_TEST_DB_URL:-}" ]]; then
             ME2_RESP=$(curl -s "$BASE/me" -H "Authorization: Bearer $JWT_TOKEN2")
-            USER2_ID=$(echo "$ME2_RESP" | jq -r '.id' 2>/dev/null || echo "")
+            USER2_ID=$(echo "$ME2_RESP" | jq -r '.user.id // .id' 2>/dev/null || echo "")
             if [[ -n "$USER2_ID" && "$USER2_ID" != "null" ]]; then
                 psql "$ENGRAM_TEST_DB_URL" -c \
                     "INSERT INTO subscriptions (user_id, stripe_customer_id, stripe_subscription_id, tier, status, current_period_end, created_at, updated_at)
@@ -951,7 +951,7 @@ RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_API_KEYS" \
 BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
 TEMP_KEY=$(echo "$BODY" | jq -r '.key' 2>/dev/null || echo "")
-TEMP_KEY_ID=$(echo "$BODY" | jq -r '.id' 2>/dev/null || echo "")
+TEMP_KEY_ID=$(echo "$BODY" | jq -r '.user.id // .id' 2>/dev/null || echo "")
 
 if [[ -n "$TEMP_KEY" && "$TEMP_KEY" != "null" ]]; then
     # Verify the key works
