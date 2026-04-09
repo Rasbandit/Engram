@@ -10,6 +10,10 @@ defmodule EngramWeb.Router do
     }
   end
 
+  pipeline :rate_limit_auth do
+    plug EngramWeb.Plugs.RateLimit, limit: 10, period: 60_000
+  end
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :put_secure_browser_headers
@@ -24,17 +28,22 @@ defmodule EngramWeb.Router do
 
   # All API routes under /api prefix
   scope "/api", EngramWeb do
-    # Public endpoints (no auth required)
+    # Public endpoints (no auth required, no rate limit)
     pipe_through :api
     get "/health", HealthController, :index
     get "/health/deep", HealthController, :deep
-    post "/users/register", AuthController, :register
-    post "/users/login", AuthController, :login
 
     # Device flow (unauthenticated — plugin initiates and polls)
     post "/auth/device", DeviceAuthController, :start
     post "/auth/device/token", DeviceAuthController, :token
     post "/auth/token/refresh", DeviceAuthController, :refresh
+  end
+
+  scope "/api", EngramWeb do
+    # Auth endpoints — rate limited, no auth required
+    pipe_through [:api, :rate_limit_auth]
+    post "/users/register", AuthController, :register
+    post "/users/login", AuthController, :login
   end
 
   # User-scoped authenticated endpoints (no vault context needed)

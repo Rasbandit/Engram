@@ -1,5 +1,11 @@
 import Config
 
+# Raise rate-limit ceiling in tests so auth controller tests don't get 429.
+# All test connections share 127.0.0.1 as remote_ip; a production-level limit
+# of 10 req/min would be exhausted immediately across the full test suite.
+# The RateLimitTest validates the 10-req limit explicitly, with per-test resets.
+config :engram, :rate_limit_override, 10_000
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used
