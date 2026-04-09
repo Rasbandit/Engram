@@ -72,7 +72,7 @@ jobs:
             --health-retries 10 \
             "$PG_IMAGE"
 
-      - name: "Background: CI stack + plugin build + Playwright"
+      - name: "Background: CI stack + plugin build + Playwright + Ollama"
         env:
           CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
           CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
@@ -137,6 +137,18 @@ jobs:
           ) > /tmp/ci-playwright.log 2>&1 &
           echo "Playwright install started (PID $!)"
 
+          # --- Ollama reachability check (background) ---
+          (
+            if curl -sf http://10.0.20.214:11434/api/tags > /dev/null 2>&1; then
+              echo "Ollama OK"
+              touch /tmp/ci-ollama.marker
+            else
+              echo "WARNING: Ollama on FastRaid not reachable — embedding tests may fail"
+              touch /tmp/ci-ollama-warn.marker
+            fi
+          ) > /tmp/ci-ollama.log 2>&1 &
+          echo "Ollama check started (PID $!)"
+
       # ------------------------------------------------------------------
       # Unit tests (Elixir + E2E helpers) — foreground while prep builds
       # ------------------------------------------------------------------
@@ -196,7 +208,7 @@ jobs:
             exit 1
           fi
 
-      - name: Wait for plugin build + Playwright
+      - name: Wait for plugin build + Playwright + Ollama
         run: |
           echo "Waiting for plugin build..."
           for i in $(seq 1 300); do
@@ -219,16 +231,21 @@ jobs:
             echo "Playwright install timed out. Logs:"; cat /tmp/ci-playwright.log; exit 1
           fi
 
-      - name: Install bun (add to PATH for E2E)
-        run: echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
-
-      - name: Check Ollama reachability
-        run: |
-          if ! curl -sf http://10.0.20.214:11434/api/tags > /dev/null 2>&1; then
-            echo "WARNING: Ollama on FastRaid not reachable — embedding tests may fail"
-          else
+          echo "Waiting for Ollama check..."
+          for i in $(seq 1 30); do
+            if [ -f /tmp/ci-ollama.marker ] || [ -f /tmp/ci-ollama-warn.marker ]; then break; fi
+            sleep 1
+          done
+          if [ -f /tmp/ci-ollama-warn.marker ]; then
+            cat /tmp/ci-ollama.log
+          elif [ -f /tmp/ci-ollama.marker ]; then
             echo "Ollama OK"
+          else
+            echo "WARNING: Ollama check timed out. Logs:"; cat /tmp/ci-ollama.log 2>/dev/null || true
           fi
+
+          # Add bun to PATH for E2E tests (already installed by plugin build)
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Reset database for E2E (reuse running stack)
         env:
@@ -281,6 +298,7 @@ jobs:
           cp /tmp/ci-stack.log ci-artifacts/ 2>/dev/null || true
           cp /tmp/ci-plugin.log ci-artifacts/ 2>/dev/null || true
           cp /tmp/ci-playwright.log ci-artifacts/ 2>/dev/null || true
+          cp /tmp/ci-ollama.log ci-artifacts/ 2>/dev/null || true
           for v in /tmp/e2e-vault-*; do
             if [ -d "$v" ]; then
               tar czf "ci-artifacts/$(basename $v).tar.gz" -C /tmp "$(basename $v)" 2>/dev/null || true
