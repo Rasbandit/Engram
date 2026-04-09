@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from helpers.api import ApiClient, register_user
+from helpers.api import ApiClient
 from helpers.cdp import CdpClient
 from helpers.cleanup import cleanup_test_data, cleanup_clerk_users, cleanup_vaults
 from helpers.clerk import ClerkClient
@@ -61,42 +61,30 @@ def clerk_client():
 
 @pytest.fixture(scope="session")
 def sync_user(ts, clerk_client):
-    """Shared user for Obsidian A + B.
-
-    With Clerk: returns (email, clerk_user_id, clerk_auth, api_key).
-    Without Clerk: returns (email, None, None, api_key).
-    """
+    """Shared user for Obsidian A + B. Requires Clerk."""
+    assert clerk_client is not None, (
+        "E2E_CLERK_SECRET_KEY is required — legacy password auth has been removed"
+    )
+    email = f"e2e-sync-{ts}@example.com"
     password = secrets.token_urlsafe(32)
-    if clerk_client:
-        email = f"e2e-sync-{ts}@example.com"
-        clerk_user_id, clerk_auth, api_key = provision_clerk_user(
-            clerk_client, email, password, API_URL,
-        )
-        return email, clerk_user_id, clerk_auth, api_key
-    else:
-        email = f"e2e-sync-{ts}@test.local"
-        api_key = register_user(API_URL, email, password)
-        return email, None, None, api_key
+    clerk_user_id, clerk_auth, api_key = provision_clerk_user(
+        clerk_client, email, password, API_URL,
+    )
+    return email, clerk_user_id, clerk_auth, api_key
 
 
 @pytest.fixture(scope="session")
 def isolation_user(ts, clerk_client):
-    """Separate user for Obsidian C.
-
-    With Clerk: returns (email, clerk_user_id, clerk_auth, api_key).
-    Without Clerk: returns (email, None, None, api_key).
-    """
+    """Separate user for Obsidian C. Requires Clerk."""
+    assert clerk_client is not None, (
+        "E2E_CLERK_SECRET_KEY is required — legacy password auth has been removed"
+    )
+    email = f"e2e-iso-{ts}@example.com"
     password = secrets.token_urlsafe(32)
-    if clerk_client:
-        email = f"e2e-iso-{ts}@example.com"
-        clerk_user_id, clerk_auth, api_key = provision_clerk_user(
-            clerk_client, email, password, API_URL,
-        )
-        return email, clerk_user_id, clerk_auth, api_key
-    else:
-        email = f"e2e-iso-{ts}@test.local"
-        api_key = register_user(API_URL, email, password)
-        return email, None, None, api_key
+    clerk_user_id, clerk_auth, api_key = provision_clerk_user(
+        clerk_client, email, password, API_URL,
+    )
+    return email, clerk_user_id, clerk_auth, api_key
 
 
 # ---------------------------------------------------------------------------
