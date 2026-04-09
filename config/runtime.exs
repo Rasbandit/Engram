@@ -180,12 +180,10 @@ if config_env() == :prod do
     ],
     secret_key_base: secret_key_base
 
-  config :engram, :cors_origin, "https://#{host}"
-
-  # WebSocket origin check — only enforce when PHX_HOST is explicitly set.
-  # Without it (CI, local dev), the default false allows all origins.
-  # endpoint.ex uses an MFA callback that reads this at request time.
+  # CORS and WebSocket origin — only lock down when PHX_HOST is explicitly set.
+  # Without it (CI, local dev), defaults apply: CORS allows "*", WS allows all.
   if System.get_env("PHX_HOST") do
+    config :engram, :cors_origin, "https://#{host}"
     config :engram, :websocket_check_origin, ["https://#{host}", "app://obsidian.md"]
   end
 
