@@ -2,7 +2,7 @@
 #
 # Always invoke with explicit project name for stable container names:
 #   docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
-#   ENGRAM_TEST_URL=http://localhost:8100/api bash test_plan.sh
+#   python3 -m pytest e2e/tests/ -v  # E2E tests run against this stack
 #   docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans
 #
 # Container names: engram-ci-engram-1, engram-ci-postgres-1, etc.

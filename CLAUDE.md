@@ -82,9 +82,8 @@ curl -X POST http://localhost:4000/notes \
 
 | Layer | Command | What |
 |-------|---------|------|
-| Unit | `mix test` | Pure logic, RLS isolation, auth |
-| Integration | `bash test_plan.sh` | Full API contract (HTTP-based) |
-| E2E | `python3 -m pytest e2e/tests/ -v` | Real Obsidian sync cycles |
+| Unit | `mix test` | Pure logic, RLS isolation, auth, HTTP contract (ConnCase) |
+| E2E | `python3 -m pytest e2e/tests/ -v` | Real Obsidian sync cycles against Docker stack |
 
 See `docs/context/testing-strategy.md` for full strategy, tooling, and CI pipeline.
 
@@ -93,11 +92,11 @@ See `docs/context/testing-strategy.md` for full strategy, tooling, and CI pipeli
 | Phase | What | Acceptance Criteria |
 |-------|------|---------------------|
 | **1: Scaffold** | Phoenix app, Ecto schemas, RLS migrations, auth, health, Oban | `GET /health` 200, RLS spike test passes, Oban processes test job |
-| **2: Notes CRUD** | Upsert/read/delete/rename/changes, path sanitization | `test_plan.sh` CRUD tests pass |
+| **2: Notes CRUD** | Upsert/read/delete/rename/changes, path sanitization | `mix test` CRUD tests pass |
 | **3: Indexing** | Earmark parser, Voyage embedder, Qdrant client, pipeline | Upsert triggers embedding + Qdrant upsert |
-| **4: Search** | Vector search, folder/tag filter | `test_plan.sh` search tests pass |
+| **4: Search** | Vector search, folder/tag filter | `mix test` search tests pass |
 | **5: Real-time** | Phoenix Channel sync, Presence | E2E sync tests pass |
-| **6: Attachments** | Tigris S3 via ExAws | `test_plan.sh` attachment tests pass |
+| **6: Attachments** | Tigris S3 via ExAws | `mix test` attachment tests pass |
 | **7: MCP** | Hermes MCP server | MCP tools work from Claude/Cursor |
 | **8: Web UI** | LiveView for login, search, logs | Web UI functional |
 | **9: Deploy** | Fly.io, dns_cluster, CI, load testing | All tests pass on Fly |

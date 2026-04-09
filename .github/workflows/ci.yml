@@ -172,8 +172,7 @@ jobs:
         run: python3 -m pytest e2e/unit_tests/ -v
 
       # ------------------------------------------------------------------
-      # Integration tests — wait for CI stack, then run
-      # Skip on plugin dispatch (backend code didn't change)
+      # E2E tests — wait for CI stack + plugin + Playwright, then run
       # ------------------------------------------------------------------
       - name: Wait for CI stack
         if: github.event_name != 'repository_dispatch'
@@ -197,16 +196,6 @@ jobs:
             exit 1
           fi
 
-      - name: Run integration tests
-        if: github.event_name != 'repository_dispatch'
-        env:
-          E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
-        run: ENGRAM_TEST_URL=http://localhost:8100/api bash test_plan.sh --skip-search
-
-      # ------------------------------------------------------------------
-      # E2E tests — wait for plugin + Playwright, then run
-      # Reuses CI stack, resets DB only.
-      # ------------------------------------------------------------------
       - name: Wait for plugin build + Playwright
         run: |
           echo "Waiting for plugin build..."
@@ -249,7 +238,7 @@ jobs:
         run: |
           rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
 
-          # If stack is already running from integration tests, just reset the DB
+          # If stack is already running, just reset the DB
           if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
             echo "CI stack is running — resetting database..."
             docker exec engram-ci-postgres-1 psql -U engram -d engram -c \
