@@ -68,6 +68,25 @@ else
   echo "Claude Code CLI already installed: $(claude --version)"
 fi
 
+# ── Multiple runner instances ────────────────────────────────────────────
+# For parallel CI jobs, register additional runner instances on this machine.
+# Each runner is an independent agent process with its own work directory.
+#
+# Setup (run as open-claw, not root):
+#   mkdir ~/actions-runner-engram-2
+#   cd ~/actions-runner-engram-2
+#   curl -o actions-runner-linux-x64.tar.gz -L \
+#     https://github.com/actions/runner/releases/download/v2.323.0/actions-runner-linux-x64-2.323.0.tar.gz
+#   tar xzf actions-runner-linux-x64.tar.gz
+#   ./config.sh --url https://github.com/Rasbandit/Engram \
+#     --labels self-hosted,engram --name engram-runner-2
+#   sudo ./svc.sh install && sudo ./svc.sh start
+#
+# Existing runners:
+#   ~/actions-runner-engram     (primary — CI + E2E)
+#   ~/actions-runner-plugin     (plugin repo CI)
+#   ~/actions-runner-engram-2   (parallel job capacity)
+
 # ── Verify ───────────────────────────────────────────────────────────────
 echo ""
 echo "=== Verification ==="
