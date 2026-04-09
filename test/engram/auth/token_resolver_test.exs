@@ -68,6 +68,7 @@ defmodule Engram.Auth.TokenResolverTest do
     assert user.id == existing.id
   end
 
+  @tag capture_log: true
   test "rejects an expired Clerk JWT" do
     claims =
       Engram.ClerkHelpers.clerk_claims("clerk_exp_user",

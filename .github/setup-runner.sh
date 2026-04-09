@@ -74,5 +74,16 @@ echo "Claude:     $(claude --version 2>/dev/null || echo 'not found')"
 echo ""
 echo "Docker images:"
 docker images --format '  {{.Repository}}:{{.Tag}}  {{.Size}}' | grep -E 'postgres|qdrant|node'
+# ── Export LOCAL_REGISTRY for CI workflows ───────────────────────────────
+RUNNER_ENV="/home/open-claw/actions-runner-engram/.env"
+if [ -f "$RUNNER_ENV" ] && ! grep -q "LOCAL_REGISTRY" "$RUNNER_ENV"; then
+  echo "LOCAL_REGISTRY=${DOCKER_REGISTRY}" >> "$RUNNER_ENV"
+  echo "Added LOCAL_REGISTRY to runner .env"
+elif [ -f "$RUNNER_ENV" ]; then
+  echo "LOCAL_REGISTRY already in runner .env"
+else
+  echo "WARNING: Runner .env not found at ${RUNNER_ENV} — set LOCAL_REGISTRY manually"
+fi
+
 echo ""
 echo "=== Runner setup complete ==="

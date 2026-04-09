@@ -16,7 +16,9 @@ concurrency:
 env:
   DOCKER_BUILDKIT: "1"
   COMPOSE_DOCKER_CLI_BUILD: "1"
-  LOCAL_REGISTRY: "10.0.20.214:5000"
+  # LOCAL_REGISTRY is set by the runner environment after running .github/setup-runner.sh
+  # When set, docker-compose.ci.yml pulls images from the local FastRaid registry.
+  # When unset, falls back to Docker Hub.
 
 jobs:
   ci:
@@ -43,9 +45,13 @@ jobs:
       # ------------------------------------------------------------------
       - name: Start test database
         run: |
-          # Try local registry first, fall back to Docker Hub
-          PG_IMAGE="${LOCAL_REGISTRY}/postgres:16-alpine"
-          docker pull "$PG_IMAGE" 2>/dev/null || PG_IMAGE="postgres:16-alpine"
+          # Use local registry if configured, otherwise Docker Hub
+          if [ -n "${LOCAL_REGISTRY:-}" ]; then
+            PG_IMAGE="${LOCAL_REGISTRY}/postgres:16-alpine"
+            docker pull "$PG_IMAGE" 2>/dev/null || PG_IMAGE="postgres:16-alpine"
+          else
+            PG_IMAGE="postgres:16-alpine"
+          fi
           docker run -d --name engram-test-db \
             -e POSTGRES_USER=engram \
             -e POSTGRES_PASSWORD=engram \
@@ -67,11 +73,19 @@ jobs:
       - name: Build CI stack image (background)
         run: docker compose -f docker-compose.ci.yml -p engram-ci build &
 
+      - name: Fetch Elixir deps (skip if unchanged)
+        run: |
+          if [ -d deps ] && [ -f deps/.mix_lock_hash ] && [ "$(md5sum mix.lock | cut -d' ' -f1)" = "$(cat deps/.mix_lock_hash)" ]; then
+            echo "mix.lock unchanged — skipping deps.get"
+          else
+            mix deps.get --only test
+            md5sum mix.lock | cut -d' ' -f1 > deps/.mix_lock_hash
+          fi
+
       - name: Run Elixir unit tests
         env:
           DATABASE_URL: postgresql://engram:engram@localhost:5434/engram_test
         run: |
-          mix deps.get --only test
           MIX_ENV=test mix ecto.create
           MIX_ENV=test mix ecto.migrate
           mix test
