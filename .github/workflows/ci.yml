@@ -166,7 +166,7 @@ jobs:
 
       - name: Build plugin
         working-directory: plugin-src
-        run: npm ci && npm run build
+        run: bun install --frozen-lockfile && bun run build
 
       - name: Verify plugin build
         run: |
@@ -204,6 +204,20 @@ jobs:
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
           CI_POSTGRES_CONTAINER: engram-ci-postgres-1
           E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
+
+      # Report E2E result back to plugin repo so it can gate PR merges
+      - name: Report E2E status to plugin repo
+        if: github.event_name == 'repository_dispatch' && always()
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT }}
+          PLUGIN_SHA: ${{ github.event.client_payload.plugin_ref }}
+          STATE: ${{ job.status == 'success' && 'success' || 'failure' }}
+        run: |
+          gh api repos/Rasbandit/Engram-obsidian-sync/statuses/$PLUGIN_SHA \
+            --method POST \
+            -f state=$STATE \
+            -f context="backend/e2e" \
+            -f description="Obsidian E2E suite"
 
       # ------------------------------------------------------------------
       # Cleanup — MUST kill everything, even on cancel/failure
