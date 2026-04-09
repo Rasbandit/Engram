@@ -11,7 +11,7 @@ on:
 # Fixed group — CI stack uses fixed ports, only one run at a time regardless of branch
 concurrency:
   group: ci-engram-stack
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'repository_dispatch' }}
 
 env:
   DOCKER_BUILDKIT: "1"
