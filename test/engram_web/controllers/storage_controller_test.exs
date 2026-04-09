@@ -4,7 +4,6 @@ defmodule EngramWeb.StorageControllerTest do
   setup %{conn: conn} do
     user = insert(:user)
     _vault = insert(:vault, user: user, is_default: true)
-    _subscription = subscription_fixture(user)
     {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "test-key")
     authed = put_req_header(conn, "authorization", "Bearer #{api_key}")
     %{conn: authed, user: user}
@@ -21,7 +20,8 @@ defmodule EngramWeb.StorageControllerTest do
       assert is_integer(body["max_attachment_bytes"])
     end
 
-    test "reflects uploaded attachment size", %{conn: conn} do
+    test "reflects uploaded attachment size", %{conn: conn, user: user} do
+      _subscription = subscription_fixture(user)
       content = String.duplicate("x", 1000)
 
       post(conn, "/api/attachments", %{
@@ -37,7 +37,8 @@ defmodule EngramWeb.StorageControllerTest do
       assert body["file_count"] == 1
     end
 
-    test "excludes deleted attachments from usage", %{conn: conn} do
+    test "excludes deleted attachments from usage", %{conn: conn, user: user} do
+      _subscription = subscription_fixture(user)
       post(conn, "/api/attachments", %{
         path: "photos/del.png",
         content_base64: Base.encode64("data"),
