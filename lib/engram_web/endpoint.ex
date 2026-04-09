@@ -10,7 +10,7 @@ defmodule EngramWeb.Endpoint do
   @doc false
   def check_origin(origin) do
     case Application.get_env(:engram, :websocket_check_origin, false) do
-      false -> false
+      false -> true
       list when is_list(list) -> origin in list
       _ -> false
     end

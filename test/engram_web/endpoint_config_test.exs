@@ -18,10 +18,10 @@ defmodule EngramWeb.EndpointConfigTest do
     refute EngramWeb.Endpoint.check_origin("https://evil.com")
   end
 
-  test "Endpoint.check_origin/1 blocks all when config is false" do
+  test "Endpoint.check_origin/1 allows all when config is false (origin checking disabled)" do
     Application.put_env(:engram, :websocket_check_origin, false)
     on_exit(fn -> Application.delete_env(:engram, :websocket_check_origin) end)
 
-    refute EngramWeb.Endpoint.check_origin("https://app.engram.dev")
+    assert EngramWeb.Endpoint.check_origin("https://anything.example.com")
   end
 end
