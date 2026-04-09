@@ -170,8 +170,8 @@ jobs:
             echo "bun already installed: $(bun --version)"
           else
             curl -fsSL https://bun.sh/install | bash
+            echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           fi
-          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Build plugin
         working-directory: plugin-src
