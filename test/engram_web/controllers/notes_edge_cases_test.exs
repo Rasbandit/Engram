@@ -8,7 +8,6 @@ defmodule EngramWeb.NotesEdgeCasesTest do
   setup %{conn: conn} do
     user = insert(:user)
     _vault = insert(:vault, user: user, is_default: true)
-    _subscription = subscription_fixture(user)
     {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "test-key")
     authed = put_req_header(conn, "authorization", "Bearer #{api_key}")
     %{conn: authed, user: user}

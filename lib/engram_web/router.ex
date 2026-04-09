@@ -77,7 +77,8 @@ defmodule EngramWeb.Router do
 
   # Vault-scoped authenticated endpoints (VaultPlug resolves current_vault)
   scope "/api", EngramWeb do
-    pipe_through [:api, EngramWeb.Plugs.Auth, EngramWeb.Plugs.RequireActiveSubscription, EngramWeb.Plugs.VaultPlug]
+    # TODO: add EngramWeb.Plugs.RequireActiveSubscription when billing goes live
+    pipe_through [:api, EngramWeb.Plugs.Auth, EngramWeb.Plugs.VaultPlug]
 
     # Notes CRUD
     post "/notes/rename", NotesController, :rename

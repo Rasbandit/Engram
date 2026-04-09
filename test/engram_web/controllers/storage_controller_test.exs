@@ -20,8 +20,7 @@ defmodule EngramWeb.StorageControllerTest do
       assert is_integer(body["max_attachment_bytes"])
     end
 
-    test "reflects uploaded attachment size", %{conn: conn, user: user} do
-      _subscription = subscription_fixture(user)
+    test "reflects uploaded attachment size", %{conn: conn} do
       content = String.duplicate("x", 1000)
 
       post(conn, "/api/attachments", %{
@@ -37,8 +36,7 @@ defmodule EngramWeb.StorageControllerTest do
       assert body["file_count"] == 1
     end
 
-    test "excludes deleted attachments from usage", %{conn: conn, user: user} do
-      _subscription = subscription_fixture(user)
+    test "excludes deleted attachments from usage", %{conn: conn} do
       post(conn, "/api/attachments", %{
         path: "photos/del.png",
         content_base64: Base.encode64("data"),

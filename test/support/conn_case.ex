@@ -29,7 +29,6 @@ defmodule EngramWeb.ConnCase do
       import Phoenix.ConnTest
       import EngramWeb.ConnCase
       import Engram.Factory
-      import Engram.Fixtures
     end
   end
 

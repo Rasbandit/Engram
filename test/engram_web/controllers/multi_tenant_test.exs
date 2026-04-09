@@ -10,8 +10,6 @@ defmodule EngramWeb.MultiTenantTest do
     user2 = insert(:user)
     insert(:vault, user: user1, is_default: true)
     insert(:vault, user: user2, is_default: true)
-    subscription_fixture(user1)
-    subscription_fixture(user2)
     {:ok, key1, _} = Engram.Accounts.create_api_key(user1, "user1-key")
     {:ok, key2, _} = Engram.Accounts.create_api_key(user2, "user2-key")
 
