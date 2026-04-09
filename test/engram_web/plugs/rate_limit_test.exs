@@ -1,13 +1,20 @@
 defmodule EngramWeb.Plugs.RateLimitTest do
   use EngramWeb.ConnCase, async: false
 
-  setup do
-    # Override the test-env high ceiling back to production limit (10) so
-    # this test suite can actually trigger 429. Restore it after each test.
-    original = Application.get_env(:engram, :rate_limit_override)
-    Application.put_env(:engram, :rate_limit_override, nil)
+  # Restore the high rate-limit ceiling after all tests in this module finish.
+  # Using setup_all avoids the on_exit race where a per-test on_exit from
+  # test N fires during test N+1 and restores the override mid-execution.
+  setup_all do
+    on_exit(fn ->
+      Application.put_env(:engram, :rate_limit_override, 10_000)
+    end)
 
-    on_exit(fn -> Application.put_env(:engram, :rate_limit_override, original) end)
+    :ok
+  end
+
+  setup do
+    # Drop the test-env ceiling so the real limit (10) applies.
+    Application.put_env(:engram, :rate_limit_override, nil)
 
     # Reset Hammer counters for auth paths between tests to prevent bleed.
     # In tests, build_conn() resolves remote_ip to 127.0.0.1, so the full
