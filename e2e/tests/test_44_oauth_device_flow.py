@@ -15,6 +15,8 @@ import json
 import logging
 import os
 import secrets
+import shutil
+import tempfile
 from datetime import datetime
 from urllib.parse import quote
 
@@ -74,8 +76,14 @@ async def test_full_device_flow(
 
     # ── 2-3. Browser: sign up + authorize ─────────────────────────
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+        # Clerk uses cross-domain cookies via iframe — need persistent context
+        # to preserve session across navigations in headless Chromium
+        user_data_dir = tempfile.mkdtemp(prefix="e2e-playwright-")
+        context = await p.chromium.launch_persistent_context(
+            user_data_dir,
+            headless=True,
+        )
+        page = context.pages[0] if context.pages else await context.new_page()
 
         try:
             await _clerk_sign_up(page, test_email, test_password)
@@ -83,7 +91,8 @@ async def test_full_device_flow(
             await asyncio.sleep(1)
             await _complete_device_flow(page, user_code)
         finally:
-            await browser.close()
+            await context.close()
+            shutil.rmtree(user_data_dir, ignore_errors=True)
 
     # Wrap everything after sign-up in try/finally so Clerk user is always cleaned up
     try:
@@ -196,8 +205,7 @@ async def _complete_device_flow(page: Page, user_code: str) -> None:
     """Navigate to /app/link and complete the device flow authorization."""
     await page.goto(f"{WEB_APP_URL}/link", wait_until="networkidle")
 
-    # Wait for Clerk to finish initializing (AuthGuard shows "Loading..." until ready)
-    # Then the DeviceLinkPage renders the input
+    # Wait for DeviceLinkPage to render
     code_input = page.locator('input[placeholder="XXXX-XXXX"]')
     try:
         await code_input.wait_for(state="visible", timeout=20000)
