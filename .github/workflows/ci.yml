@@ -160,7 +160,7 @@ jobs:
       - name: Install Playwright
         run: |
           pip install 'playwright>=1.48'
-          playwright install chromium
+          python3 -m playwright install chromium
 
       - name: Run E2E tests
         working-directory: e2e
