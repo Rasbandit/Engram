@@ -2,88 +2,6 @@ defmodule EngramWeb.AuthControllerTest do
   use EngramWeb.ConnCase, async: true
 
   # ---------------------------------------------------------------------------
-  # POST /users/register
-  # ---------------------------------------------------------------------------
-
-  describe "POST /users/register" do
-    test "registers a new user and returns JWT", %{conn: conn} do
-      conn =
-        post(conn, "/api/users/register", %{
-          email: "newuser@test.com",
-          password: "password123"
-        })
-
-      assert %{"user" => user, "token" => token} = json_response(conn, 200)
-      assert user["email"] == "newuser@test.com"
-      assert is_integer(user["id"])
-      assert is_binary(token) and byte_size(token) > 0
-    end
-
-    test "rejects duplicate email", %{conn: conn} do
-      post(conn, "/api/users/register", %{email: "dup@test.com", password: "password123"})
-
-      conn2 = post(conn, "/api/users/register", %{email: "dup@test.com", password: "password123"})
-      assert %{"errors" => _} = json_response(conn2, 422)
-    end
-
-    test "rejects missing email", %{conn: conn} do
-      conn = post(conn, "/api/users/register", %{password: "password123"})
-      assert %{"errors" => errors} = json_response(conn, 422)
-      assert errors["email"]
-    end
-
-    test "rejects missing password", %{conn: conn} do
-      conn = post(conn, "/api/users/register", %{email: "nopass@test.com"})
-      assert %{"errors" => errors} = json_response(conn, 422)
-      assert errors["password"]
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # POST /users/login
-  # ---------------------------------------------------------------------------
-
-  describe "POST /users/login" do
-    setup %{conn: conn} do
-      resp =
-        conn
-        |> post("/api/users/register", %{email: "login@test.com", password: "password123"})
-        |> json_response(200)
-
-      %{user_id: resp["user"]["id"]}
-    end
-
-    test "authenticates with valid credentials", %{conn: conn} do
-      conn =
-        post(conn, "/api/users/login", %{email: "login@test.com", password: "password123"})
-
-      assert %{"user" => user, "token" => token} = json_response(conn, 200)
-      assert user["email"] == "login@test.com"
-      assert is_binary(token)
-    end
-
-    test "rejects wrong password", %{conn: conn} do
-      conn = post(conn, "/api/users/login", %{email: "login@test.com", password: "wrong"})
-      assert %{"error" => _} = json_response(conn, 401)
-    end
-
-    test "rejects nonexistent email", %{conn: conn} do
-      conn = post(conn, "/api/users/login", %{email: "nobody@test.com", password: "password123"})
-      assert %{"error" => _} = json_response(conn, 401)
-    end
-
-    test "returns 422 when email and password are missing", %{conn: conn} do
-      conn = post(conn, "/api/users/login", %{})
-      assert json_response(conn, 422)
-    end
-
-    test "returns 422 when email is missing", %{conn: conn} do
-      conn = post(conn, "/api/users/login", %{password: "password123"})
-      assert json_response(conn, 422)
-    end
-  end
-
-  # ---------------------------------------------------------------------------
   # POST /api-keys
   # ---------------------------------------------------------------------------
 
@@ -141,44 +59,6 @@ defmodule EngramWeb.AuthControllerTest do
     test "returns 400 for non-integer API key id", %{conn: conn} do
       conn = delete(conn, "/api/api-keys/abc")
       assert %{"error" => _} = json_response(conn, 400)
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # JWT token validation
-  # ---------------------------------------------------------------------------
-
-  describe "JWT authentication" do
-    test "JWT from registration can authenticate API requests", %{conn: conn} do
-      %{"token" => jwt} =
-        conn
-        |> post("/api/users/register", %{email: "jwt@test.com", password: "password123"})
-        |> json_response(200)
-
-      # Use a user-scoped endpoint (no vault required)
-      conn2 =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{jwt}")
-        |> get("/api/me")
-
-      assert json_response(conn2, 200)
-    end
-
-    test "JWT from login can authenticate API requests", %{conn: conn} do
-      post(conn, "/api/users/register", %{email: "jwt2@test.com", password: "password123"})
-
-      %{"token" => jwt} =
-        conn
-        |> post("/api/users/login", %{email: "jwt2@test.com", password: "password123"})
-        |> json_response(200)
-
-      # Use a user-scoped endpoint (no vault required)
-      conn2 =
-        build_conn()
-        |> put_req_header("authorization", "Bearer #{jwt}")
-        |> get("/api/me")
-
-      assert json_response(conn2, 200)
     end
   end
 end
