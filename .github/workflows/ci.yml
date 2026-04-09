@@ -166,12 +166,12 @@ jobs:
 
       - name: Install bun
         run: |
-          if command -v bun &>/dev/null; then
-            echo "bun already installed: $(bun --version)"
+          if [ -x "$HOME/.bun/bin/bun" ]; then
+            echo "bun already installed: $($HOME/.bun/bin/bun --version)"
           else
             curl -fsSL https://bun.sh/install | bash
-            echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           fi
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Build plugin
         working-directory: plugin-src
