@@ -82,7 +82,26 @@ jobs:
           # Skip on plugin dispatch (backend code didn't change)
           if [ "${{ github.event_name }}" != "repository_dispatch" ]; then
             (
-              docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
+              # Hash source files that affect the Docker image — skip rebuild if unchanged
+              IMG_HASH=$(find Dockerfile docker-compose.ci.yml mix.exs mix.lock config/ lib/ priv/ frontend/ \
+                -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
+              CACHED_TAG="engram-ci:${IMG_HASH}"
+
+              if docker image inspect "$CACHED_TAG" > /dev/null 2>&1; then
+                echo "Image $CACHED_TAG exists — skipping build"
+                docker tag "$CACHED_TAG" engram-ci-engram:latest
+                docker compose -f docker-compose.ci.yml -p engram-ci up -d --no-build --wait
+              else
+                echo "Image cache miss ($CACHED_TAG) — building"
+                docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
+                # Tag the built image for future cache hits
+                BUILT_IMG=$(docker images --format '{{.ID}}' --filter "reference=engram-ci-engram" | head -1)
+                if [ -n "$BUILT_IMG" ]; then
+                  docker tag "$BUILT_IMG" "$CACHED_TAG"
+                  echo "Tagged $BUILT_IMG as $CACHED_TAG"
+                fi
+              fi
+
               for i in $(seq 1 60); do
                 if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
                   echo "CI stack healthy"
@@ -329,5 +348,8 @@ jobs:
           docker rm -f engram-test-db 2>/dev/null || true
           # Prune dangling images to reclaim disk (old CI builds)
           docker image prune -f 2>/dev/null || true
+          # Keep only the 3 most recent engram-ci cache tags
+          docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=engram-ci:*" \
+            | tail -n +4 | xargs -r docker rmi 2>/dev/null || true
           # Clean up ci-artifacts from this run
           rm -rf ci-artifacts/
