@@ -24,11 +24,6 @@ jobs:
   ci:
     runs-on: [self-hosted, engram]
 
-    env:
-      CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
-      CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
-      VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
-
     steps:
       # ------------------------------------------------------------------
       # Cleanup + checkout (both repos)
@@ -78,6 +73,10 @@ jobs:
             "$PG_IMAGE"
 
       - name: "Background: CI stack + plugin build + Playwright"
+        env:
+          CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
+          CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
         run: |
           # --- CI stack build + start (background) ---
           # Skip on plugin dispatch (backend code didn't change)
@@ -241,6 +240,10 @@ jobs:
           fi
 
       - name: Reset database for E2E (reuse running stack)
+        env:
+          CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
+          CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
         run: |
           rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-*
 
