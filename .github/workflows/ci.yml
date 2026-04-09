@@ -199,6 +199,8 @@ jobs:
 
       - name: Run integration tests
         if: github.event_name != 'repository_dispatch'
+        env:
+          E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
         run: ENGRAM_TEST_URL=http://localhost:8100/api bash test_plan.sh --skip-search
 
       # ------------------------------------------------------------------

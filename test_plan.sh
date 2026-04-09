@@ -26,8 +26,6 @@ BASE="${ENGRAM_TEST_URL:-http://localhost:8000/api}"
 # --- Endpoint paths (override to adapt to different backends) ---
 EP_HEALTH="$BASE/health"
 EP_HEALTH_DEEP="$BASE/health/deep"
-EP_REGISTER="$BASE/users/register"
-EP_LOGIN="$BASE/users/login"
 EP_API_KEYS="$BASE/api-keys"
 EP_NOTES="$BASE/notes"
 EP_SEARCH="$BASE/search"
@@ -107,6 +105,102 @@ urlencode() {
     done
 }
 
+# --- Clerk auth helpers ---
+CLERK_API="https://api.clerk.dev/v1"
+CLERK_SECRET="${E2E_CLERK_SECRET_KEY:-}"
+
+if [[ -z "$CLERK_SECRET" ]]; then
+    echo "FATAL: E2E_CLERK_SECRET_KEY is required — legacy password auth has been removed"
+    exit 1
+fi
+
+# Array to track Clerk user IDs for cleanup
+CLERK_USER_IDS=()
+
+clerk_create_user() {
+    # Creates a Clerk user, gets a session JWT, creates an Engram API key.
+    # Sets: CLERK_USER_ID, JWT_TOKEN, API_KEY
+    # Args: $1 = email, $2 = display_name (optional)
+    local email="$1"
+    local name="${2:-Test User}"
+    local username
+    username=$(echo "$email" | cut -d@ -f1)
+    local password
+    password=$(openssl rand -base64 32)
+
+    # 1. Create Clerk user
+    local resp
+    resp=$(curl -s -X POST "$CLERK_API/users" \
+        -H "Authorization: Bearer $CLERK_SECRET" \
+        -H "Content-Type: application/json" \
+        -d "{\"email_address\": [\"$email\"], \"username\": \"$username\", \"password\": \"$password\", \"skip_password_checks\": true}")
+
+    CLERK_USER_ID=$(echo "$resp" | jq -r '.id // empty')
+    if [[ -z "$CLERK_USER_ID" ]]; then
+        echo "FATAL: Failed to create Clerk user: $resp"
+        return 1
+    fi
+    CLERK_USER_IDS+=("$CLERK_USER_ID")
+
+    # 2. Create session + mint token
+    local session_resp
+    session_resp=$(curl -s -X POST "$CLERK_API/sessions" \
+        -H "Authorization: Bearer $CLERK_SECRET" \
+        -H "Content-Type: application/json" \
+        -d "{\"user_id\": \"$CLERK_USER_ID\"}")
+
+    local session_id
+    session_id=$(echo "$session_resp" | jq -r '.id // empty')
+    if [[ -z "$session_id" ]]; then
+        echo "FATAL: Failed to create Clerk session: $session_resp"
+        return 1
+    fi
+
+    local token_resp
+    token_resp=$(curl -s -X POST "$CLERK_API/sessions/$session_id/tokens" \
+        -H "Authorization: Bearer $CLERK_SECRET" \
+        -H "Content-Type: application/json")
+
+    JWT_TOKEN=$(echo "$token_resp" | jq -r '.jwt // empty')
+    if [[ -z "$JWT_TOKEN" ]]; then
+        echo "FATAL: Failed to mint Clerk session token: $token_resp"
+        return 1
+    fi
+
+    # 3. Create API key via Engram API (this also provisions the user in our DB
+    #    through the Clerk JWT → find_or_create_by_clerk_id pipeline)
+    local key_resp
+    key_resp=$(curl -s -w "\n%{http_code}" -X POST "$EP_API_KEYS" \
+        -H "Authorization: Bearer $JWT_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\": \"integration-test-key\"}")
+    local key_body key_status
+    key_body=$(echo "$key_resp" | head -1)
+    key_status=$(echo "$key_resp" | tail -1)
+
+    if [[ "$key_status" != "200" ]]; then
+        echo "FATAL: Failed to create API key: HTTP $key_status — $key_body"
+        return 1
+    fi
+
+    API_KEY=$(echo "$key_body" | jq -r '.key // empty')
+    if [[ -z "$API_KEY" ]]; then
+        echo "FATAL: No key in API key response: $key_body"
+        return 1
+    fi
+}
+
+clerk_cleanup() {
+    # Delete all Clerk users created during this test run
+    for uid in "${CLERK_USER_IDS[@]}"; do
+        curl -s -X DELETE "$CLERK_API/users/$uid" \
+            -H "Authorization: Bearer $CLERK_SECRET" > /dev/null 2>&1 || true
+    done
+}
+
+# Cleanup on exit (success or failure)
+trap clerk_cleanup EXIT
+
 # ============================================================================
 # SECTION 1: Health Check
 # ============================================================================
@@ -120,85 +214,36 @@ assert_status "GET /health" 200 "$STATUS"
 assert_json_field "Health response" "$BODY" '.status' 'ok'
 
 # ============================================================================
-# SECTION 2: Auth — Registration & Login (JSON + JWT)
+# SECTION 2: Auth — User Provisioning via Clerk + API Keys
 # ============================================================================
 echo ""
-echo "=== 2. Auth — Registration ==="
+echo "=== 2. Auth — User Provisioning (Clerk) ==="
 
 TIMESTAMP=$(date +%s)
 TEST_EMAIL="test_${TIMESTAMP}@example.com"
-TEST_PASS="testpass123"
 TEST_NAME="Test User ${TIMESTAMP}"
 
-# Register via JSON API (returns JWT token in response body)
-RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_REGISTER" \
-    -H "Content-Type: application/json" \
-    -d "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASS}\",\"display_name\":\"${TEST_NAME}\"}")
-BODY=$(echo "$RESP" | head -1)
-STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /users/register (new user)" 200 "$STATUS"
-assert_json_not_empty "Registration returns token" "$BODY" '.token'
-assert_json_not_empty "Registration returns user" "$BODY" '.user'
-
-# Store the JWT token for subsequent requests
-JWT_TOKEN=$(echo "$BODY" | jq -r '.token' 2>/dev/null || echo "")
-if [[ -z "$JWT_TOKEN" || "$JWT_TOKEN" == "null" ]]; then
-    fail "Could not extract JWT token from registration response"
-    echo "FATAL: Cannot continue without auth token"
-    exit 1
-fi
-pass "Extracted JWT token from registration"
-
-# Duplicate registration
-RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_REGISTER" \
-    -H "Content-Type: application/json" \
-    -d "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASS}\",\"display_name\":\"${TEST_NAME}\"}")
-STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /users/register (duplicate)" 422 "$STATUS"
-
-echo ""
-echo "=== 2b. Auth — Login ==="
-
-# Good login (returns JWT token)
-RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_LOGIN" \
-    -H "Content-Type: application/json" \
-    -d "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASS}\"}")
-BODY=$(echo "$RESP" | head -1)
-STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /users/login (valid)" 200 "$STATUS"
-assert_json_not_empty "Login returns token" "$BODY" '.token'
-
-# Update token from login response
-JWT_TOKEN=$(echo "$BODY" | jq -r '.token' 2>/dev/null || echo "$JWT_TOKEN")
-
-# Bad login
-RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_LOGIN" \
-    -H "Content-Type: application/json" \
-    -d "{\"email\":\"${TEST_EMAIL}\",\"password\":\"wrongpass\"}")
-STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /users/login (bad password)" 401 "$STATUS"
+clerk_create_user "$TEST_EMAIL" "$TEST_NAME"
+pass "Created Clerk user and API key: ${API_KEY:0:20}..."
 
 echo ""
 echo "=== 2c. Auth — API Key Management ==="
 
-# Create API key via JSON API (using JWT token auth)
+# Create a second API key via JSON API (using JWT token auth)
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_API_KEYS" \
     -H "Authorization: Bearer $JWT_TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"name": "test-key"}')
+    -d '{"name": "test-key-2"}')
 BODY=$(echo "$RESP" | head -1)
 STATUS=$(echo "$RESP" | tail -1)
-assert_status "POST /api-keys (create)" 200 "$STATUS"
+assert_status "POST /api-keys (create second key)" 200 "$STATUS"
 
-# Extract the API key from the JSON response
-API_KEY=$(echo "$BODY" | jq -r '.key' 2>/dev/null || echo "")
+# Extract the second API key ID for list/revoke tests
 API_KEY_ID=$(echo "$BODY" | jq -r '.id' 2>/dev/null || echo "")
-if [[ -z "$API_KEY" || "$API_KEY" == "null" ]]; then
-    fail "Could not extract API key from response"
-    echo "FATAL: Cannot continue without API key"
-    exit 1
+if [[ -z "$API_KEY_ID" || "$API_KEY_ID" == "null" ]]; then
+    fail "Could not extract API key ID from response"
 fi
-pass "Extracted API key: ${API_KEY:0:20}..."
+pass "Created second API key for management tests"
 
 # Register a default vault (required for all vault-scoped endpoints)
 RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE/vaults/register" \
@@ -627,73 +672,68 @@ assert_status "POST /notes (invalid JSON)" 400 "$STATUS"
 echo ""
 echo "=== 13. Multi-Tenant Isolation ==="
 
-# Register a second user via JSON API
+# Register a second user via Clerk
 TIMESTAMP2=$(date +%s%N)
 TEST_EMAIL2="other_${TIMESTAMP2}@example.com"
 
-RESP2=$(curl -s -w "\n%{http_code}" -X POST "$EP_REGISTER" \
-    -H "Content-Type: application/json" \
-    -d "{\"email\":\"${TEST_EMAIL2}\",\"password\":\"otherpass\",\"display_name\":\"Other User\"}")
-BODY2=$(echo "$RESP2" | head -1)
-STATUS2=$(echo "$RESP2" | tail -1)
+# Save current values
+_SAVED_JWT="$JWT_TOKEN"
+_SAVED_API_KEY="$API_KEY"
+_SAVED_CLERK_USER_ID="$CLERK_USER_ID"
 
-JWT_TOKEN2=$(echo "$BODY2" | jq -r '.token' 2>/dev/null || echo "")
+if clerk_create_user "$TEST_EMAIL2" "Other User"; then
+    USER2_API_KEY="$API_KEY"
 
-if [[ -n "$JWT_TOKEN2" && "$JWT_TOKEN2" != "null" ]]; then
-    # Create API key for second user using their JWT
-    RESP2=$(curl -s -w "\n%{http_code}" -X POST "$EP_API_KEYS" \
-        -H "Authorization: Bearer $JWT_TOKEN2" \
+    # Register a vault for user 2
+    RESP2=$(curl -s -w "\n%{http_code}" -X POST "$BASE/vaults/register" \
+        -H "Authorization: Bearer $USER2_API_KEY" \
         -H "Content-Type: application/json" \
-        -d '{"name": "other-key"}')
-    BODY2=$(echo "$RESP2" | head -1)
-    API_KEY2=$(echo "$BODY2" | jq -r '.key' 2>/dev/null || echo "")
-    USER2_API_KEY="$API_KEY2"
+        -d "{\"name\": \"Other Vault\", \"client_id\": \"other-${TIMESTAMP2}\"}")
 
-    if [[ -n "$API_KEY2" && "$API_KEY2" != "null" ]]; then
-        pass "Second user created with API key"
+    pass "Second user created with API key"
 
-        # Second user should NOT see first user's notes
-        RESP=$(curl -s -w "\n%{http_code}" "$EP_NOTES/Test/Hello%20World.md" \
-            -H "Authorization: Bearer $API_KEY2")
-        STATUS=$(echo "$RESP" | tail -1)
-        assert_status "User 2 cannot read User 1's note" 404 "$STATUS"
+    # Second user should NOT see first user's notes
+    RESP=$(curl -s -w "\n%{http_code}" "$EP_NOTES/Test/Hello%20World.md" \
+        -H "Authorization: Bearer $USER2_API_KEY")
+    STATUS=$(echo "$RESP" | tail -1)
+    assert_status "User 2 cannot read User 1's note" 404 "$STATUS"
 
-        # Second user's folders should be empty
-        RESP=$(curl -s -w "\n%{http_code}" "$EP_FOLDERS" \
-            -H "Authorization: Bearer $API_KEY2")
-        BODY=$(echo "$RESP" | head -1)
-        FOLDER_COUNT=$(echo "$BODY" | jq '.folders | length' 2>/dev/null || echo "0")
-        if [[ "$FOLDER_COUNT" -eq 0 ]]; then
-            pass "User 2 sees no folders (isolation works)"
-        else
-            fail "User 2 sees $FOLDER_COUNT folders (isolation broken!)"
-        fi
-
-        # Second user's tags should be empty
-        RESP=$(curl -s -w "\n%{http_code}" "$EP_TAGS" \
-            -H "Authorization: Bearer $API_KEY2")
-        BODY=$(echo "$RESP" | head -1)
-        TAG_COUNT=$(echo "$BODY" | jq '.tags | length' 2>/dev/null || echo "0")
-        if [[ "$TAG_COUNT" -eq 0 ]]; then
-            pass "User 2 sees no tags (isolation works)"
-        else
-            fail "User 2 sees $TAG_COUNT tags (isolation broken!)"
-        fi
+    # Second user's folders should be empty
+    RESP=$(curl -s -w "\n%{http_code}" "$EP_FOLDERS" \
+        -H "Authorization: Bearer $USER2_API_KEY")
+    BODY=$(echo "$RESP" | head -1)
+    FOLDER_COUNT=$(echo "$BODY" | jq '.folders | length' 2>/dev/null || echo "0")
+    if [[ "$FOLDER_COUNT" -eq 0 ]]; then
+        pass "User 2 sees no folders (isolation works)"
     else
-        fail "Could not create API key for second user"
-        USER2_API_KEY=""
+        fail "User 2 sees $FOLDER_COUNT folders (isolation broken!)"
+    fi
+
+    # Second user's tags should be empty
+    RESP=$(curl -s -w "\n%{http_code}" "$EP_TAGS" \
+        -H "Authorization: Bearer $USER2_API_KEY")
+    BODY=$(echo "$RESP" | head -1)
+    TAG_COUNT=$(echo "$BODY" | jq '.tags | length' 2>/dev/null || echo "0")
+    if [[ "$TAG_COUNT" -eq 0 ]]; then
+        pass "User 2 sees no tags (isolation works)"
+    else
+        fail "User 2 sees $TAG_COUNT tags (isolation broken!)"
     fi
 else
-    fail "Could not register second user — multi-tenant tests skipped"
+    fail "Could not create second Clerk user — multi-tenant tests skipped"
     USER2_API_KEY=""
 fi
+
+# Restore original user
+JWT_TOKEN="$_SAVED_JWT"
+API_KEY="$_SAVED_API_KEY"
+CLERK_USER_ID="$_SAVED_CLERK_USER_ID"
 
 # ============================================================================
 # SECTION 14: Web UI Routes — PENDING (Elixir web UI phase)
 # ============================================================================
-# The Elixir backend does not yet serve web UI pages (GET /login, GET /register,
-# GET /search, GET /settings, GET /logout). These will be added in a future phase.
-# All auth is via JSON API + JWT tokens / API keys.
+# The Elixir backend does not yet serve web UI pages (GET /search, GET /settings).
+# Auth is via Clerk JWTs + API keys.
 echo ""
 echo "=== 14. Web UI Routes — SKIPPED (pending Elixir web UI phase) ==="
 pass "Web UI tests skipped (Elixir backend is API-only)"
@@ -1310,23 +1350,21 @@ HAS_RL=$(echo "$DEEP_HEALTH" | jq '.checks | has("rate_limiter")' 2>/dev/null ||
 if [[ "$HAS_RL" == "true" ]]; then
     # Create a SEPARATE user for rate limit testing to avoid polluting the main
     # test user's rate limit counter (rate limiting is per user_id, not per key).
-    RL_EMAIL="rate-limit-test-$$@test.local"
-    RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_REGISTER" \
-        -H "Content-Type: application/json" \
-        -d "{\"email\":\"$RL_EMAIL\",\"password\":\"testpass\",\"display_name\":\"Rate Limit Test\"}")
-    BODY=$(echo "$RESP" | head -1)
-    RL_JWT=$(echo "$BODY" | jq -r '.token' 2>/dev/null || echo "")
+    RL_EMAIL="rate-limit-test-$$@example.com"
 
-    if [[ -n "$RL_JWT" && "$RL_JWT" != "null" ]]; then
-        RESP=$(curl -s -w "\n%{http_code}" -X POST "$EP_API_KEYS" \
-            -H "Authorization: Bearer $RL_JWT" \
-            -H "Content-Type: application/json" \
-            -d '{"name": "rate-test-key"}')
-        BODY=$(echo "$RESP" | head -1)
-        RATE_KEY=$(echo "$BODY" | jq -r '.key' 2>/dev/null || echo "")
+    _SAVED_JWT="$JWT_TOKEN"
+    _SAVED_API_KEY="$API_KEY"
+    _SAVED_CLERK_USER_ID="$CLERK_USER_ID"
+
+    if clerk_create_user "$RL_EMAIL" "Rate Limit Test"; then
+        RATE_KEY="$API_KEY"
     else
         RATE_KEY=""
     fi
+
+    JWT_TOKEN="$_SAVED_JWT"
+    API_KEY="$_SAVED_API_KEY"
+    CLERK_USER_ID="$_SAVED_CLERK_USER_ID"
 
     if [[ -n "$RATE_KEY" && "$RATE_KEY" != "null" ]]; then
         GOT_429=false
