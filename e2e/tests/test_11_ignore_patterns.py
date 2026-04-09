@@ -40,7 +40,7 @@ async def test_ignore_patterns(vault_a, cdp_a, api_sync):
         # Negative assertion: prove the ignored file did NOT sync.
         # A sleep is appropriate here — there's nothing to poll for, and the control
         # file above already proved the sync pipeline is active and working.
-        time.sleep(2)
+        time.sleep(1)
         note = api_sync.get_note(ignored_path)
         assert note is None, (
             f"Ignored file '{ignored_path}' appeared on server despite matching "

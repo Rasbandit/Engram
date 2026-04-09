@@ -26,11 +26,15 @@ async def test_offline_queue_replay(vault_a, cdp_a, api_sync):
     try:
         # Write 2 files — push attempts will fail and enqueue
         write_note(vault_a, path1, "# Offline Note 1\nQueued while offline")
-        time.sleep(0.7)  # Space apart to ensure separate push attempts
+        time.sleep(0.3)  # Space apart to ensure separate push attempts
         write_note(vault_a, path2, "# Offline Note 2\nAlso queued while offline")
 
         # Wait for push attempts to fail and queue
-        await asyncio.sleep(3)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if await cdp_a.get_queue_size() >= 2:
+                break
+            await asyncio.sleep(0.5)
 
         # Verify offline state
         assert await cdp_a.get_offline_status(), "Engine should be offline"
@@ -39,7 +43,7 @@ async def test_offline_queue_replay(vault_a, cdp_a, api_sync):
     finally:
         # MUST restore even if assertions fail — prevents cascade
         await cdp_a.restore_online()
-        await asyncio.sleep(3)
+        await cdp_a.wait_for_queue_drain(timeout=10)
 
     # Verify both notes reached the server
     api_sync.wait_for_note(path1, timeout=10)

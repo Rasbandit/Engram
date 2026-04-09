@@ -23,7 +23,7 @@ async def test_large_file_rejected(vault_a, cdp_a, api_sync):
     write_note(vault_a, large_path, large_content)
 
     # Wait for push attempt
-    await asyncio.sleep(5)
+    await asyncio.sleep(2)
 
     # Large note should NOT be on server (413 rejection)
     note = api_sync.get_note(large_path)

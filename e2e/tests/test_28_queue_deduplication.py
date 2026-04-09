@@ -32,8 +32,12 @@ async def test_queue_deduplication(vault_a, cdp_a, api_sync):
             write_note(vault_a, path, f"# Queue Dedup\nVersion {i}")
             time.sleep(0.7)
 
-        # Wait for all push attempts to fail and queue
-        await asyncio.sleep(3)
+        # Wait for push attempts to fail and queue
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if await cdp_a.get_queue_size() >= 1:
+                break
+            await asyncio.sleep(0.5)
 
         # Queue deduplicates by path (Map keyed by path). Should be 1 entry,
         # but timing between debounce fires can occasionally produce 2 if a
@@ -52,7 +56,7 @@ async def test_queue_deduplication(vault_a, cdp_a, api_sync):
     finally:
         # MUST restore online even if assertions fail — otherwise test_29+ cascade
         await cdp_a.restore_online()
-        await asyncio.sleep(3)
+        await cdp_a.wait_for_queue_drain(timeout=10)
 
     # Server should have the FINAL version
     note = api_sync.wait_for_note(path, timeout=10)
