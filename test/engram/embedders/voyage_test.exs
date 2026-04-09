@@ -50,7 +50,8 @@ defmodule Engram.Embedders.VoyageTest do
       Bypass.down(bypass)
 
       capture_log(fn ->
-        assert {:error, _} = Voyage.embed_texts(["hello"])
+        # Pass retry: false to avoid 3 retries with backoff against a dead server
+        assert {:error, _} = Voyage.embed_texts(["hello"], retry: false)
       end)
     end
 

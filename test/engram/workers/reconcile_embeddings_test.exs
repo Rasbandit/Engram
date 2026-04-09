@@ -49,14 +49,31 @@ defmodule Engram.Workers.ReconcileEmbeddingsTest do
       refute_enqueued(worker: EmbedNote)
     end
 
-    @tag timeout: 120_000
     test "batches at most 100 notes per vault" do
       user = insert(:user)
       vault = insert(:vault, user: user)
 
-      for i <- 1..105 do
-        insert(:note, user: user, vault: vault, path: "batch/note-#{i}.md", embed_hash: nil)
-      end
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      notes =
+        for i <- 1..105 do
+          %{
+            path: "batch/note-#{i}.md",
+            title: "Note #{i}",
+            content: "# Note #{i}",
+            folder: "batch",
+            tags: [],
+            version: 1,
+            content_hash: :crypto.hash(:sha256, "note-#{i}") |> Base.encode16(case: :lower),
+            embed_hash: nil,
+            user_id: user.id,
+            vault_id: vault.id,
+            created_at: now,
+            updated_at: now
+          }
+        end
+
+      Engram.Repo.insert_all("notes", notes, skip_tenant_check: true)
 
       assert :ok = perform_job(ReconcileEmbeddings, %{})
       jobs = all_enqueued(worker: EmbedNote)

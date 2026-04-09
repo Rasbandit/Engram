@@ -1,6 +1,6 @@
 defmodule EngramWeb.MissingFeaturesTest do
   @moduledoc """
-  TDD tests for features missing from the Elixir backend that test_plan.sh expects.
+  TDD tests for features that were originally missing from the Elixir backend.
   These tests should FAIL initially, then pass after implementation.
   """
   use EngramWeb.ConnCase, async: true
@@ -14,8 +14,7 @@ defmodule EngramWeb.MissingFeaturesTest do
   end
 
   # ---------------------------------------------------------------------------
-  # REST rename endpoint (test_plan.sh doesn't test this directly, but E2E does)
-  # ---------------------------------------------------------------------------
+  # REST rename endpoint  # ---------------------------------------------------------------------------
 
   describe "POST /notes/rename" do
     test "renames a note and returns updated metadata", %{conn: conn} do
@@ -79,8 +78,7 @@ defmodule EngramWeb.MissingFeaturesTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Note size limit (test_plan.sh Section 22)
-  # ---------------------------------------------------------------------------
+  # Note size limit  # ---------------------------------------------------------------------------
 
   describe "note size limit" do
     test "rejects notes over 10MB with 413", %{conn: conn} do
@@ -98,8 +96,7 @@ defmodule EngramWeb.MissingFeaturesTest do
   end
 
   # ---------------------------------------------------------------------------
-  # CORS (test_plan.sh Section 17e-g)
-  # ---------------------------------------------------------------------------
+  # CORS  # ---------------------------------------------------------------------------
 
   describe "CORS" do
     test "OPTIONS on /notes returns CORS headers", %{conn: conn} do
@@ -127,8 +124,7 @@ defmodule EngramWeb.MissingFeaturesTest do
   end
 
   # ---------------------------------------------------------------------------
-  # API key revocation (test_plan.sh Section 20)
-  # ---------------------------------------------------------------------------
+  # API key revocation  # ---------------------------------------------------------------------------
 
   describe "DELETE /api-keys/:id" do
     test "revokes an API key", %{conn: conn, user: user} do

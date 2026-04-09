@@ -6,11 +6,8 @@ defmodule EngramWeb.Plugs.VaultPlugTest do
   alias EngramWeb.Plugs.VaultPlug
 
   setup do
-    {:ok, user} =
-      Accounts.register_user(%{email: "vaultplug@test.com", password: "password123"})
-
-    {:ok, other_user} =
-      Accounts.register_user(%{email: "othervault@test.com", password: "password123"})
+    user = insert(:user)
+    other_user = insert(:user)
 
     {:ok, vault} =
       Vaults.create_vault(user, %{name: "My Vault", client_id: "client-abc"})
@@ -39,8 +36,7 @@ defmodule EngramWeb.Plugs.VaultPlugTest do
     end
 
     test "returns 404 when user has no vaults" do
-      {:ok, new_user} =
-        Accounts.register_user(%{email: "novault@test.com", password: "password123"})
+      new_user = insert(:user)
 
       conn =
         conn_with_user(new_user)

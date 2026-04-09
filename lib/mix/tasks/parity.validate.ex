@@ -214,7 +214,7 @@ defmodule Mix.Tasks.Parity.Validate do
 
   defp validate_pipeline do
     check("full pipeline (note → embed → upsert → search)", fn ->
-      alias Engram.{Accounts, Notes}
+      alias Engram.Notes
       alias Engram.Vector.Qdrant
 
       # Use a dedicated plain collection (no binary quant) for the pipeline test
@@ -234,11 +234,11 @@ defmodule Mix.Tasks.Parity.Validate do
 
       try do
         {:ok, user} =
-          Accounts.register_user(%{
+          %Engram.Accounts.User{
             email: "parity-pipeline-#{System.system_time(:second)}@test.local",
-            password: "paritytest123456",
             display_name: "Parity Pipeline"
-          })
+          }
+          |> Engram.Repo.insert(skip_tenant_check: true)
 
         {:ok, vault} = Engram.Vaults.create_vault(user, %{name: "Parity Pipeline"})
 
@@ -298,7 +298,7 @@ defmodule Mix.Tasks.Parity.Validate do
   end
 
   defp validate_embed_tracking do
-    alias Engram.{Accounts, Notes, Notes.Note, Repo}
+    alias Engram.{Notes, Notes.Note, Repo}
     alias Engram.Vector.Qdrant
     alias Engram.Workers.EmbedNote
 
@@ -320,11 +320,11 @@ defmodule Mix.Tasks.Parity.Validate do
 
     try do
       {:ok, user} =
-        Accounts.register_user(%{
+        %Engram.Accounts.User{
           email: "parity-embed-#{System.system_time(:second)}@test.local",
-          password: "paritytest123456",
           display_name: "Parity Embed Hash"
-        })
+        }
+        |> Engram.Repo.insert(skip_tenant_check: true)
 
       {:ok, vault} = Engram.Vaults.create_vault(user, %{name: "Parity Embed Hash"})
 

@@ -1,7 +1,6 @@
 defmodule EngramWeb.MultiTenantTest do
   @moduledoc """
   Multi-tenant isolation tests — verifies that users cannot access each other's data.
-  Mirrors test_plan.sh Section 13.
   """
   use EngramWeb.ConnCase, async: true
 

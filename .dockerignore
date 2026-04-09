@@ -1,0 +1,16 @@
+# Build context exclusions — keep Docker build context small and fast
+.git
+.github
+_build
+deps
+node_modules
+frontend/node_modules
+.elixir_ls
+.lexical
+e2e
+plugin-src
+ci-artifacts
+docs
+*.md
+!README.md
+.worktrees

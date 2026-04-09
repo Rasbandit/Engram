@@ -270,10 +270,7 @@ All endpoints except `/health`, `/register`, and `/login` require `Authorization
 # Unit tests
 mix test
 
-# Integration tests (requires Docker Compose stack)
-bash test_plan.sh
-
-# E2E sync tests
+# E2E sync tests (requires Docker Compose stack + Obsidian)
 python3 -m pytest e2e/tests/ -v
 ```
 

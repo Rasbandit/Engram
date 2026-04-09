@@ -4,13 +4,9 @@ defmodule EngramWeb.DeviceAuthControllerTest do
   alias Engram.Auth.DeviceFlow
 
   defp create_authed_conn(%{conn: conn}) do
-    resp =
-      conn
-      |> post("/api/users/register", %{email: "device@test.com", password: "password123"})
-      |> json_response(200)
-
-    authed_conn = put_req_header(conn, "authorization", "Bearer #{resp["token"]}")
-    user = Engram.Accounts.get_user(resp["user"]["id"])
+    user = insert(:user)
+    jwt = Engram.Accounts.generate_jwt(user)
+    authed_conn = put_req_header(conn, "authorization", "Bearer #{jwt}")
 
     %{conn: conn, authed_conn: authed_conn, user: user}
   end

@@ -3,86 +3,9 @@ defmodule Engram.AccountsTest do
 
   alias Engram.Accounts
 
-  describe "register_user/1" do
-    test "creates user with valid attrs" do
-      assert {:ok, user} =
-               Accounts.register_user(%{
-                 email: "test@example.com",
-                 password: "password123"
-               })
-
-      assert user.email == "test@example.com"
-      assert user.password_hash != nil
-    end
-
-    test "rejects duplicate email" do
-      Accounts.register_user(%{email: "dup@example.com", password: "password123"})
-
-      assert {:error, changeset} =
-               Accounts.register_user(%{email: "dup@example.com", password: "password123"})
-
-      assert errors_on(changeset).email != nil
-    end
-
-    test "rejects short password" do
-      assert {:error, changeset} =
-               Accounts.register_user(%{email: "x@y.com", password: "short"})
-
-      assert errors_on(changeset).password != nil
-    end
-  end
-
-  describe "authenticate_user/2" do
-    test "returns user with correct credentials" do
-      {:ok, user} =
-        Accounts.register_user(%{email: "auth@test.com", password: "password123"})
-
-      assert {:ok, authed_user} = Accounts.authenticate_user("auth@test.com", "password123")
-      assert authed_user.id == user.id
-    end
-
-    test "rejects wrong password" do
-      Accounts.register_user(%{email: "auth2@test.com", password: "password123"})
-
-      assert {:error, :invalid_credentials} =
-               Accounts.authenticate_user("auth2@test.com", "wrong")
-    end
-
-    test "rejects unknown email" do
-      assert {:error, :invalid_credentials} =
-               Accounts.authenticate_user("nobody@test.com", "password123")
-    end
-
-    test "unknown email takes comparable time to wrong password (timing attack protection)" do
-      Accounts.register_user(%{email: "timing@test.com", password: "password123"})
-
-      # Wrong password (does real hash verification)
-      {wrong_pw_time, _} =
-        :timer.tc(fn ->
-          Accounts.authenticate_user("timing@test.com", "wrongpassword")
-        end)
-
-      # Unknown email (should also do dummy hash work via no_user_verify)
-      {unknown_time, _} =
-        :timer.tc(fn ->
-          Accounts.authenticate_user("nonexistent@test.com", "password123")
-        end)
-
-      # Argon2 hashing takes ~100-400ms. If unknown email skips hash work,
-      # it'll be <10ms (just a DB query). Require at least 50% of real hash time.
-      min_expected = div(wrong_pw_time, 2)
-
-      assert unknown_time > min_expected,
-             "unknown email took #{unknown_time}µs vs wrong password #{wrong_pw_time}µs — " <>
-               "missing Argon2.no_user_verify/0"
-    end
-  end
-
   describe "API keys" do
     setup do
-      {:ok, user} =
-        Accounts.register_user(%{email: "apikey@test.com", password: "password123"})
-
+      user = insert(:user)
       %{user: user}
     end
 
@@ -119,8 +42,7 @@ defmodule Engram.AccountsTest do
 
   describe "find_or_create_by_clerk_id/2" do
     test "returns existing user when clerk_id matches" do
-      {:ok, user} =
-        Accounts.register_user(%{email: "existing@test.com", password: "password123"})
+      user = insert(:user, email: "existing@test.com")
 
       # Manually set clerk_id (simulating a previous Clerk login)
       user
@@ -137,8 +59,7 @@ defmodule Engram.AccountsTest do
     end
 
     test "links clerk_id to existing user matched by email" do
-      {:ok, user} =
-        Accounts.register_user(%{email: "link@test.com", password: "password123"})
+      user = insert(:user, email: "link@test.com")
 
       assert {:ok, linked} =
                Accounts.find_or_create_by_clerk_id("clerk_user_link", %{
@@ -157,12 +78,10 @@ defmodule Engram.AccountsTest do
 
       assert created.clerk_id == "clerk_user_new"
       assert created.email == "brand_new@test.com"
-      assert created.password_hash == nil
     end
 
     test "returns existing clerk user even if email changed in Clerk" do
-      {:ok, user} =
-        Accounts.register_user(%{email: "old@test.com", password: "password123"})
+      user = insert(:user, email: "old@test.com")
 
       user
       |> Ecto.Changeset.change(%{clerk_id: "clerk_stable"})
@@ -182,8 +101,7 @@ defmodule Engram.AccountsTest do
 
   describe "JWT" do
     test "generate and verify token round-trip" do
-      {:ok, user} =
-        Accounts.register_user(%{email: "jwt@test.com", password: "password123"})
+      user = insert(:user)
 
       token = Accounts.generate_jwt(user)
       assert {:ok, claims} = Accounts.verify_jwt(token)

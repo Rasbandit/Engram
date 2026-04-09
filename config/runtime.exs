@@ -180,6 +180,13 @@ if config_env() == :prod do
     ],
     secret_key_base: secret_key_base
 
+  # CORS and WebSocket origin — only lock down when PHX_HOST is explicitly set.
+  # Without it (CI, local dev), defaults apply: CORS allows "*", WS allows all.
+  if System.get_env("PHX_HOST") do
+    config :engram, :cors_origin, "https://#{host}"
+    config :engram, :websocket_check_origin, ["https://#{host}", "app://obsidian.md"]
+  end
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key

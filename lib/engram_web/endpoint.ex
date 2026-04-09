@@ -3,9 +3,18 @@ defmodule EngramWeb.Endpoint do
 
   socket "/socket", EngramWeb.UserSocket,
     websocket: [
-      check_origin: Application.compile_env(:engram, :websocket_check_origin, false)
+      check_origin: {__MODULE__, :check_origin, []}
     ],
     longpoll: false
+
+  @doc false
+  def check_origin(origin) do
+    case Application.get_env(:engram, :websocket_check_origin, false) do
+      false -> true
+      list when is_list(list) -> origin in list
+      _ -> false
+    end
+  end
 
   # Serve at "/" the static files from "priv/static" directory.
   #

@@ -4,7 +4,6 @@ defmodule Engram.Factory do
   def user_factory do
     %Engram.Accounts.User{
       email: sequence(:email, &"user#{&1}@test.com"),
-      password_hash: Argon2.hash_pwd_salt("password123"),
       display_name: sequence(:display_name, &"User #{&1}"),
       clerk_id: nil
     }

@@ -2,7 +2,7 @@
 #
 # Always invoke with explicit project name for stable container names:
 #   docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
-#   ENGRAM_TEST_URL=http://localhost:8100/api bash test_plan.sh
+#   python3 -m pytest e2e/tests/ -v  # E2E tests run against this stack
 #   docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans
 #
 # Container names: engram-ci-engram-1, engram-ci-postgres-1, etc.
@@ -21,6 +21,8 @@ services:
       args:
         VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:-}
         NODE_IMAGE: ${LOCAL_REGISTRY:-docker.io}/node:20-slim
+        BUILDER_IMAGE: ${LOCAL_REGISTRY:-docker.io}/hexpm/elixir:1.17.3-erlang-27.1.2-debian-bookworm-20241202-slim
+        RUNNER_IMAGE: ${LOCAL_REGISTRY:-docker.io}/debian:bookworm-20241202-slim
     ports:
       - "8100:4000"
     environment:

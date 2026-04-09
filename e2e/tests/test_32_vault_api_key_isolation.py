@@ -14,18 +14,28 @@ Note: WebSocket/SyncChannel API key restriction is covered by unit tests
 (requires socket-level testing not available in HTTP E2E).
 """
 
+import logging
 import os
 import secrets
 import subprocess
 import time
 
 import pytest
-import requests
 
-from helpers.api import ApiClient, register_user
+from helpers.api import ApiClient
+from helpers.clerk import ClerkClient
+from helpers.clerk_auth import provision_clerk_user
+
+logger = logging.getLogger(__name__)
 
 API_URL = os.environ.get("ENGRAM_API_URL", "http://localhost:8100/api")
 CI_POSTGRES_CONTAINER = os.environ.get("CI_POSTGRES_CONTAINER", "engram-postgres-1")
+CLERK_SECRET = os.environ.get("E2E_CLERK_SECRET_KEY", "")
+
+pytestmark = pytest.mark.skipif(
+    not CLERK_SECRET,
+    reason="E2E_CLERK_SECRET_KEY not set — Clerk auth required for vault isolation tests",
+)
 
 
 def _set_vault_limit(user_id: int, limit: int) -> None:
@@ -45,59 +55,44 @@ def _set_vault_limit(user_id: int, limit: int) -> None:
         raise RuntimeError(f"Failed to set vault limit: {result.stderr}")
 
 
-def _register_test_user(base: str, ts: int):
-    """Register a user and return (user_id, jwt, unrestricted ApiClient)."""
-    email = f"e2e-vault-iso-{ts}@test.local"
+def _register_test_user(ts: int):
+    """Create a Clerk user and return (user_id, api_client, clerk_client, clerk_user_id).
+
+    Uses Clerk Backend API to create the user, then provisions them
+    in Engram via the real auth pipeline (Clerk JWT → find_or_create).
+    """
+    clerk_client = ClerkClient(CLERK_SECRET)
+    email = f"e2e-vault-iso-{ts}@example.com"
     password = secrets.token_urlsafe(32)
 
-    resp = requests.post(
-        f"{base}/users/register",
-        json={"email": email, "password": password},
-        timeout=10,
+    clerk_user_id, clerk_auth, api_key = provision_clerk_user(
+        clerk_client, email, password, API_URL,
     )
-    if resp.status_code == 422:
-        resp = requests.post(
-            f"{base}/users/login",
-            json={"email": email, "password": password},
-            timeout=10,
-        )
-    resp.raise_for_status()
-    data = resp.json()
-    jwt = data["token"]
-    user_id = data["user"]["id"]
 
-    # Create unrestricted API key
-    resp = requests.post(
-        f"{base}/api-keys",
-        json={"name": "unrestricted-key"},
-        headers={"Authorization": f"Bearer {jwt}"},
-        timeout=10,
-    )
+    # Hit /me to get the Engram user_id (needed for SQL vault limit override)
+    api = ApiClient(API_URL, api_key)
+    resp = api.session.get(f"{API_URL}/me", timeout=10)
     resp.raise_for_status()
-    unrestricted_key = resp.json()["key"]
-    unrestricted_api = ApiClient(API_URL, unrestricted_key)
+    user_id = resp.json()["user"]["id"]
 
-    return user_id, jwt, unrestricted_api
+    return user_id, api, clerk_client, clerk_user_id
 
 
 @pytest.fixture(scope="module")
 def vault_setup():
-    """Create a user with two vaults for multi-vault isolation testing.
+    """Create a Clerk user with two vaults for multi-vault isolation testing.
 
     Workflow:
-    1. Register user (default: max_vaults=1)
+    1. Create Clerk user (default: max_vaults=1)
     2. Create vault A (succeeds — first vault)
     3. Verify vault B blocked by limit (402)
     4. Lift limit via user_overrides SQL
     5. Create vault B (succeeds now)
     6. Seed notes in both vaults
-
-    Returns dict with vault IDs, API clients, and JWT.
     """
     ts = int(time.time())
-    base = API_URL.rstrip("/")
 
-    user_id, jwt, unrestricted_api = _register_test_user(base, ts)
+    user_id, unrestricted_api, clerk_client, clerk_user_id = _register_test_user(ts)
 
     # Create vault A (within default limit of 1)
     vault_a_data, status = unrestricted_api.register_vault("Vault A", f"client-a-{ts}")
@@ -128,8 +123,7 @@ def vault_setup():
     api_b.create_note("E2E/VaultB-Secret.md", "# Vault B Secret\nOnly for vault B")
     api_b.wait_for_note("E2E/VaultB-Secret.md", timeout=10)
 
-    return {
-        "jwt": jwt,
+    yield {
         "user_id": user_id,
         "unrestricted_api": unrestricted_api,
         "vault_a_id": vault_a_id,
@@ -137,6 +131,12 @@ def vault_setup():
         "api_vault_a": api_a,
         "api_vault_b": api_b,
     }
+
+    # Cleanup: delete Clerk user after tests
+    try:
+        clerk_client.delete_user(clerk_user_id)
+    except Exception as e:
+        logger.warning("Failed to cleanup Clerk user %s: %s", clerk_user_id, e)
 
 
 # ---------------------------------------------------------------------------

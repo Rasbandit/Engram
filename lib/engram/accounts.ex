@@ -1,6 +1,6 @@
 defmodule Engram.Accounts do
   @moduledoc """
-  Account management: user registration, authentication, API keys, JWT.
+  Account management: Clerk auth, API keys, JWT.
   """
 
   import Ecto.Query
@@ -8,31 +8,6 @@ defmodule Engram.Accounts do
   alias Engram.Accounts.{User, ApiKey}
 
   @api_key_prefix "engram_"
-
-  # ── User Registration & Auth ────────────────────────────────────
-
-  def register_user(attrs) do
-    %User{}
-    |> User.registration_changeset(attrs)
-    |> Repo.insert(skip_tenant_check: true)
-  end
-
-  def authenticate_user(email, password) do
-    user = Repo.one(from(u in User, where: u.email == ^email), skip_tenant_check: true)
-
-    case user do
-      nil ->
-        Argon2.no_user_verify()
-        {:error, :invalid_credentials}
-
-      user ->
-        if Argon2.verify_pass(password, user.password_hash) do
-          {:ok, user}
-        else
-          {:error, :invalid_credentials}
-        end
-    end
-  end
 
   def get_user!(id), do: Repo.get!(User, id, skip_tenant_check: true)
 

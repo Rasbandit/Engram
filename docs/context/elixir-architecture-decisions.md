@@ -28,7 +28,6 @@ Complete decision audit for the Engram Elixir/Phoenix architecture. Captures wha
 | **Markdown parsing** | **Earmark AST + custom walker** | Earmark provides full AST, chunking logic reimplemented (~150 LOC) |
 | **MCP server** | **Hermes MCP** (Elixir) | Young but functional, working production examples exist |
 | **Job queue** | **Oban** (PostgreSQL-backed) | Durable jobs survive crashes/deploys, built-in retry/backoff/dedup/rate-limiting, no new infra (uses existing Postgres) |
-| **Password hashing** | **Argon2** (argon2_elixir) | OWASP recommended, memory-hard (resists GPU attacks), Comeonin integration |
 | **Testing** | **ExUnit + ExMachina + Mox + Bypass** | `async: true` parallel tests, Ecto.Sandbox per-test transactions |
 | **Deployment** | **`fly launch`** (auto-detects Phoenix) | Generates Dockerfile, fly.toml, clustering config automatically |
 | **Observability** | **PromEx + Sentry** | PromEx auto-instruments Phoenix/Ecto/Oban/BEAM metrics; Sentry captures errors with stack traces. Both free tier. |
@@ -64,7 +63,6 @@ Complete decision audit for the Engram Elixir/Phoenix architecture. Captures wha
 | **Ecto** | 3.12+ | Database layer, migrations, schemas | Production |
 | **Oban** | 2.18+ | PostgreSQL-backed job queue | Production |
 | **Joken** | 2.6+ | JWT sign/verify | Production |
-| **argon2_elixir** | 4.1+ | Password hashing (Argon2id via Comeonin) | Production |
 | **ExAws** + **ExAws.S3** | 2.6+ | S3 client for Tigris | Production |
 | **Hammer** | 6.1+ | Rate limiting (token bucket) | Production |
 | **Redix** | 1.2+ | Redis client (optional) | Production |

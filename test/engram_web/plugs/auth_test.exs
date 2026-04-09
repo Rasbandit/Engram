@@ -5,9 +5,7 @@ defmodule EngramWeb.Plugs.AuthTest do
   alias EngramWeb.Plugs.Auth
 
   setup do
-    {:ok, user} =
-      Accounts.register_user(%{email: "plug@test.com", password: "password123"})
-
+    user = insert(:user)
     {:ok, raw_key, _api_key} = Accounts.create_api_key(user, "test")
     jwt = Accounts.generate_jwt(user)
 
@@ -64,9 +62,7 @@ defmodule EngramWeb.Plugs.AuthTest do
   end
 
   test "returns 401 for JWT referencing deleted user" do
-    {:ok, user} =
-      Accounts.register_user(%{email: "deleted@test.com", password: "password123"})
-
+    user = insert(:user)
     jwt = Accounts.generate_jwt(user)
 
     # Delete the user directly from the DB
@@ -117,8 +113,7 @@ defmodule EngramWeb.Plugs.AuthTest do
     end
 
     test "authenticates with Clerk JWT and finds existing user by clerk_id" do
-      {:ok, user} =
-        Accounts.register_user(%{email: "existing_clerk@test.com", password: "password123"})
+      user = insert(:user, email: "existing_clerk@test.com")
 
       user
       |> Ecto.Changeset.change(%{clerk_id: "clerk_existing"})

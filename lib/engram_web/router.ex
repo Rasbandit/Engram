@@ -10,6 +10,10 @@ defmodule EngramWeb.Router do
     }
   end
 
+  pipeline :rate_limit_auth do
+    plug EngramWeb.Plugs.RateLimit, limit: 10, period: 60_000
+  end
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :put_secure_browser_headers
@@ -24,14 +28,15 @@ defmodule EngramWeb.Router do
 
   # All API routes under /api prefix
   scope "/api", EngramWeb do
-    # Public endpoints (no auth required)
+    # Public endpoints (no auth required, no rate limit)
     pipe_through :api
     get "/health", HealthController, :index
     get "/health/deep", HealthController, :deep
-    post "/users/register", AuthController, :register
-    post "/users/login", AuthController, :login
+  end
 
-    # Device flow (unauthenticated — plugin initiates and polls)
+  scope "/api", EngramWeb do
+    # Device flow — unauthenticated, rate limited
+    pipe_through [:api, :rate_limit_auth]
     post "/auth/device", DeviceAuthController, :start
     post "/auth/device/token", DeviceAuthController, :token
     post "/auth/token/refresh", DeviceAuthController, :refresh
@@ -68,6 +73,7 @@ defmodule EngramWeb.Router do
 
   # Vault-scoped authenticated endpoints (VaultPlug resolves current_vault)
   scope "/api", EngramWeb do
+    # TODO: add EngramWeb.Plugs.RequireActiveSubscription when billing goes live
     pipe_through [:api, EngramWeb.Plugs.Auth, EngramWeb.Plugs.VaultPlug]
 
     # Notes CRUD

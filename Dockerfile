@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Multi-stage build: compile release in builder, run in minimal image
 ARG ELIXIR_VERSION=1.17.3
 ARG OTP_VERSION=27.1.2
@@ -12,7 +13,8 @@ FROM ${NODE_IMAGE} AS frontend
 
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 COPY frontend/ ./
 ARG VITE_CLERK_PUBLISHABLE_KEY=""
 ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
@@ -21,41 +23,46 @@ RUN npm run build
 # ─── Elixir build ────────────────────────────────────────────────────────
 FROM ${BUILDER_IMAGE} AS builder
 
-# Install build tools
-RUN apt-get update -y && apt-get install -y build-essential git \
-    && apt-get clean && rm -f /var/lib/apt/lists/*_*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update -y && apt-get install -y build-essential git
 
 WORKDIR /app
 
-# Install hex + rebar
 RUN mix local.hex --force && mix local.rebar --force
 
 ENV MIX_ENV="prod"
 
-# Fetch deps
+# Fetch deps — cache mount means only changed deps are re-downloaded
 COPY mix.exs mix.lock ./
-RUN mix deps.get --only $MIX_ENV
+RUN --mount=type=cache,target=/app/deps,id=mix-deps \
+    mix deps.get --only $MIX_ENV
 
-# Compile deps
-RUN mkdir config
+# Compile deps — cache mount preserves compiled artifacts between builds
+RUN mkdir -p config
 COPY config/config.exs config/runtime.exs config/prod.exs config/
-RUN mix deps.compile
+RUN --mount=type=cache,target=/app/deps,id=mix-deps \
+    --mount=type=cache,target=/app/_build,id=mix-build \
+    mix deps.compile
 
-# Build release
+# Compile app code
 COPY priv priv
 COPY --from=frontend /priv/static/app priv/static/app
 COPY lib lib
-RUN mix compile
-
-# Generate release
 COPY config/runtime.exs config/
-RUN mix release
+
+# Build release — copy from cache mounts, compile, release, then copy out
+RUN --mount=type=cache,target=/app/deps,id=mix-deps \
+    --mount=type=cache,target=/app/_build,id=mix-build \
+    mix compile && mix release && \
+    cp -r /app/_build/prod/rel/engram /app/_release
 
 # ─── Runner ───────────────────────────────────────────────────────────────
 FROM ${RUNNER_IMAGE}
 
-RUN apt-get update -y && apt-get install -y libstdc++6 openssl libncurses5 locales ca-certificates curl \
-    && apt-get clean && rm -f /var/lib/apt/lists/*_*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update -y && apt-get install -y libstdc++6 openssl libncurses5 locales ca-certificates curl
 
 # Set locale
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
@@ -64,8 +71,7 @@ ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
 WORKDIR /app
 RUN chown nobody /app
 
-# Run migrations then start the app
-COPY --from=builder --chown=nobody:root /app/_build/prod/rel/engram ./
+COPY --from=builder --chown=nobody:root /app/_release ./
 
 USER nobody
 
@@ -73,5 +79,4 @@ EXPOSE 4000
 
 ENV PHX_SERVER=true
 
-# Run migrations then start server
 CMD /app/bin/engram eval "Engram.Release.migrate()" && exec /app/bin/engram start

@@ -29,13 +29,18 @@ defmodule Engram.Embedders.Voyage do
       Application.get_env(:engram, :voyage_api_key) ||
         raise "VOYAGE_API_KEY not configured (set VOYAGE_API_KEY env var)"
 
+    {req_opts, _} = Keyword.split(opts, [:retry, :max_retries, :receive_timeout])
+
     result =
-      Req.post("#{url}/v1/embeddings",
-        json: %{input: texts, model: model},
-        headers: [{"authorization", "Bearer #{api_key}"}],
-        receive_timeout: 30_000,
-        retry: :transient,
-        max_retries: 3
+      Req.post(
+        "#{url}/v1/embeddings",
+        [
+          json: %{input: texts, model: model},
+          headers: [{"authorization", "Bearer #{api_key}"}],
+          receive_timeout: 30_000,
+          retry: :transient,
+          max_retries: 3
+        ] ++ req_opts
       )
 
     case result do

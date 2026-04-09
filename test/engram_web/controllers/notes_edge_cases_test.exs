@@ -1,7 +1,6 @@
 defmodule EngramWeb.NotesEdgeCasesTest do
   @moduledoc """
-  Integration-level tests for notes edge cases, response shapes, and contract compliance.
-  Mirrors test_plan.sh Sections 12, 23-26 adapted for the Elixir API.
+  Tests for notes edge cases, response shapes, and contract compliance.
   """
   use EngramWeb.ConnCase, async: true
 
@@ -14,8 +13,7 @@ defmodule EngramWeb.NotesEdgeCasesTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Edge cases (test_plan.sh Section 12)
-  # ---------------------------------------------------------------------------
+  # Edge cases  # ---------------------------------------------------------------------------
 
   describe "edge cases" do
     test "empty content is accepted", %{conn: conn} do
@@ -101,8 +99,7 @@ defmodule EngramWeb.NotesEdgeCasesTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Root-level note + title fallback (test_plan.sh Section 24)
-  # ---------------------------------------------------------------------------
+  # Root-level note + title fallback  # ---------------------------------------------------------------------------
 
   describe "root-level note + title fallback" do
     test "root-level note has empty folder", %{conn: conn} do
@@ -155,8 +152,7 @@ defmodule EngramWeb.NotesEdgeCasesTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Tag parsing edge cases (test_plan.sh Section 25)
-  # ---------------------------------------------------------------------------
+  # Tag parsing edge cases  # ---------------------------------------------------------------------------
 
   describe "tag parsing" do
     test "comma-separated tags in frontmatter", %{conn: conn} do
@@ -200,8 +196,7 @@ defmodule EngramWeb.NotesEdgeCasesTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Changes response shape (test_plan.sh Section 23)
-  # ---------------------------------------------------------------------------
+  # Changes response shape  # ---------------------------------------------------------------------------
 
   describe "changes response shape" do
     test "changes entries have required fields", %{conn: conn} do
@@ -241,8 +236,7 @@ defmodule EngramWeb.NotesEdgeCasesTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Delete idempotency (test_plan.sh Section 26)
-  # ---------------------------------------------------------------------------
+  # Delete idempotency  # ---------------------------------------------------------------------------
 
   describe "delete idempotency" do
     test "deleting an already-deleted note returns 200", %{conn: conn} do

@@ -22,9 +22,13 @@ defmodule EngramWeb.Plugs.CORS do
 
   defp put_cors_headers(conn) do
     conn
-    |> put_resp_header("access-control-allow-origin", "*")
+    |> put_resp_header("access-control-allow-origin", cors_origin())
     |> put_resp_header("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS")
     |> put_resp_header("access-control-allow-headers", "authorization, content-type")
     |> put_resp_header("access-control-max-age", "86400")
+  end
+
+  defp cors_origin do
+    Application.get_env(:engram, :cors_origin, "*")
   end
 end

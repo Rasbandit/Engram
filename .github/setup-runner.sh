@@ -35,22 +35,27 @@ else
   echo "Docker already trusts ${DOCKER_REGISTRY}"
 fi
 
-# ── Python packages (pytest, playwright, requests) ───────────────────────
-echo "Installing Python packages..."
-pip3 install --upgrade 'playwright>=1.48' pytest requests
-
-echo "Installing Playwright Chromium..."
-python3 -m playwright install --with-deps chromium
-
 # ── Seed local Docker registry ───────────────────────────────────────────
+# (Run before Python/Playwright so failures there don't block image seeding)
 echo "Pushing CI images to local Docker registry (${DOCKER_REGISTRY})..."
-for img in postgres:16-alpine qdrant/qdrant:v1.17.1 node:20-slim; do
+ELIXIR_IMAGE="hexpm/elixir:1.17.3-erlang-27.1.2-debian-bookworm-20241202-slim"
+RUNNER_IMAGE="debian:bookworm-20241202-slim"
+for img in postgres:16-alpine qdrant/qdrant:v1.17.1 node:20-slim "$ELIXIR_IMAGE" "$RUNNER_IMAGE"; do
   local_tag="${DOCKER_REGISTRY}/${img}"
   docker pull "$img"
   docker tag "$img" "$local_tag"
   docker push "$local_tag"
   echo "  ✓ ${local_tag}"
 done
+
+# ── Python packages (pytest, playwright, requests) ───────────────────────
+echo "Installing Python packages..."
+pip3 install --upgrade 'playwright>=1.48' pytest requests
+
+echo "Installing Playwright Chromium..."
+# Install browser only — skip --with-deps (requires apt, unavailable on Fedora).
+# Playwright deps (nss, atk, etc.) should be installed via dnf separately.
+python3 -m playwright install chromium
 
 echo "Configuring npm to use local Verdaccio registry..."
 npm config set registry "$NPM_REGISTRY"
