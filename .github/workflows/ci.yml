@@ -331,3 +331,15 @@ jobs:
             | tail -n +4 | xargs -r docker rmi 2>/dev/null || true
           # Clean up ci-artifacts from this run
           rm -rf ci-artifacts/
+
+  ci:
+    if: always()
+    needs: [unit-tests, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required jobs
+        run: |
+          if [ "${{ needs.unit-tests.result }}" != "success" ] || [ "${{ needs.e2e.result }}" != "success" ]; then
+            echo "Required jobs failed: unit-tests=${{ needs.unit-tests.result }}, e2e=${{ needs.e2e.result }}"
+            exit 1
+          fi
