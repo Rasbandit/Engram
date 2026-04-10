@@ -291,20 +291,14 @@ jobs:
       # ------------------------------------------------------------------
       # Cleanup — MUST kill everything, even on cancel/failure
       # ------------------------------------------------------------------
-      - name: Collect logs on failure
+      - name: Collect failure logs
         if: failure()
         run: |
           mkdir -p ci-artifacts
           docker compose -f docker-compose.ci.yml -p engram-ci logs > ci-artifacts/docker-compose.log 2>&1
-          # Include background build logs
-          cp /tmp/ci-stack.log ci-artifacts/ 2>/dev/null || true
-          cp /tmp/ci-plugin.log ci-artifacts/ 2>/dev/null || true
-          cp /tmp/ci-playwright.log ci-artifacts/ 2>/dev/null || true
-          cp /tmp/ci-ollama.log ci-artifacts/ 2>/dev/null || true
+          cp /tmp/ci-stack.log /tmp/ci-plugin.log /tmp/ci-playwright.log /tmp/ci-ollama.log ci-artifacts/ 2>/dev/null || true
           for v in /tmp/e2e-vault-*; do
-            if [ -d "$v" ]; then
-              tar czf "ci-artifacts/$(basename $v).tar.gz" -C /tmp "$(basename $v)" 2>/dev/null || true
-            fi
+            [ -d "$v" ] && tar czf "ci-artifacts/$(basename $v).tar.gz" -C /tmp "$(basename $v)" 2>/dev/null || true
           done
 
       - name: Upload failure artifacts
