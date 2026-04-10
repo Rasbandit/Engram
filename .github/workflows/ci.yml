@@ -281,6 +281,33 @@ jobs:
           exit 1
 
       # ------------------------------------------------------------------
+      # Report E2E status back to the plugin repo (dispatch only)
+      # ------------------------------------------------------------------
+      - name: Report E2E status to plugin repo
+        if: always() && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT }}
+        run: |
+          PLUGIN_SHA="${{ github.event.client_payload.plugin_ref }}"
+          if [ -z "$PLUGIN_SHA" ]; then
+            echo "No plugin_ref in payload, skipping status report"
+            exit 0
+          fi
+          # Determine overall E2E result from prior steps
+          if [ "${{ job.status }}" = "success" ]; then
+            STATE="success"
+            DESC="E2E tests passed"
+          else
+            STATE="failure"
+            DESC="E2E tests failed"
+          fi
+          gh api "repos/Rasbandit/Engram-obsidian-sync/statuses/${PLUGIN_SHA}" \
+            -f state="$STATE" \
+            -f context="backend/e2e" \
+            -f description="$DESC" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      # ------------------------------------------------------------------
       # Cleanup — MUST kill everything, even on cancel/failure
       # ------------------------------------------------------------------
       - name: Collect failure logs
