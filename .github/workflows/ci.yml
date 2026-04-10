@@ -289,11 +289,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.CROSS_REPO_PAT }}
         run: |
-          PLUGIN_SHA="${{ github.event.client_payload.plugin_ref }}"
-          if [ -z "$PLUGIN_SHA" ]; then
+          SHORT_SHA="${{ github.event.client_payload.plugin_ref }}"
+          if [ -z "$SHORT_SHA" ]; then
             echo "No plugin_ref in payload, skipping status report"
             exit 0
           fi
+          # Resolve to full 40-char SHA (short SHAs from manual dispatches won't work)
+          PLUGIN_SHA=$(gh api "repos/Rasbandit/Engram-obsidian-sync/commits/${SHORT_SHA}" --jq '.sha')
           # Determine overall E2E result from prior steps
           if [ "${{ job.status }}" = "success" ]; then
             STATE="success"
