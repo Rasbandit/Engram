@@ -99,7 +99,7 @@ jobs:
           repository: Rasbandit/Engram-obsidian-sync
           token: ${{ secrets.CROSS_REPO_PAT }}
           path: plugin-src
-          ref: ${{ github.event.client_payload.plugin_ref || 'main' }}
+          ref: ${{ github.event.client_payload.plugin_branch || 'main' }}
           clean: false  # Preserve node_modules between runs
 
       # ------------------------------------------------------------------
