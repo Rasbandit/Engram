@@ -112,47 +112,41 @@ jobs:
           VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
         run: |
           # --- CI stack build + start (background) ---
-          # Skip on plugin dispatch (backend code didn't change)
-          if [ "${{ github.event_name }}" != "repository_dispatch" ]; then
-            (
-              # Hash source files that affect the Docker image — skip rebuild if unchanged
-              IMG_HASH=$(find Dockerfile docker-compose.ci.yml mix.exs mix.lock config/ lib/ priv/ frontend/ \
-                -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
-              CACHED_TAG="engram-ci:${IMG_HASH}"
+          (
+            # Hash source files that affect the Docker image — skip rebuild if unchanged
+            IMG_HASH=$(find Dockerfile docker-compose.ci.yml mix.exs mix.lock config/ lib/ priv/ frontend/ \
+              -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
+            CACHED_TAG="engram-ci:${IMG_HASH}"
 
-              if docker image inspect "$CACHED_TAG" > /dev/null 2>&1; then
-                echo "Image $CACHED_TAG exists — skipping build"
-                docker tag "$CACHED_TAG" engram-ci-engram:latest
-                docker compose -f docker-compose.ci.yml -p engram-ci up -d --no-build --wait
-              else
-                echo "Image cache miss ($CACHED_TAG) — building"
-                docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
-                # Tag the built image for future cache hits
-                BUILT_IMG=$(docker images --format '{{.ID}}' --filter "reference=engram-ci-engram" | head -1)
-                if [ -n "$BUILT_IMG" ]; then
-                  docker tag "$BUILT_IMG" "$CACHED_TAG"
-                  echo "Tagged $BUILT_IMG as $CACHED_TAG"
-                fi
+            if docker image inspect "$CACHED_TAG" > /dev/null 2>&1; then
+              echo "Image $CACHED_TAG exists — skipping build"
+              docker tag "$CACHED_TAG" engram-ci-engram:latest
+              docker compose -f docker-compose.ci.yml -p engram-ci up -d --no-build --wait
+            else
+              echo "Image cache miss ($CACHED_TAG) — building"
+              docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
+              # Tag the built image for future cache hits
+              BUILT_IMG=$(docker images --format '{{.ID}}' --filter "reference=engram-ci-engram" | head -1)
+              if [ -n "$BUILT_IMG" ]; then
+                docker tag "$BUILT_IMG" "$CACHED_TAG"
+                echo "Tagged $BUILT_IMG as $CACHED_TAG"
               fi
+            fi
 
-              for i in $(seq 1 60); do
-                if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
-                  echo "CI stack healthy"
-                  touch /tmp/ci-stack.marker
-                  break
-                fi
-                sleep 1
-              done
-              if [ ! -f /tmp/ci-stack.marker ]; then
-                echo "ERROR: CI stack failed to start" >&2
-                touch /tmp/ci-stack-failed.marker
+            for i in $(seq 1 60); do
+              if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
+                echo "CI stack healthy"
+                touch /tmp/ci-stack.marker
+                break
               fi
-            ) > /tmp/ci-stack.log 2>&1 &
-            echo "CI stack build started (PID $!)"
-          else
-            touch /tmp/ci-stack.marker
-            echo "Skipping CI stack (repository_dispatch)"
-          fi
+              sleep 1
+            done
+            if [ ! -f /tmp/ci-stack.marker ]; then
+              echo "ERROR: CI stack failed to start" >&2
+              touch /tmp/ci-stack-failed.marker
+            fi
+          ) > /tmp/ci-stack.log 2>&1 &
+          echo "CI stack build started (PID $!)"
 
           # --- Plugin build (background) ---
           (
@@ -206,19 +200,16 @@ jobs:
       # ------------------------------------------------------------------
       - name: Wait for CI stack + plugin + Playwright + Ollama
         run: |
-          # CI stack (skip on plugin dispatch — backend code didn't change)
-          if [ "${{ github.event_name }}" != "repository_dispatch" ]; then
-            echo "Waiting for CI stack..."
-            for i in $(seq 1 300); do
-              if [ -f /tmp/ci-stack.marker ]; then echo "CI stack ready"; break; fi
-              if [ -f /tmp/ci-stack-failed.marker ]; then
-                echo "CI stack failed to start. Logs:"; cat /tmp/ci-stack.log; exit 1
-              fi
-              sleep 1
-            done
-            if [ ! -f /tmp/ci-stack.marker ]; then
-              echo "CI stack timed out (5 min). Logs:"; cat /tmp/ci-stack.log; exit 1
+          echo "Waiting for CI stack..."
+          for i in $(seq 1 300); do
+            if [ -f /tmp/ci-stack.marker ]; then echo "CI stack ready"; break; fi
+            if [ -f /tmp/ci-stack-failed.marker ]; then
+              echo "CI stack failed to start. Logs:"; cat /tmp/ci-stack.log; exit 1
             fi
+            sleep 1
+          done
+          if [ ! -f /tmp/ci-stack.marker ]; then
+            echo "CI stack timed out (5 min). Logs:"; cat /tmp/ci-stack.log; exit 1
           fi
 
           echo "Waiting for plugin build..."
