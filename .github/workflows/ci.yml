@@ -265,9 +265,9 @@ jobs:
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       # ------------------------------------------------------------------
-      # Phase B: API-only tests (run while Obsidian instances boot)
+      # API-only tests (run while Obsidian instances boot)
       # ------------------------------------------------------------------
-      - name: "Phase B: Run API-only tests (no Obsidian needed)"
+      - name: "Run API-only tests"
         id: api_tests
         working-directory: e2e
         run: python3 -m pytest tests/api_only/ -v --timeout=60
@@ -278,9 +278,9 @@ jobs:
           E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
 
       # ------------------------------------------------------------------
-      # Phase C: Full Obsidian E2E tests
+      # Obsidian E2E tests
       # ------------------------------------------------------------------
-      - name: "Phase C: Run Obsidian E2E tests"
+      - name: "Run Obsidian E2E tests"
         working-directory: e2e
         run: python3 -m pytest tests/ --ignore=tests/api_only/ -v --timeout=300
         env:
@@ -292,7 +292,7 @@ jobs:
       - name: Check API-only test results
         if: always() && steps.api_tests.outcome == 'failure'
         run: |
-          echo "::error::API-only tests failed in Phase B"
+          echo "::error::API-only tests failed"
           exit 1
 
       # ------------------------------------------------------------------
