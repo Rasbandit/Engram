@@ -9,8 +9,6 @@ from datetime import datetime, timezone
 
 import pytest
 
-pytestmark = pytest.mark.api_only
-
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()

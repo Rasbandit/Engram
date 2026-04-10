@@ -8,8 +8,6 @@ duplicate, or stale entries within the test prefix cause failure.
 
 import pytest
 
-pytestmark = pytest.mark.api_only
-
 
 @pytest.mark.asyncio
 async def test_manifest_after_crud(api_sync):
