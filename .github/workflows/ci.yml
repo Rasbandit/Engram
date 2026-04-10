@@ -201,32 +201,25 @@ jobs:
           echo "Ollama check started (PID $!)"
 
       # ------------------------------------------------------------------
-      # Wait for CI stack + plugin + Playwright
+      # Wait for all background tasks
       # ------------------------------------------------------------------
-      - name: Wait for CI stack
-        if: github.event_name != 'repository_dispatch'
+      - name: Wait for CI stack + plugin + Playwright + Ollama
         run: |
-          echo "Waiting for CI stack..."
-          for i in $(seq 1 300); do
-            if [ -f /tmp/ci-stack.marker ]; then
-              echo "CI stack ready"
-              break
+          # CI stack (skip on plugin dispatch — backend code didn't change)
+          if [ "${{ github.event_name }}" != "repository_dispatch" ]; then
+            echo "Waiting for CI stack..."
+            for i in $(seq 1 300); do
+              if [ -f /tmp/ci-stack.marker ]; then echo "CI stack ready"; break; fi
+              if [ -f /tmp/ci-stack-failed.marker ]; then
+                echo "CI stack failed to start. Logs:"; cat /tmp/ci-stack.log; exit 1
+              fi
+              sleep 1
+            done
+            if [ ! -f /tmp/ci-stack.marker ]; then
+              echo "CI stack timed out (5 min). Logs:"; cat /tmp/ci-stack.log; exit 1
             fi
-            if [ -f /tmp/ci-stack-failed.marker ]; then
-              echo "CI stack failed to start. Logs:"
-              cat /tmp/ci-stack.log
-              exit 1
-            fi
-            sleep 1
-          done
-          if [ ! -f /tmp/ci-stack.marker ]; then
-            echo "CI stack timed out (5 min). Logs:"
-            cat /tmp/ci-stack.log
-            exit 1
           fi
 
-      - name: Wait for plugin build + Playwright + Ollama
-        run: |
           echo "Waiting for plugin build..."
           for i in $(seq 1 300); do
             if [ -f /tmp/ci-plugin.marker ]; then echo "Plugin ready"; break; fi
