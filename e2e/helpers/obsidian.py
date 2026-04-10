@@ -26,6 +26,8 @@ from .cdp import CdpClient
 logger = logging.getLogger(__name__)
 
 DEFAULT_OBSIDIAN_BIN = Path.home() / "Applications" / "Obsidian.AppImage"
+# Pre-extracted directory (created by setup-runner.sh) skips squashfs extraction
+DEFAULT_OBSIDIAN_EXTRACTED = Path.home() / "Applications" / "obsidian-extracted"
 
 
 class ObsidianInstance:
@@ -176,21 +178,41 @@ class ObsidianInstance:
         logger.info("[%s] Xvfb started on %s", self.name, self.display)
 
     def _start_obsidian(self) -> None:
-        """Launch Obsidian AppImage with isolated config."""
+        """Launch Obsidian with isolated config.
+
+        Prefers pre-extracted binary (skips squashfs extraction, saves ~15-30s).
+        Falls back to AppImage with --appimage-extract-and-run if not available.
+        """
         env = {
             "DISPLAY": self.display,
             "HOME": str(Path.home()),
             "PATH": "/usr/bin:/bin:/usr/local/bin",
         }
-        cmd = [
-            str(self.obsidian_bin),
-            "--appimage-extract-and-run",
-            "--no-sandbox",
-            f"--remote-debugging-port={self.cdp_port}",
-            "--remote-allow-origins=http://127.0.0.1",
-            "--disable-gpu",
-            f"--user-data-dir={self.config_dir}",
-        ]
+
+        # Use pre-extracted binary if available (setup-runner.sh creates this)
+        extracted_bin = DEFAULT_OBSIDIAN_EXTRACTED / "obsidian"
+        if extracted_bin.exists():
+            cmd = [
+                str(extracted_bin),
+                "--no-sandbox",
+                f"--remote-debugging-port={self.cdp_port}",
+                "--remote-allow-origins=http://127.0.0.1",
+                "--disable-gpu",
+                f"--user-data-dir={self.config_dir}",
+            ]
+            logger.info("[%s] Using pre-extracted binary", self.name)
+        else:
+            cmd = [
+                str(self.obsidian_bin),
+                "--appimage-extract-and-run",
+                "--no-sandbox",
+                f"--remote-debugging-port={self.cdp_port}",
+                "--remote-allow-origins=http://127.0.0.1",
+                "--disable-gpu",
+                f"--user-data-dir={self.config_dir}",
+            ]
+            logger.info("[%s] Using AppImage (no pre-extracted binary found)", self.name)
+
         self._obsidian_proc = subprocess.Popen(
             cmd,
             env=env,

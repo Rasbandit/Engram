@@ -30,7 +30,7 @@ async def test_queue_deduplication(vault_a, cdp_a, api_sync):
         # each triggers a separate push attempt (all fail → enqueue → dedup).
         for i in range(1, 6):
             write_note(vault_a, path, f"# Queue Dedup\nVersion {i}")
-            time.sleep(0.7)
+            time.sleep(0.55)  # Just above debounceMs (500ms) to ensure separate push attempts
 
         # Wait for push attempts to fail and queue
         deadline = time.monotonic() + 10

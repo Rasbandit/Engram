@@ -5,8 +5,6 @@ Oversized notes should not be persisted, and the error should not block
 other syncs from completing.
 """
 
-import asyncio
-
 import pytest
 
 from helpers.vault import write_note
@@ -22,13 +20,13 @@ async def test_large_file_rejected(vault_a, cdp_a, api_sync):
     large_content = "# Large Note\n" + ("x" * (11 * 1024 * 1024))
     write_note(vault_a, large_path, large_content)
 
-    # Wait for push attempt
-    await asyncio.sleep(2)
+    # Write a normal file — should sync fine (no cascading failure from 413)
+    write_note(vault_a, normal_path, "# Normal Note\nShould sync after large file rejection")
+
+    # Poll for the normal note — once it arrives, the push cycle has completed
+    # and the large note has already been attempted and rejected
+    api_sync.wait_for_note(normal_path, timeout=10)
 
     # Large note should NOT be on server (413 rejection)
     note = api_sync.get_note(large_path)
     assert note is None, "Large note should not be pushed to server"
-
-    # Write a normal file — should sync fine (no cascading failure)
-    write_note(vault_a, normal_path, "# Normal Note\nShould sync after large file rejection")
-    api_sync.wait_for_note(normal_path, timeout=10)

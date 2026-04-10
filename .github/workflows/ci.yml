@@ -85,6 +85,7 @@ jobs:
         run: |
           docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
           pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
+          pkill -9 -f "obsidian-extracted.*obsidian" 2>/dev/null || true
           pkill -9 Xvfb 2>/dev/null || true
           rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-* /tmp/ci-*.marker
 
@@ -312,8 +313,9 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          # Kill ALL Obsidian processes (extracted binaries spawn children under /tmp)
+          # Kill ALL Obsidian processes (both pre-extracted and AppImage variants)
           pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
+          pkill -9 -f "obsidian-extracted.*obsidian" 2>/dev/null || true
           pkill -9 -f "appimage_extracted.*obsidian" 2>/dev/null || true
           pkill -9 Xvfb 2>/dev/null || true
           # Wait for processes to die before removing their dirs

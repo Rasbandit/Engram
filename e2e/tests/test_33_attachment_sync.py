@@ -67,7 +67,7 @@ async def test_attachment_delete_propagation(vault_a, vault_b, cdp_a, cdp_b, api
         await cdp_b.trigger_full_sync()
         if (vault_b / att_path).exists():
             break
-        time.sleep(1)
+        time.sleep(0.5)
     assert (vault_b / att_path).exists(), "B should have attachment before delete"
 
     # A deletes the attachment
@@ -87,5 +87,5 @@ async def test_attachment_delete_propagation(vault_a, vault_b, cdp_a, cdp_b, api
         await cdp_b.trigger_full_sync()
         if not (vault_b / att_path).exists():
             break
-        time.sleep(1)
+        time.sleep(0.5)
     assert not (vault_b / att_path).exists(), "B should not have deleted attachment"

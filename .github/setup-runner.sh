@@ -87,6 +87,25 @@ fi
 #   ~/actions-runner-plugin     (plugin repo CI)
 #   ~/actions-runner-engram-2   (parallel job capacity)
 
+# ── Pre-extract Obsidian AppImage ────────────────────────────────────────
+# Obsidian's --appimage-extract-and-run re-extracts squashfs on every launch
+# (~15-30s per boot × 3 instances = 45-90s per CI run). Pre-extracting once
+# eliminates this overhead entirely.
+OBSIDIAN_APPIMAGE="$HOME/Applications/Obsidian.AppImage"
+OBSIDIAN_EXTRACTED="$HOME/Applications/obsidian-extracted"
+if [ -f "$OBSIDIAN_APPIMAGE" ] && [ ! -d "$OBSIDIAN_EXTRACTED" ]; then
+  echo "Pre-extracting Obsidian AppImage (one-time)..."
+  cd "$HOME/Applications"
+  "$OBSIDIAN_APPIMAGE" --appimage-extract > /dev/null 2>&1
+  mv squashfs-root "$OBSIDIAN_EXTRACTED"
+  echo "  ✓ Extracted to $OBSIDIAN_EXTRACTED"
+  cd -
+elif [ -d "$OBSIDIAN_EXTRACTED" ]; then
+  echo "Obsidian already pre-extracted at $OBSIDIAN_EXTRACTED"
+else
+  echo "WARNING: Obsidian AppImage not found at $OBSIDIAN_APPIMAGE"
+fi
+
 # ── Verify ───────────────────────────────────────────────────────────────
 echo ""
 echo "=== Verification ==="
