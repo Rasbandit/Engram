@@ -270,18 +270,7 @@ jobs:
       - name: "Phase B: Run API-only tests (no Obsidian needed)"
         id: api_tests
         working-directory: e2e
-        run: |
-          echo "Warm-up: waiting for API routes to finish loading..."
-          for i in $(seq 1 15); do
-            status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8100/api/sync/manifest 2>/dev/null || echo "000")
-            if [ "$status" != "404" ] && [ "$status" != "000" ]; then
-              echo "API routes ready (got $status)"
-              break
-            fi
-            sleep 1
-          done
-          echo "Running API-only tests..."
-          python3 -m pytest tests/api_only/ -v --timeout=60
+        run: python3 -m pytest tests/api_only/ -v --timeout=60
         continue-on-error: true
         env:
           ENGRAM_API_URL: http://localhost:8100/api
