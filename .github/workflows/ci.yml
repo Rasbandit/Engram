@@ -8,11 +8,6 @@ on:
     types: [plugin-e2e-trigger]
   workflow_dispatch:
 
-# Fixed group — CI stack uses fixed ports, only one run at a time regardless of branch
-concurrency:
-  group: ci-engram-stack
-  cancel-in-progress: false
-
 env:
   DOCKER_BUILDKIT: "1"
   COMPOSE_DOCKER_CLI_BUILD: "1"
@@ -21,8 +16,66 @@ env:
   # When unset, falls back to Docker Hub.
 
 jobs:
-  ci:
+  unit-tests:
     runs-on: [self-hosted, engram]
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          clean: false  # Preserve _build/ and deps/ for incremental compilation
+
+      - name: Start ephemeral postgres
+        run: |
+          if [ -n "${LOCAL_REGISTRY:-}" ]; then
+            PG_IMAGE="${LOCAL_REGISTRY}/postgres:16-alpine"
+            docker pull "$PG_IMAGE" 2>/dev/null || PG_IMAGE="postgres:16-alpine"
+          else
+            PG_IMAGE="postgres:16-alpine"
+          fi
+          docker run -d --name engram-unit-test-db \
+            -e POSTGRES_USER=engram \
+            -e POSTGRES_PASSWORD=engram \
+            -e POSTGRES_DB=engram_test \
+            -p 5434:5432 \
+            --health-cmd "pg_isready -U engram" \
+            --health-interval 3s \
+            --health-timeout 3s \
+            --health-retries 10 \
+            "$PG_IMAGE"
+
+      - name: Fetch Elixir deps (skip if unchanged)
+        run: |
+          if [ -d deps ] && [ -f deps/.mix_lock_hash ] && [ "$(md5sum mix.lock | cut -d' ' -f1)" = "$(cat deps/.mix_lock_hash)" ]; then
+            echo "mix.lock unchanged — skipping deps.get"
+          else
+            mix deps.get --only test
+            md5sum mix.lock | cut -d' ' -f1 > deps/.mix_lock_hash
+          fi
+
+      - name: Run Elixir unit tests
+        env:
+          DATABASE_URL: postgresql://engram:engram@localhost:5434/engram_test
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec engram-unit-test-db pg_isready -U engram > /dev/null 2>&1; then
+              echo "Test DB ready"
+              break
+            fi
+            sleep 1
+          done
+          MIX_ENV=test mix ecto.create
+          MIX_ENV=test mix ecto.migrate
+          mix test
+
+      - name: Stop ephemeral postgres
+        if: always()
+        run: docker rm -f engram-unit-test-db 2>/dev/null || true
+
+  e2e:
+    runs-on: [self-hosted, engram]
+    concurrency:
+      group: ci-engram-e2e
+      cancel-in-progress: false
 
     steps:
       # ------------------------------------------------------------------
@@ -31,8 +84,8 @@ jobs:
       - name: Pre-cleanup stale resources
         run: |
           docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
-          docker rm -f engram-test-db 2>/dev/null || true
           pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
+          pkill -9 -f "obsidian-extracted.*obsidian" 2>/dev/null || true
           pkill -9 Xvfb 2>/dev/null || true
           rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-* /tmp/ci-*.marker
 
@@ -51,27 +104,7 @@ jobs:
 
       # ------------------------------------------------------------------
       # Launch ALL long-running prep in parallel (background)
-      # Unit tests run in foreground while these build
       # ------------------------------------------------------------------
-      - name: Start test database
-        run: |
-          if [ -n "${LOCAL_REGISTRY:-}" ]; then
-            PG_IMAGE="${LOCAL_REGISTRY}/postgres:16-alpine"
-            docker pull "$PG_IMAGE" 2>/dev/null || PG_IMAGE="postgres:16-alpine"
-          else
-            PG_IMAGE="postgres:16-alpine"
-          fi
-          docker run -d --name engram-test-db \
-            -e POSTGRES_USER=engram \
-            -e POSTGRES_PASSWORD=engram \
-            -e POSTGRES_DB=engram_test \
-            -p 5434:5432 \
-            --health-cmd "pg_isready -U engram" \
-            --health-interval 3s \
-            --health-timeout 3s \
-            --health-retries 10 \
-            "$PG_IMAGE"
-
       - name: "Background: CI stack + plugin build + Playwright + Ollama"
         env:
           CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
@@ -79,47 +112,41 @@ jobs:
           VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
         run: |
           # --- CI stack build + start (background) ---
-          # Skip on plugin dispatch (backend code didn't change)
-          if [ "${{ github.event_name }}" != "repository_dispatch" ]; then
-            (
-              # Hash source files that affect the Docker image — skip rebuild if unchanged
-              IMG_HASH=$(find Dockerfile docker-compose.ci.yml mix.exs mix.lock config/ lib/ priv/ frontend/ \
-                -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
-              CACHED_TAG="engram-ci:${IMG_HASH}"
+          (
+            # Hash source files that affect the Docker image — skip rebuild if unchanged
+            IMG_HASH=$(find Dockerfile docker-compose.ci.yml mix.exs mix.lock config/ lib/ priv/ frontend/ \
+              -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
+            CACHED_TAG="engram-ci:${IMG_HASH}"
 
-              if docker image inspect "$CACHED_TAG" > /dev/null 2>&1; then
-                echo "Image $CACHED_TAG exists — skipping build"
-                docker tag "$CACHED_TAG" engram-ci-engram:latest
-                docker compose -f docker-compose.ci.yml -p engram-ci up -d --no-build --wait
-              else
-                echo "Image cache miss ($CACHED_TAG) — building"
-                docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
-                # Tag the built image for future cache hits
-                BUILT_IMG=$(docker images --format '{{.ID}}' --filter "reference=engram-ci-engram" | head -1)
-                if [ -n "$BUILT_IMG" ]; then
-                  docker tag "$BUILT_IMG" "$CACHED_TAG"
-                  echo "Tagged $BUILT_IMG as $CACHED_TAG"
-                fi
+            if docker image inspect "$CACHED_TAG" > /dev/null 2>&1; then
+              echo "Image $CACHED_TAG exists — skipping build"
+              docker tag "$CACHED_TAG" engram-ci-engram:latest
+              docker compose -f docker-compose.ci.yml -p engram-ci up -d --no-build --wait
+            else
+              echo "Image cache miss ($CACHED_TAG) — building"
+              docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
+              # Tag the built image for future cache hits
+              BUILT_IMG=$(docker images --format '{{.ID}}' --filter "reference=engram-ci-engram" | head -1)
+              if [ -n "$BUILT_IMG" ]; then
+                docker tag "$BUILT_IMG" "$CACHED_TAG"
+                echo "Tagged $BUILT_IMG as $CACHED_TAG"
               fi
+            fi
 
-              for i in $(seq 1 60); do
-                if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
-                  echo "CI stack healthy"
-                  touch /tmp/ci-stack.marker
-                  break
-                fi
-                sleep 1
-              done
-              if [ ! -f /tmp/ci-stack.marker ]; then
-                echo "ERROR: CI stack failed to start" >&2
-                touch /tmp/ci-stack-failed.marker
+            for i in $(seq 1 60); do
+              if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
+                echo "CI stack healthy"
+                touch /tmp/ci-stack.marker
+                break
               fi
-            ) > /tmp/ci-stack.log 2>&1 &
-            echo "CI stack build started (PID $!)"
-          else
-            touch /tmp/ci-stack.marker
-            echo "Skipping CI stack (repository_dispatch)"
-          fi
+              sleep 1
+            done
+            if [ ! -f /tmp/ci-stack.marker ]; then
+              echo "ERROR: CI stack failed to start" >&2
+              touch /tmp/ci-stack-failed.marker
+            fi
+          ) > /tmp/ci-stack.log 2>&1 &
+          echo "CI stack build started (PID $!)"
 
           # --- Plugin build (background) ---
           (
@@ -169,63 +196,22 @@ jobs:
           echo "Ollama check started (PID $!)"
 
       # ------------------------------------------------------------------
-      # Unit tests (Elixir) — foreground while prep builds
+      # Wait for all background tasks
       # ------------------------------------------------------------------
-      - name: Fetch Elixir deps (skip if unchanged)
-        run: |
-          if [ -d deps ] && [ -f deps/.mix_lock_hash ] && [ "$(md5sum mix.lock | cut -d' ' -f1)" = "$(cat deps/.mix_lock_hash)" ]; then
-            echo "mix.lock unchanged — skipping deps.get"
-          else
-            mix deps.get --only test
-            md5sum mix.lock | cut -d' ' -f1 > deps/.mix_lock_hash
-          fi
-
-      - name: Run Elixir unit tests
-        env:
-          DATABASE_URL: postgresql://engram:engram@localhost:5434/engram_test
-        run: |
-          for i in $(seq 1 30); do
-            if docker exec engram-test-db pg_isready -U engram > /dev/null 2>&1; then
-              echo "Test DB ready"
-              break
-            fi
-            sleep 1
-          done
-          MIX_ENV=test mix ecto.create
-          MIX_ENV=test mix ecto.migrate
-          mix test
-
-      - name: Stop test database
-        if: always()
-        run: docker rm -f engram-test-db 2>/dev/null || true
-
-      # ------------------------------------------------------------------
-      # E2E tests — wait for CI stack + plugin + Playwright, then run
-      # ------------------------------------------------------------------
-      - name: Wait for CI stack
-        if: github.event_name != 'repository_dispatch'
+      - name: Wait for CI stack + plugin + Playwright + Ollama
         run: |
           echo "Waiting for CI stack..."
           for i in $(seq 1 300); do
-            if [ -f /tmp/ci-stack.marker ]; then
-              echo "CI stack ready"
-              break
-            fi
+            if [ -f /tmp/ci-stack.marker ]; then echo "CI stack ready"; break; fi
             if [ -f /tmp/ci-stack-failed.marker ]; then
-              echo "CI stack failed to start. Logs:"
-              cat /tmp/ci-stack.log
-              exit 1
+              echo "CI stack failed to start. Logs:"; cat /tmp/ci-stack.log; exit 1
             fi
             sleep 1
           done
           if [ ! -f /tmp/ci-stack.marker ]; then
-            echo "CI stack timed out (5 min). Logs:"
-            cat /tmp/ci-stack.log
-            exit 1
+            echo "CI stack timed out (5 min). Logs:"; cat /tmp/ci-stack.log; exit 1
           fi
 
-      - name: Wait for plugin build + Playwright + Ollama
-        run: |
           echo "Waiting for plugin build..."
           for i in $(seq 1 300); do
             if [ -f /tmp/ci-plugin.marker ]; then echo "Plugin ready"; break; fi
@@ -263,32 +249,48 @@ jobs:
           # Add bun to PATH for E2E tests (already installed by plugin build)
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
-      - name: Run E2E tests
+      # ------------------------------------------------------------------
+      # API-only tests (run while Obsidian instances boot)
+      # ------------------------------------------------------------------
+      - name: "Run API-only tests"
+        id: api_tests
         working-directory: e2e
-        run: python3 -m pytest tests/ -v --timeout=300
+        run: python3 -m pytest tests/api_only/ -v --timeout=60
+        continue-on-error: true
+        env:
+          ENGRAM_API_URL: http://localhost:8100/api
+          ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
+          E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
+
+      # ------------------------------------------------------------------
+      # Obsidian E2E tests
+      # ------------------------------------------------------------------
+      - name: "Run Obsidian E2E tests"
+        working-directory: e2e
+        run: python3 -m pytest tests/ --ignore=tests/api_only/ -v --timeout=300
         env:
           ENGRAM_API_URL: http://localhost:8100/api
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
           CI_POSTGRES_CONTAINER: engram-ci-postgres-1
           E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
 
+      - name: Check API-only test results
+        if: always() && steps.api_tests.outcome == 'failure'
+        run: |
+          echo "::error::API-only tests failed"
+          exit 1
+
       # ------------------------------------------------------------------
       # Cleanup — MUST kill everything, even on cancel/failure
       # ------------------------------------------------------------------
-      - name: Collect logs on failure
+      - name: Collect failure logs
         if: failure()
         run: |
           mkdir -p ci-artifacts
           docker compose -f docker-compose.ci.yml -p engram-ci logs > ci-artifacts/docker-compose.log 2>&1
-          # Include background build logs
-          cp /tmp/ci-stack.log ci-artifacts/ 2>/dev/null || true
-          cp /tmp/ci-plugin.log ci-artifacts/ 2>/dev/null || true
-          cp /tmp/ci-playwright.log ci-artifacts/ 2>/dev/null || true
-          cp /tmp/ci-ollama.log ci-artifacts/ 2>/dev/null || true
+          cp /tmp/ci-stack.log /tmp/ci-plugin.log /tmp/ci-playwright.log /tmp/ci-ollama.log ci-artifacts/ 2>/dev/null || true
           for v in /tmp/e2e-vault-*; do
-            if [ -d "$v" ]; then
-              tar czf "ci-artifacts/$(basename $v).tar.gz" -C /tmp "$(basename $v)" 2>/dev/null || true
-            fi
+            [ -d "$v" ] && tar czf "ci-artifacts/$(basename $v).tar.gz" -C /tmp "$(basename $v)" 2>/dev/null || true
           done
 
       - name: Upload failure artifacts
@@ -302,8 +304,9 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          # Kill ALL Obsidian processes (extracted binaries spawn children under /tmp)
+          # Kill ALL Obsidian processes (both pre-extracted and AppImage variants)
           pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
+          pkill -9 -f "obsidian-extracted.*obsidian" 2>/dev/null || true
           pkill -9 -f "appimage_extracted.*obsidian" 2>/dev/null || true
           pkill -9 Xvfb 2>/dev/null || true
           # Wait for processes to die before removing their dirs
@@ -312,7 +315,6 @@ jobs:
           rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-* /tmp/ci-*.marker /tmp/ci-*.log
           # Tear down Docker stack
           docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
-          docker rm -f engram-test-db 2>/dev/null || true
           # Prune dangling images to reclaim disk (old CI builds)
           docker image prune -f 2>/dev/null || true
           # Keep only the 3 most recent engram-ci cache tags
@@ -320,3 +322,15 @@ jobs:
             | tail -n +4 | xargs -r docker rmi 2>/dev/null || true
           # Clean up ci-artifacts from this run
           rm -rf ci-artifacts/
+
+  ci:
+    if: always()
+    needs: [unit-tests, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required jobs
+        run: |
+          if [ "${{ needs.unit-tests.result }}" != "success" ] || [ "${{ needs.e2e.result }}" != "success" ]; then
+            echo "Required jobs failed: unit-tests=${{ needs.unit-tests.result }}, e2e=${{ needs.e2e.result }}"
+            exit 1
+          fi

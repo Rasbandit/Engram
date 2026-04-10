@@ -37,7 +37,12 @@ async def test_push_409_handled(vault_a, cdp_a, api_sync):
     write_note(vault_a, path, local_content)
 
     # Wait for push attempt + conflict resolution
-    await asyncio.sleep(5)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        a_content = read_note(vault_a, path)
+        if "edited by A" in a_content:
+            break
+        await asyncio.sleep(0.5)
 
     # 4. Verify: the note should be in a consistent state
     #    Either auto-merged (both edits) or conflict-resolved
@@ -66,7 +71,7 @@ async def test_push_409_handled(vault_a, cdp_a, api_sync):
                 return 'touched';
             }})()
         """, await_promise=True)
-        await asyncio.sleep(3)
+        await asyncio.sleep(1)
         api_sync.wait_for_note_content(path, "edited by A", timeout=10)
         api_sync.wait_for_note_content(path, "edited by server", timeout=10)
     else:

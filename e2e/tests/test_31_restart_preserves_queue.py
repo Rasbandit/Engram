@@ -27,12 +27,16 @@ async def test_restart_preserves_queue(vault_a, cdp_a, api_sync, obsidian_a):
 
     # 2. Create 2 files → push fails → queued
     write_note(vault_a, path1, "# Restart Queue 1\nSurvives restart")
-    time.sleep(0.7)
+    time.sleep(0.3)
     write_note(vault_a, path2, "# Restart Queue 2\nAlso survives restart")
 
-    # Wait for push attempts + queueing
-    await asyncio.sleep(3)
-    queue_size = await cdp_a.get_queue_size()
+    # Wait for push attempts to fail and queue
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        queue_size = await cdp_a.get_queue_size()
+        if queue_size >= 2:
+            break
+        await asyncio.sleep(0.5)
     assert queue_size >= 2, f"Expected at least 2 queued, got {queue_size}"
 
     # 3. Force persist queue to data.json (bypass debounce)
@@ -52,20 +56,18 @@ async def test_restart_preserves_queue(vault_a, cdp_a, api_sync, obsidian_a):
 
     # 4. Kill Obsidian A (hard stop — simulates crash)
     obsidian_a.stop()
-    await asyncio.sleep(2)
+    await asyncio.sleep(1)
 
     # 5. Restart Obsidian A (restart=True preserves vault + data.json with queue)
     await obsidian_a.async_start(restart=True)
     await cdp_a.wait_for_plugin_ready(timeout=60)
 
     # 6. Startup sync should restore queue and flush it
-    #    Give it time for initial sync to complete
-    await asyncio.sleep(10)
+    #    Poll instead of hard sleep — returns as soon as notes arrive
+    note1 = api_sync.wait_for_note(path1, timeout=15)
+    note2 = api_sync.wait_for_note(path2, timeout=15)
 
     # 7. Both notes should now be on server
-    note1 = api_sync.get_note(path1)
-    note2 = api_sync.get_note(path2)
-
     assert note1 is not None, f"{path1} should be on server after restart"
     assert note2 is not None, f"{path2} should be on server after restart"
     assert "Survives restart" in note1["content"]

@@ -4,14 +4,14 @@ Test 08 proves READ isolation (user A can't see user C's data).
 This test proves WRITE isolation across all mutation endpoints: user C cannot
 modify, overwrite, rename, append to, or delete user A's notes or attachments,
 even with valid credentials for a different account.
+
+Migrated to API-only: seeds data via api_sync.create_note() instead of Obsidian
+vault writes, so these 11 tests run during the Obsidian boot gap in CI.
 """
 
 import time
 
 import pytest
-import requests
-
-from helpers.vault import write_note
 
 
 # ---------------------------------------------------------------------------
@@ -20,15 +20,13 @@ from helpers.vault import write_note
 
 
 @pytest.mark.asyncio
-async def test_write_isolation_cannot_modify_other_user_note(
-    vault_a, cdp_a, api_sync, api_iso
-):
+async def test_write_isolation_cannot_modify_other_user_note(api_sync, api_iso):
     """User C (isolation-user) cannot overwrite user A's note via POST /notes."""
     path = "E2E/WriteIsolationTarget.md"
     original_content = "# Write Isolation\nThis belongs to sync-user."
 
-    # sync-user creates a note
-    write_note(vault_a, path, original_content)
+    # sync-user creates a note via API
+    api_sync.create_note(path, original_content)
     api_sync.wait_for_note(path, timeout=10)
 
     # isolation-user attempts to overwrite it via API
@@ -48,13 +46,11 @@ async def test_write_isolation_cannot_modify_other_user_note(
 
 
 @pytest.mark.asyncio
-async def test_write_isolation_cannot_delete_other_user_note(
-    vault_a, cdp_a, api_sync, api_iso
-):
+async def test_write_isolation_cannot_delete_other_user_note(api_sync, api_iso):
     """User C (isolation-user) cannot delete user A's note."""
     path = "E2E/WriteIsolationDeleteTarget.md"
 
-    write_note(vault_a, path, "# Protected\nThis should survive deletion attempts.")
+    api_sync.create_note(path, "# Protected\nThis should survive deletion attempts.")
     api_sync.wait_for_note(path, timeout=10)
 
     # isolation-user attempts to delete sync-user's note
@@ -70,11 +66,11 @@ async def test_write_isolation_cannot_delete_other_user_note(
 
 
 @pytest.mark.asyncio
-async def test_write_isolation_changes_endpoint(api_sync, api_iso, vault_a, cdp_a):
+async def test_write_isolation_changes_endpoint(api_sync, api_iso):
     """User C should not see user A's changes in GET /notes/changes."""
     path = "E2E/WriteIsolationChanges.md"
 
-    write_note(vault_a, path, "# Changes Test\nOnly sync-user should see this.")
+    api_sync.create_note(path, "# Changes Test\nOnly sync-user should see this.")
     api_sync.wait_for_note(path, timeout=10)
 
     since = "2000-01-01T00:00:00Z"
@@ -92,14 +88,12 @@ async def test_write_isolation_changes_endpoint(api_sync, api_iso, vault_a, cdp_
 
 
 @pytest.mark.asyncio
-async def test_write_isolation_cannot_rename_other_user_note(
-    vault_a, cdp_a, api_sync, api_iso
-):
+async def test_write_isolation_cannot_rename_other_user_note(api_sync, api_iso):
     """User C cannot rename user A's note via POST /notes/rename."""
     path = "E2E/WriteIsolationRenameTarget.md"
     renamed_path = "E2E/Hijacked-Rename.md"
 
-    write_note(vault_a, path, "# Rename Target\nThis should not be renamed by others.")
+    api_sync.create_note(path, "# Rename Target\nThis should not be renamed by others.")
     api_sync.wait_for_note(path, timeout=10)
 
     # isolation-user attempts to rename sync-user's note
@@ -127,14 +121,12 @@ async def test_write_isolation_cannot_rename_other_user_note(
 
 
 @pytest.mark.asyncio
-async def test_write_isolation_cannot_append_to_other_user_note(
-    vault_a, cdp_a, api_sync, api_iso
-):
+async def test_write_isolation_cannot_append_to_other_user_note(api_sync, api_iso):
     """User C cannot append to user A's note via POST /notes/append."""
     path = "E2E/WriteIsolationAppendTarget.md"
     original = "# Append Target\nOriginal content only."
 
-    write_note(vault_a, path, original)
+    api_sync.create_note(path, original)
     api_sync.wait_for_note(path, timeout=10)
 
     # isolation-user attempts to append to sync-user's note
@@ -155,9 +147,7 @@ async def test_write_isolation_cannot_append_to_other_user_note(
 
 
 @pytest.mark.asyncio
-async def test_write_isolation_cannot_read_other_user_attachment(
-    vault_a, cdp_a, api_sync, api_iso
-):
+async def test_write_isolation_cannot_read_other_user_attachment(api_sync, api_iso):
     """User C cannot read user A's attachment via GET /attachments/{path}."""
     att_path = "E2E/secret-image.png"
     fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100  # minimal PNG-like header
@@ -175,9 +165,7 @@ async def test_write_isolation_cannot_read_other_user_attachment(
 
 
 @pytest.mark.asyncio
-async def test_write_isolation_cannot_delete_other_user_attachment(
-    vault_a, cdp_a, api_sync, api_iso
-):
+async def test_write_isolation_cannot_delete_other_user_attachment(api_sync, api_iso):
     """User C cannot delete user A's attachment via DELETE /attachments/{path}."""
     att_path = "E2E/protected-file.pdf"
     fake_pdf = b"%PDF-1.4 " + b"\x00" * 100
@@ -203,12 +191,10 @@ async def test_write_isolation_cannot_delete_other_user_attachment(
 
 
 @pytest.mark.asyncio
-async def test_write_isolation_cannot_rename_other_user_folder(
-    vault_a, cdp_a, api_sync, api_iso
-):
+async def test_write_isolation_cannot_rename_other_user_folder(api_sync, api_iso):
     """User C cannot rename user A's folder via POST /folders/rename."""
     path = "E2E/IsoFolder/FolderRenameTarget.md"
-    write_note(vault_a, path, "# Folder Target\nInside a folder owned by sync-user.")
+    api_sync.create_note(path, "# Folder Target\nInside a folder owned by sync-user.")
     api_sync.wait_for_note(path, timeout=10)
 
     # isolation-user attempts to rename sync-user's folder
@@ -234,12 +220,10 @@ async def test_write_isolation_cannot_rename_other_user_folder(
 
 
 @pytest.mark.asyncio
-async def test_write_isolation_manifest_does_not_leak(
-    vault_a, cdp_a, api_sync, api_iso
-):
+async def test_write_isolation_manifest_does_not_leak(api_sync, api_iso):
     """User C's sync manifest should not include user A's notes or attachments."""
     path = "E2E/ManifestIsolation.md"
-    write_note(vault_a, path, "# Manifest Test\nShould not appear in other manifest.")
+    api_sync.create_note(path, "# Manifest Test\nShould not appear in other manifest.")
     api_sync.wait_for_note(path, timeout=10)
 
     # sync-user's manifest should include the note

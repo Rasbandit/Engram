@@ -50,7 +50,7 @@ done
 
 # ── Python packages (pytest, playwright, requests) ───────────────────────
 echo "Installing Python packages..."
-pip3 install --upgrade 'playwright>=1.48' pytest requests
+pip3 install --upgrade 'playwright>=1.48' pytest pytest-rerunfailures requests websockets
 
 echo "Installing Playwright Chromium..."
 # Install browser only — skip --with-deps (requires apt, unavailable on Fedora).
@@ -66,6 +66,44 @@ if ! command -v claude &>/dev/null; then
   npm install -g @anthropic-ai/claude-code
 else
   echo "Claude Code CLI already installed: $(claude --version)"
+fi
+
+# ── Multiple runner instances ────────────────────────────────────────────
+# For parallel CI jobs, register additional runner instances on this machine.
+# Each runner is an independent agent process with its own work directory.
+#
+# Setup (run as open-claw, not root):
+#   mkdir ~/actions-runner-engram-2
+#   cd ~/actions-runner-engram-2
+#   curl -o actions-runner-linux-x64.tar.gz -L \
+#     https://github.com/actions/runner/releases/download/v2.323.0/actions-runner-linux-x64-2.323.0.tar.gz
+#   tar xzf actions-runner-linux-x64.tar.gz
+#   ./config.sh --url https://github.com/Rasbandit/Engram \
+#     --labels self-hosted,engram --name engram-runner-2
+#   sudo ./svc.sh install && sudo ./svc.sh start
+#
+# Existing runners:
+#   ~/actions-runner-engram     (primary — CI + E2E)
+#   ~/actions-runner-plugin     (plugin repo CI)
+#   ~/actions-runner-engram-2   (parallel job capacity)
+
+# ── Pre-extract Obsidian AppImage ────────────────────────────────────────
+# Obsidian's --appimage-extract-and-run re-extracts squashfs on every launch
+# (~15-30s per boot × 3 instances = 45-90s per CI run). Pre-extracting once
+# eliminates this overhead entirely.
+OBSIDIAN_APPIMAGE="$HOME/Applications/Obsidian.AppImage"
+OBSIDIAN_EXTRACTED="$HOME/Applications/obsidian-extracted"
+if [ -f "$OBSIDIAN_APPIMAGE" ] && [ ! -d "$OBSIDIAN_EXTRACTED" ]; then
+  echo "Pre-extracting Obsidian AppImage (one-time)..."
+  cd "$HOME/Applications"
+  "$OBSIDIAN_APPIMAGE" --appimage-extract > /dev/null 2>&1
+  mv squashfs-root "$OBSIDIAN_EXTRACTED"
+  echo "  ✓ Extracted to $OBSIDIAN_EXTRACTED"
+  cd -
+elif [ -d "$OBSIDIAN_EXTRACTED" ]; then
+  echo "Obsidian already pre-extracted at $OBSIDIAN_EXTRACTED"
+else
+  echo "WARNING: Obsidian AppImage not found at $OBSIDIAN_APPIMAGE"
 fi
 
 # ── Verify ───────────────────────────────────────────────────────────────

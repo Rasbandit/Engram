@@ -27,6 +27,8 @@ class CdpClient:
         self.port = port
         self.host = host
         self._base_url = f"http://{host}:{port}"
+        self._ws = None
+        self._msg_id = 0
 
     def _get_ws_url(self) -> str:
         resp = requests.get(f"{self._base_url}/json", timeout=5)
@@ -36,15 +38,39 @@ class CdpClient:
             raise CdpError("No CDP pages available")
         return pages[0]["webSocketDebuggerUrl"]
 
+    async def _ensure_connected(self) -> None:
+        """Ensure WebSocket is connected, reconnect if stale."""
+        if self._ws is not None:
+            try:
+                pong = await self._ws.ping()
+                await asyncio.wait_for(pong, timeout=2)
+                return
+            except Exception:
+                await self._close()
+
+        ws_url = self._get_ws_url()
+        self._ws = await websockets.connect(ws_url)
+
+    async def _close(self) -> None:
+        """Close WebSocket if open."""
+        if self._ws:
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
+            self._ws = None
+
     async def evaluate(self, expr: str, await_promise: bool = False) -> Any:
         """Evaluate JS expression in Obsidian's renderer process.
 
-        Opens a fresh WebSocket per call to avoid stale connections.
+        Uses a persistent WebSocket connection, reconnecting on failure.
         """
-        ws_url = self._get_ws_url()
-        async with websockets.connect(ws_url) as ws:
+        self._msg_id += 1
+        msg_id = self._msg_id
+
+        async def _send_recv() -> Any:
             msg = {
-                "id": 1,
+                "id": msg_id,
                 "method": "Runtime.evaluate",
                 "params": {
                     "expression": expr,
@@ -52,8 +78,8 @@ class CdpClient:
                     "awaitPromise": await_promise,
                 },
             }
-            await ws.send(json.dumps(msg))
-            resp = json.loads(await ws.recv())
+            await self._ws.send(json.dumps(msg))
+            resp = json.loads(await self._ws.recv())
 
             if "error" in resp:
                 raise CdpError(f"CDP error: {resp['error']}")
@@ -66,6 +92,17 @@ class CdpClient:
             if result.get("subtype") == "error":
                 raise CdpError(f"JS error: {result.get('description', result)}")
             return result
+
+        await self._ensure_connected()
+        try:
+            return await _send_recv()
+        except CdpError:
+            raise
+        except Exception:
+            # Reconnect once and retry on connection-level failures
+            await self._close()
+            await self._ensure_connected()
+            return await _send_recv()
 
     async def wait_for_plugin_ready(self, timeout: float = 30) -> None:
         """Poll until the engram-sync plugin's SyncEngine reports ready."""
@@ -313,6 +350,18 @@ class CdpClient:
         """Read the offline queue size."""
         result = await self.evaluate(f"{ENGINE_PATH}.queue.size")
         return result if isinstance(result, int) else 0
+
+    async def wait_for_queue_drain(self, timeout: float = 10, poll: float = 0.5) -> None:
+        """Poll until the offline queue is empty."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            size = await self.get_queue_size()
+            if size == 0:
+                return
+            await asyncio.sleep(poll)
+        raise TimeoutError(
+            f"Queue not drained after {timeout}s, size={await self.get_queue_size()}"
+        )
 
     async def get_queue_entries(self) -> list[dict]:
         """Dump queue entries for diagnostics (path, action, timestamp)."""
