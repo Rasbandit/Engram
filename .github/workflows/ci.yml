@@ -7,6 +7,11 @@ on:
   repository_dispatch:
     types: [plugin-e2e-trigger]
   workflow_dispatch:
+    inputs:
+      plugin_branch:
+        description: "Plugin branch to test against (default: main)"
+        required: false
+        default: "main"
 
 env:
   DOCKER_BUILDKIT: "1"
@@ -99,7 +104,7 @@ jobs:
           repository: Rasbandit/Engram-obsidian-sync
           token: ${{ secrets.CROSS_REPO_PAT }}
           path: plugin-src
-          ref: ${{ github.event.client_payload.plugin_branch || 'main' }}
+          ref: ${{ inputs.plugin_branch || github.event.client_payload.plugin_branch || 'main' }}
           clean: false  # Preserve node_modules between runs
 
       # ------------------------------------------------------------------
