@@ -456,7 +456,7 @@ jobs:
           fi
 
   deploy-fastraid:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.ci.result == 'success'
     needs: [ci]
     runs-on: [self-hosted, engram]
     permissions:
