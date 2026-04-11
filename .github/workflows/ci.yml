@@ -99,13 +99,30 @@ jobs:
           clean: false  # Preserve _build/ and deps/ for incremental compilation
 
       - name: Checkout plugin
-        uses: actions/checkout@v6
-        with:
-          repository: Rasbandit/Engram-obsidian-sync
-          token: ${{ secrets.CROSS_REPO_PAT }}
-          path: plugin-src
-          ref: ${{ inputs.plugin_branch || github.event.client_payload.plugin_branch || 'main' }}
-          clean: false  # Preserve node_modules between runs
+        env:
+          EXPLICIT_BRANCH: ${{ inputs.plugin_branch || github.event.client_payload.plugin_branch || '' }}
+          CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT }}
+        run: |
+          # Priority: explicit input > matching branch name > main
+          if [ -n "$EXPLICIT_BRANCH" ] && [ "$EXPLICIT_BRANCH" != "main" ]; then
+            BRANCH="$EXPLICIT_BRANCH"
+          elif gh api "repos/Rasbandit/Engram-obsidian-sync/branches/$CURRENT_BRANCH" --silent 2>/dev/null; then
+            BRANCH="$CURRENT_BRANCH"
+            echo "🔗 Auto-linked plugin branch: $BRANCH"
+          else
+            BRANCH="main"
+          fi
+          echo "Plugin branch: $BRANCH"
+          if [ -d plugin-src/.git ]; then
+            cd plugin-src
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            git pull origin "$BRANCH"
+          else
+            git clone --branch "$BRANCH" --single-branch \
+              "https://x-access-token:${GH_TOKEN}@github.com/Rasbandit/Engram-obsidian-sync.git" plugin-src
+          fi
 
       # ------------------------------------------------------------------
       # Launch ALL long-running prep in parallel (background)
