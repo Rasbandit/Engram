@@ -386,3 +386,75 @@ jobs:
             echo "Required jobs failed: unit-tests=${{ needs.unit-tests.result }}, e2e=${{ needs.e2e.result }}"
             exit 1
           fi
+
+  deploy-fastraid:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [ci]
+    runs-on: [self-hosted, engram]
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Extract and validate version
+        id: version
+        run: |
+          VERSION=$(grep 'version:' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "ERROR: Invalid semver in mix.exs: '$VERSION'" >&2
+            exit 1
+          fi
+
+          # Check version was bumped from the previous deploy
+          IMAGE="ghcr.io/${{ github.repository_owner }}/engram"
+          IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          if docker manifest inspect "${IMAGE}:${VERSION}" > /dev/null 2>&1; then
+            echo "ERROR: Version ${VERSION} already exists in GHCR. Bump the version in mix.exs before merging." >&2
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version ${VERSION} is new — proceeding"
+
+      - name: Build and push image
+        run: |
+          IMAGE="ghcr.io/${{ github.repository_owner }}/engram"
+          IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA="${{ github.sha }}"
+
+          docker build \
+            -t "${IMAGE}:latest" \
+            -t "${IMAGE}:${VERSION}" \
+            -t "${IMAGE}:${SHA::7}" \
+            .
+
+          docker push "${IMAGE}:latest"
+          docker push "${IMAGE}:${VERSION}"
+          docker push "${IMAGE}:${SHA::7}"
+          echo "Pushed ${IMAGE}:latest, ${IMAGE}:${VERSION}, and ${IMAGE}:${SHA::7}"
+
+      - name: Deploy to FastRaid
+        env:
+          SSH_OPTS: "-o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+        run: |
+          # Copy deploy script to FastRaid
+          scp $SSH_OPTS deploy/fastraid-deploy.sh root@10.0.20.214:/opt/engram/deploy.sh
+          ssh $SSH_OPTS root@10.0.20.214 'chmod +x /opt/engram/deploy.sh && bash /opt/engram/deploy.sh'
+
+      - name: Verify deployment from CI runner
+        run: |
+          for i in $(seq 1 15); do
+            if curl -sf http://10.0.20.214:8000/api/health > /dev/null 2>&1; then
+              echo "FastRaid deploy verified — healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ERROR: FastRaid health check failed from CI runner"
+          exit 1
