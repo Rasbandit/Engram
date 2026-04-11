@@ -38,6 +38,14 @@ API_URL = os.environ.get("ENGRAM_API_URL", "http://localhost:8100/api")
 PLUGIN_SRC = Path(os.environ.get("ENGRAM_PLUGIN_SRC", Path(__file__).parent.parent / "plugin"))
 OBSIDIAN_BIN = Path.home() / "Applications" / "Obsidian.AppImage"
 
+# Dynamic ports/paths for parallel CI runs (defaults match legacy hardcoded values)
+VAULT_PREFIX = os.environ.get("E2E_VAULT_PREFIX", "/tmp/e2e-vault")
+CONFIG_PREFIX = os.environ.get("E2E_CONFIG_PREFIX", "/tmp/e2e-obsidian-config")
+CDP_PORT_A = int(os.environ.get("E2E_CDP_PORT_A", "9250"))
+CDP_PORT_B = int(os.environ.get("E2E_CDP_PORT_B", "9251"))
+CDP_PORT_C = int(os.environ.get("E2E_CDP_PORT_C", "9252"))
+DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE", "99"))
+
 
 # ---------------------------------------------------------------------------
 # Unique timestamp for this test run
@@ -103,14 +111,15 @@ def obsidian_a(sync_user, sync_client_id):
 
     inst = ObsidianInstance(
         name="A",
-        vault_path=Path("/tmp/e2e-vault-a"),
-        cdp_port=9250,
-        display=":99",
+        vault_path=Path(f"{VAULT_PREFIX}-a"),
+        cdp_port=CDP_PORT_A,
+        display=f":{DISPLAY_BASE}",
         api_url=API_URL,
         api_key=sync_user[3],
         plugin_src=PLUGIN_SRC,
         obsidian_bin=OBSIDIAN_BIN,
         client_id=sync_client_id,
+        config_dir=Path(f"{CONFIG_PREFIX}-a"),
     )
     inst.start()
     yield inst
@@ -123,14 +132,15 @@ def obsidian_b(sync_user, sync_client_id):
 
     inst = ObsidianInstance(
         name="B",
-        vault_path=Path("/tmp/e2e-vault-b"),
-        cdp_port=9251,
-        display=":98",
+        vault_path=Path(f"{VAULT_PREFIX}-b"),
+        cdp_port=CDP_PORT_B,
+        display=f":{DISPLAY_BASE - 1}",
         api_url=API_URL,
         api_key=sync_user[3],
         plugin_src=PLUGIN_SRC,
         obsidian_bin=OBSIDIAN_BIN,
         client_id=sync_client_id,
+        config_dir=Path(f"{CONFIG_PREFIX}-b"),
     )
     inst.start()
     yield inst
@@ -143,13 +153,14 @@ def obsidian_c(isolation_user):
 
     inst = ObsidianInstance(
         name="C",
-        vault_path=Path("/tmp/e2e-vault-c"),
-        cdp_port=9252,
-        display=":97",
+        vault_path=Path(f"{VAULT_PREFIX}-c"),
+        cdp_port=CDP_PORT_C,
+        display=f":{DISPLAY_BASE - 2}",
         api_url=API_URL,
         api_key=isolation_user[3],
         plugin_src=PLUGIN_SRC,
         obsidian_bin=OBSIDIAN_BIN,
+        config_dir=Path(f"{CONFIG_PREFIX}-c"),
     )
     inst.start()
     yield inst
@@ -162,17 +173,17 @@ def obsidian_c(isolation_user):
 
 @pytest.fixture(scope="session")
 def cdp_a(obsidian_a):
-    return CdpClient(port=9250)
+    return CdpClient(port=obsidian_a.cdp_port)
 
 
 @pytest.fixture(scope="session")
 def cdp_b(obsidian_b):
-    return CdpClient(port=9251)
+    return CdpClient(port=obsidian_b.cdp_port)
 
 
 @pytest.fixture(scope="session")
 def cdp_c(obsidian_c):
-    return CdpClient(port=9252)
+    return CdpClient(port=obsidian_c.cdp_port)
 
 
 # ---------------------------------------------------------------------------
