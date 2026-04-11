@@ -173,17 +173,17 @@ def obsidian_c(isolation_user):
 
 @pytest.fixture(scope="session")
 def cdp_a(obsidian_a):
-    return CdpClient(port=9250)
+    return CdpClient(port=obsidian_a.cdp_port)
 
 
 @pytest.fixture(scope="session")
 def cdp_b(obsidian_b):
-    return CdpClient(port=9251)
+    return CdpClient(port=obsidian_b.cdp_port)
 
 
 @pytest.fixture(scope="session")
 def cdp_c(obsidian_c):
-    return CdpClient(port=9252)
+    return CdpClient(port=obsidian_c.cdp_port)
 
 
 # ---------------------------------------------------------------------------
