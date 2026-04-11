@@ -116,6 +116,8 @@ jobs:
           echo "Plugin branch: $BRANCH"
           if [ -d plugin-src/.git ]; then
             cd plugin-src
+            git checkout -- .
+            git clean -fd
             git fetch origin "$BRANCH"
             git checkout "$BRANCH"
             git pull origin "$BRANCH"
