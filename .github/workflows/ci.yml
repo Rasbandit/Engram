@@ -21,6 +21,25 @@ env:
   # When unset, falls back to Docker Hub.
 
 jobs:
+  version-check:
+    if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Require version bump vs main
+        run: |
+          BRANCH_VERSION=$(grep 'version:' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          MAIN_VERSION=$(git show origin/main:mix.exs | grep 'version:' | head -1 | sed 's/.*"\(.*\)".*/\1/')
+
+          if [ "$BRANCH_VERSION" = "$MAIN_VERSION" ]; then
+            echo "::error::mix.exs version ($BRANCH_VERSION) has not been bumped from main. Bump the version before merging."
+            exit 1
+          fi
+          echo "Version bumped: $MAIN_VERSION → $BRANCH_VERSION"
+
   unit-tests:
     runs-on: [self-hosted, engram]
 
@@ -319,10 +338,8 @@ jobs:
       # API-only tests (run while Obsidian instances boot)
       # ------------------------------------------------------------------
       - name: "Run API-only tests"
-        id: api_tests
         working-directory: e2e
         run: python3 -m pytest tests/api_only/ -v --timeout=60
-        continue-on-error: true
         env:
           ENGRAM_API_URL: http://localhost:${{ steps.ports.outputs.engram_port }}/api
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
@@ -332,6 +349,7 @@ jobs:
       # Obsidian E2E tests
       # ------------------------------------------------------------------
       - name: "Run Obsidian E2E tests"
+        if: always()
         working-directory: e2e
         run: python3 -m pytest tests/ --ignore=tests/api_only/ -v --timeout=300
         env:
@@ -345,12 +363,6 @@ jobs:
           E2E_CDP_PORT_B: ${{ steps.ports.outputs.cdp_port_b }}
           E2E_CDP_PORT_C: ${{ steps.ports.outputs.cdp_port_c }}
           E2E_DISPLAY_BASE: ${{ steps.ports.outputs.display_base }}
-
-      - name: Check API-only test results
-        if: always() && steps.api_tests.outcome == 'failure'
-        run: |
-          echo "::error::API-only tests failed"
-          exit 1
 
       # ------------------------------------------------------------------
       # Report E2E status back to the plugin repo (dispatch only)
@@ -424,13 +436,22 @@ jobs:
 
   ci:
     if: always()
-    needs: [unit-tests, e2e]
+    needs: [version-check, unit-tests, e2e]
     runs-on: ubuntu-latest
     steps:
       - name: Check required jobs
         run: |
-          if [ "${{ needs.unit-tests.result }}" != "success" ] || [ "${{ needs.e2e.result }}" != "success" ]; then
-            echo "Required jobs failed: unit-tests=${{ needs.unit-tests.result }}, e2e=${{ needs.e2e.result }}"
+          VC="${{ needs.version-check.result }}"
+          UT="${{ needs.unit-tests.result }}"
+          E2E="${{ needs.e2e.result }}"
+
+          # version-check is skipped on main (only runs on branches) — that's expected
+          if [ "$VC" != "success" ] && [ "$VC" != "skipped" ]; then
+            echo "::error::version-check failed — bump mix.exs version before merging"
+            exit 1
+          fi
+          if [ "$UT" != "success" ] || [ "$E2E" != "success" ]; then
+            echo "Required jobs failed: unit-tests=$UT, e2e=$E2E"
             exit 1
           fi
 
