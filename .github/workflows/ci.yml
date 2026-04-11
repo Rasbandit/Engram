@@ -91,9 +91,12 @@ jobs:
 
   e2e:
     runs-on: [self-hosted, engram]
-    concurrency:
-      group: ci-engram-e2e
-      cancel-in-progress: false
+
+    env:
+      CI_PROJECT: engram-ci-${{ github.run_id }}
+      MARKER_PREFIX: /tmp/ci-${{ github.run_id }}
+      E2E_VAULT_PREFIX: /tmp/e2e-vault-${{ github.run_id }}
+      E2E_CONFIG_PREFIX: /tmp/e2e-obsidian-config-${{ github.run_id }}
 
     steps:
       # ------------------------------------------------------------------
@@ -101,11 +104,9 @@ jobs:
       # ------------------------------------------------------------------
       - name: Pre-cleanup stale resources
         run: |
-          docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
-          pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
-          pkill -9 -f "obsidian-extracted.*obsidian" 2>/dev/null || true
-          pkill -9 Xvfb 2>/dev/null || true
-          rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-* /tmp/ci-*.marker
+          docker compose -f docker-compose.ci.yml -p "$CI_PROJECT" down -v --remove-orphans 2>/dev/null || true
+          pkill -9 -f "$E2E_CONFIG_PREFIX" 2>/dev/null || true
+          rm -rf ${E2E_VAULT_PREFIX}-* ${E2E_CONFIG_PREFIX}-* ${MARKER_PREFIX}-*
 
       - uses: actions/checkout@v6
         with:
@@ -142,11 +143,39 @@ jobs:
       # ------------------------------------------------------------------
       # Launch ALL long-running prep in parallel (background)
       # ------------------------------------------------------------------
+      - name: Allocate dynamic ports
+        id: ports
+        run: |
+          get_free_port() {
+            python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"
+          }
+          ENGRAM_PORT=$(get_free_port)
+          PG_PORT=$(get_free_port)
+          QDRANT_PORT=$(get_free_port)
+          # CDP ports for 3 Obsidian instances
+          CDP_PORT_A=$(get_free_port)
+          CDP_PORT_B=$(get_free_port)
+          CDP_PORT_C=$(get_free_port)
+          # Xvfb display numbers (offset by run number to avoid collisions)
+          DISPLAY_BASE=$(( (GITHUB_RUN_NUMBER % 30) * 3 + 50 ))
+
+          echo "engram_port=$ENGRAM_PORT" >> "$GITHUB_OUTPUT"
+          echo "pg_port=$PG_PORT" >> "$GITHUB_OUTPUT"
+          echo "qdrant_port=$QDRANT_PORT" >> "$GITHUB_OUTPUT"
+          echo "cdp_port_a=$CDP_PORT_A" >> "$GITHUB_OUTPUT"
+          echo "cdp_port_b=$CDP_PORT_B" >> "$GITHUB_OUTPUT"
+          echo "cdp_port_c=$CDP_PORT_C" >> "$GITHUB_OUTPUT"
+          echo "display_base=$DISPLAY_BASE" >> "$GITHUB_OUTPUT"
+          echo "Ports: engram=$ENGRAM_PORT pg=$PG_PORT qdrant=$QDRANT_PORT cdp=$CDP_PORT_A/$CDP_PORT_B/$CDP_PORT_C display=:$DISPLAY_BASE+"
+
       - name: "Background: CI stack + plugin build + Playwright + Ollama"
         env:
           CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
           CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
           VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          CI_ENGRAM_PORT: ${{ steps.ports.outputs.engram_port }}
+          CI_PG_PORT: ${{ steps.ports.outputs.pg_port }}
+          CI_QDRANT_PORT: ${{ steps.ports.outputs.qdrant_port }}
         run: |
           # --- CI stack build + start (background) ---
           (
@@ -157,13 +186,13 @@ jobs:
 
             if docker image inspect "$CACHED_TAG" > /dev/null 2>&1; then
               echo "Image $CACHED_TAG exists — skipping build"
-              docker tag "$CACHED_TAG" engram-ci-engram:latest
-              docker compose -f docker-compose.ci.yml -p engram-ci up -d --no-build --wait
+              docker tag "$CACHED_TAG" ${CI_PROJECT}-engram:latest
+              docker compose -f docker-compose.ci.yml -p "$CI_PROJECT" up -d --no-build --wait
             else
               echo "Image cache miss ($CACHED_TAG) — building"
-              docker compose -f docker-compose.ci.yml -p engram-ci up -d --build --wait
+              docker compose -f docker-compose.ci.yml -p "$CI_PROJECT" up -d --build --wait
               # Tag the built image for future cache hits
-              BUILT_IMG=$(docker images --format '{{.ID}}' --filter "reference=engram-ci-engram" | head -1)
+              BUILT_IMG=$(docker images --format '{{.ID}}' --filter "reference=${CI_PROJECT}-engram" | head -1)
               if [ -n "$BUILT_IMG" ]; then
                 docker tag "$BUILT_IMG" "$CACHED_TAG"
                 echo "Tagged $BUILT_IMG as $CACHED_TAG"
@@ -171,18 +200,18 @@ jobs:
             fi
 
             for i in $(seq 1 60); do
-              if curl -sf http://localhost:8100/api/health > /dev/null 2>&1; then
-                echo "CI stack healthy"
-                touch /tmp/ci-stack.marker
+              if curl -sf "http://localhost:${CI_ENGRAM_PORT}/api/health" > /dev/null 2>&1; then
+                echo "CI stack healthy on port ${CI_ENGRAM_PORT}"
+                touch "${MARKER_PREFIX}-stack.marker"
                 break
               fi
               sleep 1
             done
-            if [ ! -f /tmp/ci-stack.marker ]; then
+            if [ ! -f "${MARKER_PREFIX}-stack.marker" ]; then
               echo "ERROR: CI stack failed to start" >&2
-              touch /tmp/ci-stack-failed.marker
+              touch "${MARKER_PREFIX}-stack-failed.marker"
             fi
-          ) > /tmp/ci-stack.log 2>&1 &
+          ) > "${MARKER_PREFIX}-stack.log" 2>&1 &
           echo "CI stack build started (PID $!)"
 
           # --- Plugin build (background) ---
@@ -198,13 +227,13 @@ jobs:
             bun run build
             # Verify build
             if [ -f main.js ] && [ -f manifest.json ]; then
-              touch /tmp/ci-plugin.marker
+              touch "${MARKER_PREFIX}-plugin.marker"
               echo "Plugin build OK: $(ls -la main.js)"
             else
               echo "ERROR: Plugin build failed — missing main.js or manifest.json" >&2
-              touch /tmp/ci-plugin-failed.marker
+              touch "${MARKER_PREFIX}-plugin-failed.marker"
             fi
-          ) > /tmp/ci-plugin.log 2>&1 &
+          ) > "${MARKER_PREFIX}-plugin.log" 2>&1 &
           echo "Plugin build started (PID $!)"
 
           # --- Playwright install (background) ---
@@ -216,20 +245,20 @@ jobs:
               pip install 'playwright>=1.48'
               python3 -m playwright install chromium
             fi
-            touch /tmp/ci-playwright.marker
-          ) > /tmp/ci-playwright.log 2>&1 &
+            touch "${MARKER_PREFIX}-playwright.marker"
+          ) > "${MARKER_PREFIX}-playwright.log" 2>&1 &
           echo "Playwright install started (PID $!)"
 
           # --- Ollama reachability check (background) ---
           (
             if curl -sf http://10.0.20.214:11434/api/tags > /dev/null 2>&1; then
               echo "Ollama OK"
-              touch /tmp/ci-ollama.marker
+              touch "${MARKER_PREFIX}-ollama.marker"
             else
               echo "WARNING: Ollama on FastRaid not reachable — embedding tests may fail"
-              touch /tmp/ci-ollama-warn.marker
+              touch "${MARKER_PREFIX}-ollama-warn.marker"
             fi
-          ) > /tmp/ci-ollama.log 2>&1 &
+          ) > "${MARKER_PREFIX}-ollama.log" 2>&1 &
           echo "Ollama check started (PID $!)"
 
       # ------------------------------------------------------------------
@@ -239,48 +268,48 @@ jobs:
         run: |
           echo "Waiting for CI stack..."
           for i in $(seq 1 300); do
-            if [ -f /tmp/ci-stack.marker ]; then echo "CI stack ready"; break; fi
-            if [ -f /tmp/ci-stack-failed.marker ]; then
-              echo "CI stack failed to start. Logs:"; cat /tmp/ci-stack.log; exit 1
+            if [ -f "${MARKER_PREFIX}-stack.marker" ]; then echo "CI stack ready"; break; fi
+            if [ -f "${MARKER_PREFIX}-stack-failed.marker" ]; then
+              echo "CI stack failed to start. Logs:"; cat "${MARKER_PREFIX}-stack.log"; exit 1
             fi
             sleep 1
           done
-          if [ ! -f /tmp/ci-stack.marker ]; then
-            echo "CI stack timed out (5 min). Logs:"; cat /tmp/ci-stack.log; exit 1
+          if [ ! -f "${MARKER_PREFIX}-stack.marker" ]; then
+            echo "CI stack timed out (5 min). Logs:"; cat "${MARKER_PREFIX}-stack.log"; exit 1
           fi
 
           echo "Waiting for plugin build..."
           for i in $(seq 1 300); do
-            if [ -f /tmp/ci-plugin.marker ]; then echo "Plugin ready"; break; fi
-            if [ -f /tmp/ci-plugin-failed.marker ]; then
-              echo "Plugin build failed. Logs:"; cat /tmp/ci-plugin.log; exit 1
+            if [ -f "${MARKER_PREFIX}-plugin.marker" ]; then echo "Plugin ready"; break; fi
+            if [ -f "${MARKER_PREFIX}-plugin-failed.marker" ]; then
+              echo "Plugin build failed. Logs:"; cat "${MARKER_PREFIX}-plugin.log"; exit 1
             fi
             sleep 1
           done
-          if [ ! -f /tmp/ci-plugin.marker ]; then
-            echo "Plugin build timed out. Logs:"; cat /tmp/ci-plugin.log; exit 1
+          if [ ! -f "${MARKER_PREFIX}-plugin.marker" ]; then
+            echo "Plugin build timed out. Logs:"; cat "${MARKER_PREFIX}-plugin.log"; exit 1
           fi
 
           echo "Waiting for Playwright..."
           for i in $(seq 1 300); do
-            if [ -f /tmp/ci-playwright.marker ]; then echo "Playwright ready"; break; fi
+            if [ -f "${MARKER_PREFIX}-playwright.marker" ]; then echo "Playwright ready"; break; fi
             sleep 1
           done
-          if [ ! -f /tmp/ci-playwright.marker ]; then
-            echo "Playwright install timed out. Logs:"; cat /tmp/ci-playwright.log; exit 1
+          if [ ! -f "${MARKER_PREFIX}-playwright.marker" ]; then
+            echo "Playwright install timed out. Logs:"; cat "${MARKER_PREFIX}-playwright.log"; exit 1
           fi
 
           echo "Waiting for Ollama check..."
           for i in $(seq 1 30); do
-            if [ -f /tmp/ci-ollama.marker ] || [ -f /tmp/ci-ollama-warn.marker ]; then break; fi
+            if [ -f "${MARKER_PREFIX}-ollama.marker" ] || [ -f "${MARKER_PREFIX}-ollama-warn.marker" ]; then break; fi
             sleep 1
           done
-          if [ -f /tmp/ci-ollama-warn.marker ]; then
-            cat /tmp/ci-ollama.log
-          elif [ -f /tmp/ci-ollama.marker ]; then
+          if [ -f "${MARKER_PREFIX}-ollama-warn.marker" ]; then
+            cat "${MARKER_PREFIX}-ollama.log"
+          elif [ -f "${MARKER_PREFIX}-ollama.marker" ]; then
             echo "Ollama OK"
           else
-            echo "WARNING: Ollama check timed out. Logs:"; cat /tmp/ci-ollama.log 2>/dev/null || true
+            echo "WARNING: Ollama check timed out. Logs:"; cat "${MARKER_PREFIX}-ollama.log" 2>/dev/null || true
           fi
 
           # Add bun to PATH for E2E tests (already installed by plugin build)
@@ -295,7 +324,7 @@ jobs:
         run: python3 -m pytest tests/api_only/ -v --timeout=60
         continue-on-error: true
         env:
-          ENGRAM_API_URL: http://localhost:8100/api
+          ENGRAM_API_URL: http://localhost:${{ steps.ports.outputs.engram_port }}/api
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
           E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
 
@@ -306,10 +335,16 @@ jobs:
         working-directory: e2e
         run: python3 -m pytest tests/ --ignore=tests/api_only/ -v --timeout=300
         env:
-          ENGRAM_API_URL: http://localhost:8100/api
+          ENGRAM_API_URL: http://localhost:${{ steps.ports.outputs.engram_port }}/api
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
-          CI_POSTGRES_CONTAINER: engram-ci-postgres-1
+          CI_POSTGRES_CONTAINER: ${{ env.CI_PROJECT }}-postgres-1
           E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
+          E2E_VAULT_PREFIX: ${{ env.E2E_VAULT_PREFIX }}
+          E2E_CONFIG_PREFIX: ${{ env.E2E_CONFIG_PREFIX }}
+          E2E_CDP_PORT_A: ${{ steps.ports.outputs.cdp_port_a }}
+          E2E_CDP_PORT_B: ${{ steps.ports.outputs.cdp_port_b }}
+          E2E_CDP_PORT_C: ${{ steps.ports.outputs.cdp_port_c }}
+          E2E_DISPLAY_BASE: ${{ steps.ports.outputs.display_base }}
 
       - name: Check API-only test results
         if: always() && steps.api_tests.outcome == 'failure'
@@ -354,9 +389,9 @@ jobs:
         if: failure()
         run: |
           mkdir -p ci-artifacts
-          docker compose -f docker-compose.ci.yml -p engram-ci logs > ci-artifacts/docker-compose.log 2>&1
-          cp /tmp/ci-stack.log /tmp/ci-plugin.log /tmp/ci-playwright.log /tmp/ci-ollama.log ci-artifacts/ 2>/dev/null || true
-          for v in /tmp/e2e-vault-*; do
+          docker compose -f docker-compose.ci.yml -p "$CI_PROJECT" logs > ci-artifacts/docker-compose.log 2>&1
+          cp ${MARKER_PREFIX}-*.log ci-artifacts/ 2>/dev/null || true
+          for v in ${E2E_VAULT_PREFIX}-*; do
             [ -d "$v" ] && tar czf "ci-artifacts/$(basename $v).tar.gz" -C /tmp "$(basename $v)" 2>/dev/null || true
           done
 
@@ -371,17 +406,14 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          # Kill ALL Obsidian processes (both pre-extracted and AppImage variants)
-          pkill -9 -f "e2e-obsidian-config" 2>/dev/null || true
-          pkill -9 -f "obsidian-extracted.*obsidian" 2>/dev/null || true
-          pkill -9 -f "appimage_extracted.*obsidian" 2>/dev/null || true
-          pkill -9 Xvfb 2>/dev/null || true
+          # Kill only this run's Obsidian/Xvfb processes (scoped by config dir)
+          pkill -9 -f "$E2E_CONFIG_PREFIX" 2>/dev/null || true
           # Wait for processes to die before removing their dirs
           sleep 1
-          # Remove e2e temp dirs + marker files
-          rm -rf /tmp/e2e-vault-* /tmp/e2e-obsidian-config-* /tmp/ci-*.marker /tmp/ci-*.log
-          # Tear down Docker stack
-          docker compose -f docker-compose.ci.yml -p engram-ci down -v --remove-orphans 2>/dev/null || true
+          # Remove only this run's temp dirs + marker files
+          rm -rf ${E2E_VAULT_PREFIX}-* ${E2E_CONFIG_PREFIX}-* ${MARKER_PREFIX}-*
+          # Tear down only this run's Docker stack
+          docker compose -f docker-compose.ci.yml -p "$CI_PROJECT" down -v --remove-orphans 2>/dev/null || true
           # Prune dangling images to reclaim disk (old CI builds)
           docker image prune -f 2>/dev/null || true
           # Keep only the 3 most recent engram-ci cache tags

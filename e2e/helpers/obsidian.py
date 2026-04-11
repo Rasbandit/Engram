@@ -44,6 +44,7 @@ class ObsidianInstance:
         plugin_src: Path,
         obsidian_bin: Path = DEFAULT_OBSIDIAN_BIN,
         client_id: str | None = None,
+        config_dir: Path | None = None,
     ):
         self.name = name
         self.vault_path = vault_path
@@ -54,8 +55,8 @@ class ObsidianInstance:
         self.plugin_src = plugin_src
         self.obsidian_bin = obsidian_bin
         self.client_id = client_id
-        # Isolated config dir per instance
-        self.config_dir = Path(f"/tmp/e2e-obsidian-config-{name.lower()}")
+        # Isolated config dir per instance (overridable for parallel CI)
+        self.config_dir = config_dir or Path(f"/tmp/e2e-obsidian-config-{name.lower()}")
         self.vault_id = hashlib.md5(str(vault_path).encode()).hexdigest()[:16]
         self._xvfb_proc: subprocess.Popen | None = None
         self._obsidian_proc: subprocess.Popen | None = None
