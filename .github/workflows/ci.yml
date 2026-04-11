@@ -7,6 +7,11 @@ on:
   repository_dispatch:
     types: [plugin-e2e-trigger]
   workflow_dispatch:
+    inputs:
+      plugin_branch:
+        description: "Plugin branch to test against (default: main)"
+        required: false
+        default: "main"
 
 env:
   DOCKER_BUILDKIT: "1"
@@ -94,13 +99,30 @@ jobs:
           clean: false  # Preserve _build/ and deps/ for incremental compilation
 
       - name: Checkout plugin
-        uses: actions/checkout@v6
-        with:
-          repository: Rasbandit/Engram-obsidian-sync
-          token: ${{ secrets.CROSS_REPO_PAT }}
-          path: plugin-src
-          ref: ${{ github.event.client_payload.plugin_branch || 'main' }}
-          clean: false  # Preserve node_modules between runs
+        env:
+          EXPLICIT_BRANCH: ${{ inputs.plugin_branch || github.event.client_payload.plugin_branch || '' }}
+          CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT }}
+        run: |
+          # Priority: explicit input > matching branch name > main
+          if [ -n "$EXPLICIT_BRANCH" ] && [ "$EXPLICIT_BRANCH" != "main" ]; then
+            BRANCH="$EXPLICIT_BRANCH"
+          elif gh api "repos/Rasbandit/Engram-obsidian-sync/branches/$CURRENT_BRANCH" --silent 2>/dev/null; then
+            BRANCH="$CURRENT_BRANCH"
+            echo "🔗 Auto-linked plugin branch: $BRANCH"
+          else
+            BRANCH="main"
+          fi
+          echo "Plugin branch: $BRANCH"
+          if [ -d plugin-src/.git ]; then
+            cd plugin-src
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            git pull origin "$BRANCH"
+          else
+            git clone --branch "$BRANCH" --single-branch \
+              "https://x-access-token:${GH_TOKEN}@github.com/Rasbandit/Engram-obsidian-sync.git" plugin-src
+          fi
 
       # ------------------------------------------------------------------
       # Launch ALL long-running prep in parallel (background)
@@ -364,3 +386,75 @@ jobs:
             echo "Required jobs failed: unit-tests=${{ needs.unit-tests.result }}, e2e=${{ needs.e2e.result }}"
             exit 1
           fi
+
+  deploy-fastraid:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [ci]
+    runs-on: [self-hosted, engram]
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Extract and validate version
+        id: version
+        run: |
+          VERSION=$(grep 'version:' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "ERROR: Invalid semver in mix.exs: '$VERSION'" >&2
+            exit 1
+          fi
+
+          # Check version was bumped from the previous deploy
+          IMAGE="ghcr.io/${{ github.repository_owner }}/engram"
+          IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          if docker manifest inspect "${IMAGE}:${VERSION}" > /dev/null 2>&1; then
+            echo "ERROR: Version ${VERSION} already exists in GHCR. Bump the version in mix.exs before merging." >&2
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version ${VERSION} is new — proceeding"
+
+      - name: Build and push image
+        run: |
+          IMAGE="ghcr.io/${{ github.repository_owner }}/engram"
+          IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA="${{ github.sha }}"
+
+          docker build \
+            -t "${IMAGE}:latest" \
+            -t "${IMAGE}:${VERSION}" \
+            -t "${IMAGE}:${SHA::7}" \
+            .
+
+          docker push "${IMAGE}:latest"
+          docker push "${IMAGE}:${VERSION}"
+          docker push "${IMAGE}:${SHA::7}"
+          echo "Pushed ${IMAGE}:latest, ${IMAGE}:${VERSION}, and ${IMAGE}:${SHA::7}"
+
+      - name: Deploy to FastRaid
+        env:
+          SSH_OPTS: "-o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+        run: |
+          # Copy deploy script to FastRaid
+          scp $SSH_OPTS deploy/fastraid-deploy.sh root@10.0.20.214:/opt/engram/deploy.sh
+          ssh $SSH_OPTS root@10.0.20.214 'chmod +x /opt/engram/deploy.sh && bash /opt/engram/deploy.sh'
+
+      - name: Verify deployment from CI runner
+        run: |
+          for i in $(seq 1 15); do
+            if curl -sf http://10.0.20.214:8000/api/health > /dev/null 2>&1; then
+              echo "FastRaid deploy verified — healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ERROR: FastRaid health check failed from CI runner"
+          exit 1

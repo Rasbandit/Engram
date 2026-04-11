@@ -204,7 +204,9 @@ defmodule EngramWeb.SyncChannelTest do
 
       assert_broadcast "note_changed", %{
         "event_type" => "upsert",
-        "path" => "Test/Shared.md"
+        "path" => "Test/Shared.md",
+        "content" => "# Shared",
+        "title" => "Shared"
       }
     end
 
@@ -217,7 +219,7 @@ defmodule EngramWeb.SyncChannelTest do
 
       # Notes context uses Endpoint.broadcast (not broadcast_from!), so sender
       # also receives the note_changed event. Clients should deduplicate by path/version.
-      assert_push "note_changed", %{"event_type" => "upsert", "path" => "Test/Echo.md"}
+      assert_push "note_changed", %{"event_type" => "upsert", "path" => "Test/Echo.md", "content" => "# Echo"}
     end
 
     test "sanitizes path in push_note", %{socket: socket} do
