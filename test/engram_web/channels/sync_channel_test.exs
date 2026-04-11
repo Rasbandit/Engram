@@ -76,36 +76,11 @@ defmodule EngramWeb.SyncChannelTest do
                subscribe_and_join(socket, EngramWeb.SyncChannel, "sync:#{user.id}:notanint")
     end
 
-    test "backwards-compat: join without vault_id uses default vault", %{user: user} do
+    test "rejects topic without vault_id", %{user: user} do
       socket = user_socket(user)
-      # user already has a default vault from setup
-      assert {:ok, _, _} =
+
+      assert {:error, %{reason: "invalid_topic"}} =
                subscribe_and_join(socket, EngramWeb.SyncChannel, "sync:#{user.id}")
-    end
-
-    test "backwards-compat: receives vault-scoped broadcasts", %{user: user, vault: vault} do
-      socket = user_socket(user)
-      {:ok, _, _socket} =
-        subscribe_and_join(socket, EngramWeb.SyncChannel, "sync:#{user.id}")
-
-      # Broadcast to the vault-scoped topic (what Notes.broadcast_change uses)
-      EngramWeb.Endpoint.broadcast("sync:#{user.id}:#{vault.id}", "note_changed", %{
-        "event_type" => "upsert",
-        "path" => "test.md",
-        "vault_id" => vault.id
-      })
-
-      # The backwards-compat client should receive it
-      assert_push "note_changed", %{"event_type" => "upsert", "path" => "test.md"}
-    end
-
-    test "backwards-compat: returns error when no default vault exists" do
-      # New user with no vault inserted
-      bare_user = insert(:user)
-      socket = user_socket(bare_user)
-
-      assert {:error, %{reason: "no_default_vault"}} =
-               subscribe_and_join(socket, EngramWeb.SyncChannel, "sync:#{bare_user.id}")
     end
   end
 
@@ -146,21 +121,11 @@ defmodule EngramWeb.SyncChannelTest do
                )
     end
 
-    test "restricted key on backwards-compat topic checks default vault access", %{user: user, vault: _vault} do
+    test "restricted key on topic without vault_id gets invalid_topic", %{user: user} do
       {:ok, _raw, api_key_record} = Engram.Accounts.create_api_key(user, "restricted-compat")
-
-      # Restrict to a non-default vault (create another first)
-      insert(:user_override, user: user, overrides: %{"max_vaults" => 10})
-      {:ok, vault_b} = Engram.Vaults.create_vault(user, %{name: "Vault B"})
-
-      Engram.Repo.insert_all("api_key_vaults", [
-        %{api_key_id: api_key_record.id, vault_id: vault_b.id}
-      ])
-
       socket = user_socket(user, api_key_record)
 
-      # Join without vault_id → resolves to default vault → key doesn't have access
-      assert {:error, %{reason: "api_key_vault_forbidden"}} =
+      assert {:error, %{reason: "invalid_topic"}} =
                subscribe_and_join(socket, EngramWeb.SyncChannel, "sync:#{user.id}")
     end
 

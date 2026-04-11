@@ -5,8 +5,6 @@ defmodule EngramWeb.SyncChannel do
   Topic: "sync:{user_id}:{vault_id}"
   Auth:  socket.assigns.current_user must match user_id; vault must belong to that user.
 
-  Backwards-compat: "sync:{user_id}" (no vault) falls back to the user's default vault.
-
   Client → Server events: push_note, delete_note, rename_note, pull_changes
   Server → Client broadcasts: note_changed
   """
@@ -52,45 +50,9 @@ defmodule EngramWeb.SyncChannel do
           {:error, %{reason: "unauthorized"}}
         end
 
-      # Backwards-compat: old topic "sync:{user_id}" without vault
-      # The client joined "sync:{user_id}" but broadcasts go to
-      # "sync:{user_id}:{vault_id}". Subscribe to the vault-scoped
-      # topic so this process receives those broadcasts.
-      [user_id_str] ->
-        if to_string(user.id) == user_id_str do
-          case Vaults.get_default_vault(user) do
-            {:ok, vault} ->
-              case check_api_key_access(socket, vault) do
-                :ok ->
-                  vault_topic = "sync:#{user_id_str}:#{vault.id}"
-                  EngramWeb.Endpoint.subscribe(vault_topic)
-                  socket = assign(socket, :vault, vault)
-                  send(self(), {:after_join, params})
-                  {:ok, socket}
-
-                :forbidden ->
-                  {:error, %{reason: "api_key_vault_forbidden"}}
-              end
-
-            {:error, _} ->
-              {:error, %{reason: "no_default_vault"}}
-          end
-        else
-          {:error, %{reason: "unauthorized"}}
-        end
-
       _ ->
         {:error, %{reason: "invalid_topic"}}
     end
-  end
-
-  # Forward broadcasts from the vault-scoped topic to backwards-compat clients.
-  # When a client joins "sync:{user_id}" (no vault), we subscribe to
-  # "sync:{user_id}:{vault_id}" — those broadcasts arrive here as messages.
-  @impl true
-  def handle_info(%Phoenix.Socket.Broadcast{event: event, payload: payload}, socket) do
-    push(socket, event, payload)
-    {:noreply, socket}
   end
 
   @impl true
