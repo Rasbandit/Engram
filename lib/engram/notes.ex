@@ -76,7 +76,7 @@ defmodule Engram.Notes do
             Oban.insert(EmbedNote.new_debounced(note.id))
           end
 
-          broadcast_change(user.id, vault.id, "upsert", note.path)
+          broadcast_change(user.id, vault.id, "upsert", note.path, note)
           {:ok, note}
 
         {:ok, {:conflict, existing}} ->
@@ -160,7 +160,7 @@ defmodule Engram.Notes do
       {:ok, {:ok, note}} ->
         Oban.insert(EmbedNote.new_debounced(note.id, old_path: old_path))
         broadcast_change(user.id, vault.id, "delete", old_path)
-        broadcast_change(user.id, vault.id, "upsert", note.path)
+        broadcast_change(user.id, vault.id, "upsert", note.path, note)
         {:ok, note}
 
       {:ok, :not_found} ->
@@ -489,6 +489,21 @@ defmodule Engram.Notes do
 
   defp content_hash(content) do
     :crypto.hash(:md5, content) |> Base.encode16(case: :lower)
+  end
+
+  defp broadcast_change(user_id, vault_id, "upsert", path, %Note{} = note) do
+    EngramWeb.Endpoint.broadcast("sync:#{user_id}:#{vault_id}", "note_changed", %{
+      "event_type" => "upsert",
+      "path" => path,
+      "vault_id" => vault_id,
+      "content" => note.content || "",
+      "title" => note.title || "",
+      "folder" => note.folder || "",
+      "tags" => note.tags || [],
+      "mtime" => note.mtime,
+      "updated_at" => note.updated_at,
+      "version" => note.version
+    })
   end
 
   defp broadcast_change(user_id, vault_id, event_type, path) do
