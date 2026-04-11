@@ -13,7 +13,7 @@ echo "==> Pulling $IMAGE"
 docker pull "$IMAGE"
 
 echo "==> Triggering Unraid container update"
-/usr/local/emhttp/plugins/ca.update.applications/updateDocker.php
+/usr/local/emhttp/plugins/ca.update.applications/scripts/updateDocker.php
 
 echo "==> Waiting for health check"
 for i in $(seq 1 30); do
