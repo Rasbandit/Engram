@@ -63,16 +63,32 @@ async def provision_oauth_tokens(
 
 
 async def provision_oauth_for_existing_user(
-    clerk_client, api_url: str, clerk_user_id: str, *, label: str = "cross"
+    clerk_client, api_url: str, clerk_user_id: str, *, label: str = "cross",
+    api_key: str | None = None,
 ) -> dict:
     """Run device flow for an EXISTING Clerk user (no new user created).
 
     Returns tokens dict. Useful for cross-auth tests where both API key and
-    OAuth need to target the same user.
+    OAuth need to target the same user. Uses the user's existing vault
+    (looked up via session token) to avoid hitting vault limits.
     """
     ts = datetime.now().strftime("%Y%m%d%H%M%S%f")
 
     session_token = clerk_client.create_session_token(clerk_user_id)
+
+    # Look up the user's existing vault to avoid creating a new one
+    # (free tier has a vault limit — "new" would fail with 422)
+    auth_header = f"Bearer {api_key}" if api_key else f"Bearer {session_token}"
+    vaults_resp = requests.get(
+        f"{api_url}/vaults",
+        headers={"Authorization": auth_header},
+        timeout=10,
+    )
+    assert vaults_resp.status_code == 200, f"Failed to list vaults: {vaults_resp.status_code}"
+    vaults = vaults_resp.json()
+    assert len(vaults) > 0, "Existing user has no vaults"
+    vault_id = str(vaults[0]["id"])
+    logger.info("Using existing vault %s for OAuth %s flow", vault_id, label)
 
     client_id = f"e2e-oauth-{label}-{ts}"
     flow = start_device_flow(api_url, client_id)
@@ -81,8 +97,7 @@ async def provision_oauth_for_existing_user(
         f"{api_url}/auth/device/authorize",
         json={
             "user_code": flow["user_code"],
-            "vault_id": "new",
-            "vault_name": f"E2E OAuth {label}",
+            "vault_id": vault_id,
         },
         headers={"Authorization": f"Bearer {session_token}"},
         timeout=10,

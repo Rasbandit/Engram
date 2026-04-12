@@ -58,7 +58,8 @@ async def test_apikey_push_oauth_receives(
     pushes it, and A should receive the broadcast.
     """
     tokens = await provision_oauth_for_existing_user(
-        clerk_client, API_URL, sync_user[1], label="cross"
+        clerk_client, API_URL, sync_user[1], label="cross",
+        api_key=sync_user[3],
     )
     original_settings = None
 
@@ -96,7 +97,8 @@ async def test_oauth_push_apikey_receives(
     A is swapped to OAuth. A writes a file, syncs, B should get it.
     """
     tokens = await provision_oauth_for_existing_user(
-        clerk_client, API_URL, sync_user[1], label="cross"
+        clerk_client, API_URL, sync_user[1], label="cross",
+        api_key=sync_user[3],
     )
     original_settings = None
 
