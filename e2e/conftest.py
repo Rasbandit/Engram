@@ -34,17 +34,17 @@ CLERK_SECRET = os.environ.get("E2E_CLERK_SECRET_KEY", "")
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-API_URL = os.environ.get("ENGRAM_API_URL", "http://localhost:8100/api")
+API_URL = os.environ.get("ENGRAM_API_URL") or "http://localhost:8100/api"
 PLUGIN_SRC = Path(os.environ.get("ENGRAM_PLUGIN_SRC", Path(__file__).parent.parent / "plugin"))
 OBSIDIAN_BIN = Path.home() / "Applications" / "Obsidian.AppImage"
 
 # Dynamic ports/paths for parallel CI runs (defaults match legacy hardcoded values)
 VAULT_PREFIX = os.environ.get("E2E_VAULT_PREFIX", "/tmp/e2e-vault")
 CONFIG_PREFIX = os.environ.get("E2E_CONFIG_PREFIX", "/tmp/e2e-obsidian-config")
-CDP_PORT_A = int(os.environ.get("E2E_CDP_PORT_A", "9250"))
-CDP_PORT_B = int(os.environ.get("E2E_CDP_PORT_B", "9251"))
-CDP_PORT_C = int(os.environ.get("E2E_CDP_PORT_C", "9252"))
-DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE", "99"))
+CDP_PORT_A = int(os.environ.get("E2E_CDP_PORT_A") or "9250")
+CDP_PORT_B = int(os.environ.get("E2E_CDP_PORT_B") or "9251")
+CDP_PORT_C = int(os.environ.get("E2E_CDP_PORT_C") or "9252")
+DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE") or "99")
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE", "99"))
 
 @pytest.fixture(scope="session")
 def ts():
-    return datetime.now().strftime("%Y%m%d%H%M%S")
+    return datetime.now().strftime("%Y%m%d%H%M%S%f")
 
 
 @pytest.fixture(scope="session")
@@ -75,6 +75,8 @@ def sync_user(ts, clerk_client):
         "E2E_CLERK_SECRET_KEY is required — legacy password auth has been removed"
     )
     email = f"e2e-sync-{ts}@example.com"
+    # Clean up stale user with same email from previous failed runs
+    clerk_client.cleanup_user(email)
     password = secrets.token_urlsafe(32)
     clerk_user_id, clerk_auth, api_key = provision_clerk_user(
         clerk_client, email, password, API_URL,
@@ -89,6 +91,8 @@ def isolation_user(ts, clerk_client):
         "E2E_CLERK_SECRET_KEY is required — legacy password auth has been removed"
     )
     email = f"e2e-iso-{ts}@example.com"
+    # Clean up stale user with same email from previous failed runs
+    clerk_client.cleanup_user(email)
     password = secrets.token_urlsafe(32)
     clerk_user_id, clerk_auth, api_key = provision_clerk_user(
         clerk_client, email, password, API_URL,
