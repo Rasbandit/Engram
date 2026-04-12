@@ -85,7 +85,7 @@ async def provision_oauth_for_existing_user(
         timeout=10,
     )
     assert vaults_resp.status_code == 200, f"Failed to list vaults: {vaults_resp.status_code}"
-    vaults = vaults_resp.json()
+    vaults = vaults_resp.json().get("vaults", [])
     assert len(vaults) > 0, "Existing user has no vaults"
     vault_id = str(vaults[0]["id"])
     logger.info("Using existing vault %s for OAuth %s flow", vault_id, label)
