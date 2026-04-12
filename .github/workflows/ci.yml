@@ -178,6 +178,14 @@ jobs:
           # Xvfb display numbers (offset by run number to avoid collisions)
           DISPLAY_BASE=$(( (GITHUB_RUN_NUMBER % 30) * 3 + 50 ))
 
+          # Validate all ports are non-empty (get_free_port can fail silently)
+          for var in ENGRAM_PORT PG_PORT QDRANT_PORT CDP_PORT_A CDP_PORT_B CDP_PORT_C; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Port allocation failed for $var"
+              exit 1
+            fi
+          done
+
           echo "engram_port=$ENGRAM_PORT" >> "$GITHUB_OUTPUT"
           echo "pg_port=$PG_PORT" >> "$GITHUB_OUTPUT"
           echo "qdrant_port=$QDRANT_PORT" >> "$GITHUB_OUTPUT"
