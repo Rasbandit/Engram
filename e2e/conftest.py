@@ -53,7 +53,7 @@ DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE") or "99")
 
 @pytest.fixture(scope="session")
 def ts():
-    return datetime.now().strftime("%Y%m%d%H%M%S")
+    return datetime.now().strftime("%Y%m%d%H%M%S%f")
 
 
 @pytest.fixture(scope="session")
@@ -75,6 +75,8 @@ def sync_user(ts, clerk_client):
         "E2E_CLERK_SECRET_KEY is required — legacy password auth has been removed"
     )
     email = f"e2e-sync-{ts}@example.com"
+    # Clean up stale user with same email from previous failed runs
+    clerk_client.cleanup_user(email)
     password = secrets.token_urlsafe(32)
     clerk_user_id, clerk_auth, api_key = provision_clerk_user(
         clerk_client, email, password, API_URL,
@@ -89,6 +91,8 @@ def isolation_user(ts, clerk_client):
         "E2E_CLERK_SECRET_KEY is required — legacy password auth has been removed"
     )
     email = f"e2e-iso-{ts}@example.com"
+    # Clean up stale user with same email from previous failed runs
+    clerk_client.cleanup_user(email)
     password = secrets.token_urlsafe(32)
     clerk_user_id, clerk_auth, api_key = provision_clerk_user(
         clerk_client, email, password, API_URL,
