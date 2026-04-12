@@ -41,10 +41,10 @@ OBSIDIAN_BIN = Path.home() / "Applications" / "Obsidian.AppImage"
 # Dynamic ports/paths for parallel CI runs (defaults match legacy hardcoded values)
 VAULT_PREFIX = os.environ.get("E2E_VAULT_PREFIX", "/tmp/e2e-vault")
 CONFIG_PREFIX = os.environ.get("E2E_CONFIG_PREFIX", "/tmp/e2e-obsidian-config")
-CDP_PORT_A = int(os.environ.get("E2E_CDP_PORT_A", "9250"))
-CDP_PORT_B = int(os.environ.get("E2E_CDP_PORT_B", "9251"))
-CDP_PORT_C = int(os.environ.get("E2E_CDP_PORT_C", "9252"))
-DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE", "99"))
+CDP_PORT_A = int(os.environ.get("E2E_CDP_PORT_A") or "9250")
+CDP_PORT_B = int(os.environ.get("E2E_CDP_PORT_B") or "9251")
+CDP_PORT_C = int(os.environ.get("E2E_CDP_PORT_C") or "9252")
+DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE") or "99")
 
 
 # ---------------------------------------------------------------------------
