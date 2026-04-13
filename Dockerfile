@@ -39,25 +39,20 @@ COPY mix.exs mix.lock ./
 RUN --mount=type=cache,target=/app/deps,id=mix-deps \
     mix deps.get --only $MIX_ENV
 
-# Compile deps — cache mount preserves compiled artifacts between builds
+# Compile deps (no _build cache mount — stale .beam files caused CI bugs)
 RUN mkdir -p config
 COPY config/config.exs config/runtime.exs config/prod.exs config/
 RUN --mount=type=cache,target=/app/deps,id=mix-deps \
-    --mount=type=cache,target=/app/_build,id=mix-build \
     mix deps.compile
 
-# Compile app code
+# Compile app code and build release
 COPY priv priv
 COPY --from=frontend /priv/static/app priv/static/app
 COPY lib lib
 COPY config/runtime.exs config/
 
-# Build release — force-compile app code to avoid stale .beam from cache,
-# then build release and copy out of the cache mount
 RUN --mount=type=cache,target=/app/deps,id=mix-deps \
-    --mount=type=cache,target=/app/_build,id=mix-build \
-    mix compile --force && mix release && \
-    cp -r /app/_build/prod/rel/engram /app/_release
+    mix compile --force && mix release
 
 # ─── Runner ───────────────────────────────────────────────────────────────
 FROM ${RUNNER_IMAGE}
@@ -73,7 +68,7 @@ ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
 WORKDIR /app
 RUN chown nobody /app
 
-COPY --from=builder --chown=nobody:root /app/_release ./
+COPY --from=builder --chown=nobody:root /app/_build/prod/rel/engram ./
 
 USER nobody
 
