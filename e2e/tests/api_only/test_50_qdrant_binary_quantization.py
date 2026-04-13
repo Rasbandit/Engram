@@ -48,10 +48,9 @@ def seeded_note(api_sync):
 
     ts = int(time.time())
     path = f"E2E/ProdParity/test50-{ts}.md"
-    # Use a distinctive phrase unlikely to match other E2E test notes
     content = (
         f"# Qdrant Binary Quantization Parity\n\n"
-        f"Zebra ultraviolet kaleidoscope — unique canary phrase for vector search.\n"
+        f"This note verifies the full embedding pipeline at 1024 dimensions.\n"
         f"Timestamp: {ts}\n"
     )
     note = scoped.create_note(path, content)
@@ -118,7 +117,7 @@ class TestSearchRoundTrip:
         # Step 2: Embed query directly via Ollama
         embed_resp = requests.post(
             f"{OLLAMA_URL}/api/embed",
-            json={"model": "mxbai-embed-large", "input": "zebra ultraviolet kaleidoscope canary phrase"},
+            json={"model": "mxbai-embed-large", "input": "embedding pipeline binary quantization parity"},
             timeout=60,
         )
         assert embed_resp.status_code == 200, (
