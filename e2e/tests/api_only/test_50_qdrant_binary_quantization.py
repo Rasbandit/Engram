@@ -99,15 +99,26 @@ class TestQdrantBinaryQuantization:
 class TestSearchRoundTrip:
     """Verify the full note -> embed -> search pipeline via direct Qdrant."""
 
-    def test_note_indexed_in_qdrant(self, seeded_note):
-        """Verify the note was actually embedded and stored in Qdrant."""
+    @pytest.mark.flaky(reruns=0)
+    def test_embed_and_search_with_binary_quantization(self, seeded_note):
+        """Full pipeline: wait for indexing, embed via Ollama, search Qdrant.
+
+        Single test to avoid Qdrant disappearing between separate tests.
+        Reruns disabled — Qdrant may be gone on retry, masking the real error.
+        """
+        note_path = seeded_note["path"]
+
+        # Step 1: Wait for note to be indexed in Qdrant
         deadline = time.monotonic() + 50
         points = 0
         while time.monotonic() < deadline:
-            info = _collection_info()
-            points = info.get("points_count", 0)
-            if points > 0:
-                break
+            try:
+                info = _collection_info()
+                points = info.get("points_count", 0)
+                if points > 0:
+                    break
+            except requests.ConnectionError:
+                pass
             time.sleep(3)
 
         assert points > 0, (
@@ -115,15 +126,7 @@ class TestSearchRoundTrip:
             f"Embedding pipeline may have failed (Ollama unreachable?)."
         )
 
-    def test_qdrant_search_with_binary_quantization(self, seeded_note):
-        """Embed a query via Ollama, search Qdrant directly with rescore.
-
-        This bypasses the Engram search API to prove binary quantization
-        and the embedding pipeline work end-to-end.
-        """
-        note_path = seeded_note["path"]
-
-        # Embed query directly via Ollama
+        # Step 2: Embed query directly via Ollama
         embed_resp = requests.post(
             f"{OLLAMA_URL}/api/embed",
             json={"model": "mxbai-embed-large", "input": "binary quantization verification"},
@@ -135,7 +138,7 @@ class TestSearchRoundTrip:
         vector = embed_resp.json()["embeddings"][0]
         assert len(vector) == 1024, f"Expected 1024d vector, got {len(vector)}d"
 
-        # Search Qdrant directly with binary quantization rescore params
+        # Step 3: Search Qdrant directly with binary quantization rescore
         search_resp = requests.post(
             f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/query",
             json={
