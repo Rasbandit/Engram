@@ -1,12 +1,11 @@
 """Test 50: Verify Qdrant 1024d prod-parity config and search pipeline.
 
 API-only test. Creates a note to trigger collection creation and indexing,
-verifies the collection has correct vector dimensions, then searches Qdrant
-directly with an Ollama-embedded vector.
+verifies the collection has correct vector dimensions and binary quantization
+config, then searches Qdrant directly with an Ollama-embedded vector.
 
-Note: Binary quantization is disabled in CI (requires AVX2+ CPU). The unit
-tests in qdrant_test.exs verify the quantization config is sent correctly.
-This E2E test focuses on dimension parity and pipeline correctness.
+Qdrant runs on SlowRaid (10.0.20.201, i9-14900K) which has AVX2 — required
+for binary quantization's POPCNT/bitwise operations.
 """
 
 import os
@@ -15,7 +14,7 @@ import time
 import pytest
 import requests
 
-QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6334")
+QDRANT_URL = os.environ.get("QDRANT_URL", "http://10.0.20.201:6333")
 QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "ci_test_notes")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
@@ -78,6 +77,16 @@ class TestQdrantConfig:
             f"Expected 1024d vectors (prod parity), got {vectors['size']}d"
         )
         assert vectors["distance"] == "Cosine"
+
+    def test_binary_quantization_enabled(self, seeded_note):
+        """Binary quantization should be enabled with always_ram=true (prod parity)."""
+        info = _collection_info()
+        quant_config = info["config"].get("quantization_config", {})
+        binary_config = quant_config.get("binary", {})
+        assert binary_config.get("always_ram") is True, (
+            f"Expected binary quantization with always_ram=true (prod parity), "
+            f"got quantization_config={quant_config}"
+        )
 
 
 class TestSearchRoundTrip:
