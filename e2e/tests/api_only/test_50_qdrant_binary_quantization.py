@@ -97,21 +97,34 @@ class TestSearchRoundTrip:
         """Full pipeline: wait for indexing, embed via Ollama, search Qdrant."""
         note_path = seeded_note["path"]
 
-        # Step 1: Wait for note to be indexed in Qdrant
-        deadline = time.monotonic() + 50
-        points = 0
+        # Step 1: Wait for THIS note to be indexed in Qdrant (not just any points).
+        # Other api_only tests may index notes first, so poll by source_path filter.
+        deadline = time.monotonic() + 60
+        found = False
         while time.monotonic() < deadline:
             try:
-                info = _collection_info()
-                points = info.get("points_count", 0)
-                if points > 0:
-                    break
-            except requests.ConnectionError:
+                scroll_resp = requests.post(
+                    f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/scroll",
+                    json={
+                        "filter": {
+                            "must": [{"key": "source_path", "match": {"value": note_path}}]
+                        },
+                        "limit": 1,
+                        "with_payload": True,
+                    },
+                    timeout=10,
+                )
+                if scroll_resp.status_code == 200:
+                    pts = scroll_resp.json().get("result", {}).get("points", [])
+                    if pts:
+                        found = True
+                        break
+            except (requests.ConnectionError, requests.HTTPError):
                 pass
             time.sleep(3)
 
-        assert points > 0, (
-            f"Qdrant should have >0 points after indexing, got {points}."
+        assert found, (
+            f"Seeded note '{note_path}' was not indexed in Qdrant within 60s."
         )
 
         # Step 2: Embed query directly via Ollama
@@ -126,7 +139,7 @@ class TestSearchRoundTrip:
         vector = embed_resp.json()["embeddings"][0]
         assert len(vector) == 1024, f"Expected 1024d vector, got {len(vector)}d"
 
-        # Step 3: Search Qdrant directly
+        # Step 3: Search Qdrant directly with the embedded vector
         search_resp = requests.post(
             f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/query",
             json={
