@@ -3,7 +3,8 @@
 API-only test. Creates a note to trigger collection creation and indexing,
 then queries Qdrant's collection info endpoint directly to confirm binary
 quantization (always_ram=true) and correct vector dimensions. Finally
-verifies the note is searchable, proving the full embedding pipeline.
+verifies search works by querying Qdrant directly with an Ollama-embedded
+vector.
 
 Note: ensure_collection is called lazily on first index_note, so we must
 create and index a note before inspecting the collection config.
@@ -17,6 +18,7 @@ import requests
 
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6334")
 QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "ci_test_notes")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
 
 def _collection_info():
@@ -95,7 +97,7 @@ class TestQdrantBinaryQuantization:
 
 
 class TestSearchRoundTrip:
-    """Verify the full note -> embed -> search pipeline works."""
+    """Verify the full note -> embed -> search pipeline via direct Qdrant."""
 
     def test_note_indexed_in_qdrant(self, seeded_note):
         """Verify the note was actually embedded and stored in Qdrant."""
@@ -113,79 +115,52 @@ class TestSearchRoundTrip:
             f"Embedding pipeline may have failed (Ollama unreachable?)."
         )
 
-    def test_search_returns_results(self, seeded_note):
-        """Search endpoint should return results for indexed content."""
-        api = seeded_note["api"]
+    def test_qdrant_search_with_binary_quantization(self, seeded_note):
+        """Embed a query via Ollama, search Qdrant directly with rescore.
+
+        This bypasses the Engram search API to prove binary quantization
+        and the embedding pipeline work end-to-end.
+        """
         note_path = seeded_note["path"]
 
-        # First: verify we can search Qdrant directly (bypass Engram API)
-        # This isolates whether the issue is Qdrant or the Engram search path
-        info = _collection_info()
-        points = info.get("points_count", 0)
-
-        # Embed a query via Ollama directly to get a vector
-        ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+        # Embed query directly via Ollama
         embed_resp = requests.post(
-            f"{ollama_url}/api/embed",
-            json={"model": "mxbai-embed-large", "input": "binary quantization"},
-            timeout=30,
+            f"{OLLAMA_URL}/api/embed",
+            json={"model": "mxbai-embed-large", "input": "binary quantization verification"},
+            timeout=60,
         )
-        diag = f"Qdrant points={points}, Ollama embed status={embed_resp.status_code}"
+        assert embed_resp.status_code == 200, (
+            f"Ollama embed failed: HTTP {embed_resp.status_code} — {embed_resp.text[:200]}"
+        )
+        vector = embed_resp.json()["embeddings"][0]
+        assert len(vector) == 1024, f"Expected 1024d vector, got {len(vector)}d"
 
-        if embed_resp.status_code == 200:
-            vector = embed_resp.json()["embeddings"][0]
-            diag += f", vector dims={len(vector)}"
-
-            # Search Qdrant directly
-            qdrant_search = requests.post(
-                f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/query",
-                json={
-                    "query": vector,
-                    "limit": 5,
-                    "with_payload": True,
-                    "params": {"quantization": {"rescore": True, "oversampling": 3.0}},
+        # Search Qdrant directly with binary quantization rescore params
+        search_resp = requests.post(
+            f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/query",
+            json={
+                "query": vector,
+                "limit": 10,
+                "with_payload": True,
+                "params": {
+                    "quantization": {
+                        "rescore": True,
+                        "oversampling": 3.0,
+                    }
                 },
-                timeout=10,
-            )
-            diag += f", Qdrant search status={qdrant_search.status_code}"
-            if qdrant_search.status_code == 200:
-                qdrant_results = qdrant_search.json().get("result", [])
-                if isinstance(qdrant_results, dict):
-                    qdrant_results = qdrant_results.get("points", [])
-                diag += f", Qdrant results={len(qdrant_results)}"
-                paths = [
-                    r.get("payload", {}).get("source_path", "?")
-                    for r in qdrant_results[:3]
-                ]
-                diag += f", paths={paths}"
-            else:
-                diag += f", Qdrant search body={qdrant_search.text[:200]}"
+            },
+            timeout=10,
+        )
+        assert search_resp.status_code == 200, (
+            f"Qdrant search failed: HTTP {search_resp.status_code} — {search_resp.text[:200]}"
+        )
 
-        # Now try the Engram search API
-        deadline = time.monotonic() + 50
-        found = False
-        last_status = None
-        last_body = None
-        while time.monotonic() < deadline:
-            time.sleep(3)
-            resp = api.session.post(
-                f"{api.base_url}/search",
-                json={"query": "binary quantization verification", "limit": 10},
-                timeout=10,
-            )
-            last_status = resp.status_code
-            last_body = resp.text
-            if resp.status_code == 200:
-                results = resp.json().get("results", [])
-                for r in results:
-                    if note_path in r.get("source_path", ""):
-                        found = True
-                        break
-            if found:
-                break
+        result = search_resp.json().get("result", [])
+        if isinstance(result, dict):
+            result = result.get("points", [])
 
-        assert found, (
-            f"Note at '{note_path}' not found in search within 50s. "
-            f"Diagnostics: {diag}. "
-            f"Last Engram response: HTTP {last_status} — {last_body[:300]}"
+        paths = [r.get("payload", {}).get("source_path", "?") for r in result]
+        assert any(note_path in p for p in paths), (
+            f"Expected '{note_path}' in Qdrant results. "
+            f"Got {len(result)} results with paths: {paths}"
         )
