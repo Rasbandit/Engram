@@ -118,7 +118,50 @@ class TestSearchRoundTrip:
         api = seeded_note["api"]
         note_path = seeded_note["path"]
 
-        # Poll search — allow time for embedding + Qdrant indexing
+        # First: verify we can search Qdrant directly (bypass Engram API)
+        # This isolates whether the issue is Qdrant or the Engram search path
+        info = _collection_info()
+        points = info.get("points_count", 0)
+
+        # Embed a query via Ollama directly to get a vector
+        ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+        embed_resp = requests.post(
+            f"{ollama_url}/api/embed",
+            json={"model": "mxbai-embed-large", "input": "binary quantization"},
+            timeout=30,
+        )
+        diag = f"Qdrant points={points}, Ollama embed status={embed_resp.status_code}"
+
+        if embed_resp.status_code == 200:
+            vector = embed_resp.json()["embeddings"][0]
+            diag += f", vector dims={len(vector)}"
+
+            # Search Qdrant directly
+            qdrant_search = requests.post(
+                f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/query",
+                json={
+                    "query": vector,
+                    "limit": 5,
+                    "with_payload": True,
+                    "params": {"quantization": {"rescore": True, "oversampling": 3.0}},
+                },
+                timeout=10,
+            )
+            diag += f", Qdrant search status={qdrant_search.status_code}"
+            if qdrant_search.status_code == 200:
+                qdrant_results = qdrant_search.json().get("result", [])
+                if isinstance(qdrant_results, dict):
+                    qdrant_results = qdrant_results.get("points", [])
+                diag += f", Qdrant results={len(qdrant_results)}"
+                paths = [
+                    r.get("payload", {}).get("source_path", "?")
+                    for r in qdrant_results[:3]
+                ]
+                diag += f", paths={paths}"
+            else:
+                diag += f", Qdrant search body={qdrant_search.text[:200]}"
+
+        # Now try the Engram search API
         deadline = time.monotonic() + 50
         found = False
         last_status = None
@@ -142,6 +185,7 @@ class TestSearchRoundTrip:
                 break
 
         assert found, (
-            f"Note at '{note_path}' should appear in search within 50s. "
-            f"Last response: HTTP {last_status} — {last_body[:500]}"
+            f"Note at '{note_path}' not found in search within 50s. "
+            f"Diagnostics: {diag}. "
+            f"Last Engram response: HTTP {last_status} — {last_body[:300]}"
         )
