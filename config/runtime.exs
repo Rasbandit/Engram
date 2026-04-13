@@ -87,6 +87,11 @@ if config_env() != :test do
     config :engram, :qdrant_api_key, qdrant_api_key
   end
 
+  # Binary quantization — requires AVX2+ CPU. Disable on older hardware.
+  if System.get_env("QDRANT_BINARY_QUANTIZATION") == "false" do
+    config :engram, :qdrant_binary_quantization, false
+  end
+
   # Reranker — select adapter from RERANKER_BACKEND env var (jina or none)
   case System.get_env("RERANKER_BACKEND", "none") do
     "jina" ->

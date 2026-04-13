@@ -63,6 +63,7 @@ jobs:
             # Read secrets from existing env file
             JWT_SECRET=$(grep JWT_SECRET /opt/engram/.env | cut -d= -f2)
             SECRET_KEY_BASE=$(grep SECRET_KEY_BASE /opt/engram/.env | cut -d= -f2)
+            VOYAGE_API_KEY=$(grep VOYAGE_API_KEY /opt/engram/.env | cut -d= -f2)
 
             # Replace engram container
             docker stop engram 2>/dev/null || true
@@ -80,10 +81,11 @@ jobs:
               -e 'DATABASE_URL=postgresql://engram:engram@engram-postgres:5432/engram' \
               -e "JWT_SECRET=${JWT_SECRET}" \
               -e "SECRET_KEY_BASE=${SECRET_KEY_BASE}" \
-              -e EMBED_MODEL=nomic-embed-text \
-              -e EMBED_BACKEND=ollama \
-              -e 'OLLAMA_URL=http://ollama:11434' \
-              -e 'QDRANT_URL=http://qdrant:6333' \
+              -e EMBED_BACKEND=voyage \
+              -e DOC_EMBED_MODEL=voyage-4-large \
+              -e QUERY_EMBED_MODEL=voyage-4-lite \
+              -e "VOYAGE_API_KEY=${VOYAGE_API_KEY}" \
+              -e 'QDRANT_URL=http://10.0.20.201:6333' \
               -e QDRANT_COLLECTION=obsidian_notes \
               "${REGISTRY}:${VERSION}"
 
