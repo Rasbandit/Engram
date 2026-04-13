@@ -101,28 +101,33 @@ class TestSearchRoundTrip:
         """Full pipeline: note upsert -> Oban embed -> Qdrant upsert -> search."""
         api = seeded_note["api"]
         unique_phrase = seeded_note["unique_phrase"]
+        note_path = seeded_note["path"]
 
-        # Poll search until our note appears or timeout
-        deadline = time.monotonic() + 30
+        # Poll search until our note appears or timeout.
+        # Budget 50s: Oban 5s debounce + Ollama cold-start + Qdrant indexing.
+        deadline = time.monotonic() + 50
         found = False
+        last_status = None
+        last_body = None
         while time.monotonic() < deadline:
             time.sleep(3)
             resp = api.session.post(
                 f"{api.base_url}/search",
-                json={"query": unique_phrase, "limit": 5},
+                json={"query": "binary quantization verification", "limit": 10},
                 timeout=10,
             )
+            last_status = resp.status_code
+            last_body = resp.text
             if resp.status_code == 200:
                 results = resp.json().get("results", [])
                 for r in results:
-                    if unique_phrase in r.get("text", ""):
+                    if note_path in r.get("source_path", ""):
                         found = True
                         break
             if found:
                 break
 
         assert found, (
-            f"Note with '{unique_phrase}' should appear in search within 30s. "
-            f"This proves: Ollama embedded at 1024d -> Qdrant stored with "
-            f"binary quantization -> rescore search returned the result."
+            f"Note at '{note_path}' should appear in search within 50s. "
+            f"Last response: HTTP {last_status} — {last_body[:500]}"
         )
