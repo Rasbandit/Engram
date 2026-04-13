@@ -14,6 +14,7 @@ import time
 import pytest
 import requests
 
+ENGRAM_API_URL = os.environ.get("ENGRAM_API_URL", "http://localhost:8100/api")
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://10.0.20.201:6333")
 QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "ci_test_notes")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
@@ -161,4 +162,61 @@ class TestSearchRoundTrip:
         assert any(note_path in p for p in paths), (
             f"Expected '{note_path}' in Qdrant results. "
             f"Got {len(result)} results with paths: {paths}"
+        )
+
+
+class TestSearchAPI:
+    """Verify the Engram /api/search endpoint works end-to-end.
+
+    Unlike TestSearchRoundTrip which hits Qdrant directly, this tests
+    the full app path: query → Engram embed → Qdrant search → response.
+    """
+
+    @pytest.mark.flaky(reruns=0)
+    def test_search_via_api(self, seeded_note):
+        """POST /api/search should return results including the seeded note."""
+        api = seeded_note["api"]
+        note_path = seeded_note["path"]
+
+        # Wait for the note to be indexed (reuse scroll check from earlier test)
+        deadline = time.monotonic() + 60
+        found = False
+        while time.monotonic() < deadline:
+            try:
+                scroll_resp = requests.post(
+                    f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/scroll",
+                    json={
+                        "filter": {
+                            "must": [{"key": "source_path", "match": {"value": note_path}}]
+                        },
+                        "limit": 1,
+                    },
+                    timeout=10,
+                )
+                if scroll_resp.status_code == 200:
+                    pts = scroll_resp.json().get("result", {}).get("points", [])
+                    if pts:
+                        found = True
+                        break
+            except (requests.ConnectionError, requests.HTTPError):
+                pass
+            time.sleep(3)
+
+        assert found, f"Seeded note '{note_path}' not indexed within 60s"
+
+        # Hit the Engram search API (not Qdrant directly)
+        resp = api.session.post(
+            f"{api.base_url}/search",
+            json={"query": "embedding pipeline binary quantization", "limit": 20},
+            timeout=30,
+        )
+        assert resp.status_code == 200, (
+            f"POST /api/search failed: HTTP {resp.status_code} — {resp.text[:300]}"
+        )
+
+        results = resp.json().get("results", [])
+        paths = [r.get("source_path", "?") for r in results]
+        assert any(note_path in p for p in paths), (
+            f"Expected '{note_path}' in /api/search results. "
+            f"Got {len(results)} results with paths: {paths}"
         )

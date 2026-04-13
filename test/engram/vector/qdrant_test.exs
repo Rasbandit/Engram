@@ -30,6 +30,25 @@ defmodule Engram.Vector.QdrantTest do
 
       assert :ok = Qdrant.ensure_collection("test_col", 1024)
     end
+
+    test "omits quantization config when binary quantization is disabled", %{bypass: bypass} do
+      Application.put_env(:engram, :qdrant_binary_quantization, false)
+      on_exit(fn -> Application.delete_env(:engram, :qdrant_binary_quantization) end)
+
+      Bypass.expect_once(bypass, "PUT", "/collections/test_col", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        decoded = Jason.decode!(body)
+        assert decoded["vectors"]["size"] == 1024
+        assert decoded["vectors"]["distance"] == "Cosine"
+        refute Map.has_key?(decoded, "quantization_config")
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"result": true}))
+      end)
+
+      assert :ok = Qdrant.ensure_collection("test_col", 1024)
+    end
   end
 
   describe "upsert_points/2" do
@@ -171,6 +190,24 @@ defmodule Engram.Vector.QdrantTest do
         decoded = Jason.decode!(body)
         assert decoded["params"]["quantization"]["rescore"] == true
         assert decoded["params"]["quantization"]["oversampling"] == 3.0
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(%{"result" => []}))
+      end)
+
+      vector = List.duplicate(0.1, 1024)
+      assert {:ok, []} = Qdrant.search("test_col", vector, user_id: "1", limit: 5)
+    end
+
+    test "omits rescore params when binary quantization is disabled", %{bypass: bypass} do
+      Application.put_env(:engram, :qdrant_binary_quantization, false)
+      on_exit(fn -> Application.delete_env(:engram, :qdrant_binary_quantization) end)
+
+      Bypass.expect_once(bypass, "POST", "/collections/test_col/points/query", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        decoded = Jason.decode!(body)
+        refute Map.has_key?(decoded, "params")
 
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
