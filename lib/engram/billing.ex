@@ -17,6 +17,8 @@ defmodule Engram.Billing do
     "vault_scoped_keys" => false
   }
 
+  def default_limits, do: @default_limits
+
   # ── Limits ────────────────────────────────────────────────────────
 
   @doc """

@@ -59,6 +59,8 @@ defmodule Engram.Vaults do
     {:error, :vault_limit_reached}
   """
   def register_vault(user, name, client_id) do
+    require Logger
+
     result =
       Repo.with_tenant(user.id, fn ->
         case find_by_client_id(user.id, client_id) do
@@ -67,6 +69,13 @@ defmodule Engram.Vaults do
 
           nil ->
             current_count = count_vaults(user.id)
+            limit = Billing.effective_limit(user, "max_vaults")
+
+            Logger.warning(
+              "[vault_debug] register_vault user_id=#{user.id} plan_id=#{inspect(user.plan_id)} " <>
+                "current_count=#{current_count} effective_limit=#{inspect(limit)} " <>
+                "default_limits=#{inspect(Billing.default_limits())}"
+            )
 
             case Billing.check_limit(user, "max_vaults", current_count) do
               {:error, :limit_reached} ->
