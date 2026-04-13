@@ -31,8 +31,8 @@ services:
       OLLAMA_URL: http://10.0.20.214:11434
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION: ci_test_notes
-      EMBED_MODEL: nomic-embed-text
-      EMBED_DIMS: "768"
+      EMBED_MODEL: mxbai-embed-large
+      EMBED_DIMS: "1024"
       EMBED_BACKEND: ollama
       RERANKER_BACKEND: jina
       JINA_URL: http://10.0.20.214:8082
