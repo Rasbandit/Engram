@@ -1,13 +1,12 @@
-"""Test 50: Verify Qdrant binary quantization and 1024d prod-parity config.
+"""Test 50: Verify Qdrant 1024d prod-parity config and search pipeline.
 
 API-only test. Creates a note to trigger collection creation and indexing,
-then queries Qdrant's collection info endpoint directly to confirm binary
-quantization (always_ram=true) and correct vector dimensions. Finally
-verifies search works by querying Qdrant directly with an Ollama-embedded
-vector.
+verifies the collection has correct vector dimensions, then searches Qdrant
+directly with an Ollama-embedded vector.
 
-Note: ensure_collection is called lazily on first index_note, so we must
-create and index a note before inspecting the collection config.
+Note: Binary quantization is disabled in CI (requires AVX2+ CPU). The unit
+tests in qdrant_test.exs verify the quantization config is sent correctly.
+This E2E test focuses on dimension parity and pipeline correctness.
 """
 
 import os
@@ -43,37 +42,33 @@ def _wait_for_collection(timeout=30):
 @pytest.fixture(scope="module")
 def seeded_note(api_sync):
     """Create a note to trigger ensure_collection + indexing pipeline."""
-    # Get a vault-scoped client (VaultPlug requires X-Vault-ID for notes/search)
     vaults = api_sync.list_vaults()
     assert vaults, "At least one vault must exist (created by api_only conftest)"
     vault_id = vaults[0]["id"]
     scoped = api_sync.with_vault(vault_id)
 
     ts = int(time.time())
-    path = f"E2E/BinaryQuant/test50-{ts}.md"
-    unique_phrase = f"qdrant-binary-quant-verification-{ts}"
+    path = f"E2E/ProdParity/test50-{ts}.md"
     content = (
-        f"# Binary Quantization Test\n\n"
-        f"This note verifies the full embedding pipeline.\n"
-        f"Unique phrase: {unique_phrase}\n"
+        f"# Prod Parity Test\n\n"
+        f"This note verifies the full embedding pipeline at 1024 dimensions.\n"
+        f"Timestamp: {ts}\n"
     )
     note = scoped.create_note(path, content)
     assert note is not None, "Note creation should succeed"
 
-    # Wait for async indexing to create the collection
     _wait_for_collection()
 
-    return {"path": path, "unique_phrase": unique_phrase, "api": scoped}
+    return {"path": path, "api": scoped}
 
 
-class TestQdrantBinaryQuantization:
-    """Verify Qdrant collection config matches prod expectations."""
+class TestQdrantConfig:
+    """Verify Qdrant collection config matches prod dimensions."""
 
     def test_collection_exists(self, seeded_note):
         """The app should have created the collection after indexing."""
         info = _collection_info()
         assert info is not None, "Collection should exist"
-        assert info.get("points_count", -1) >= 0
 
     def test_vector_dimensions_1024(self, seeded_note):
         """Vectors should be 1024d to match Voyage prod config."""
@@ -84,28 +79,13 @@ class TestQdrantBinaryQuantization:
         )
         assert vectors["distance"] == "Cosine"
 
-    def test_binary_quantization_enabled(self, seeded_note):
-        """Binary quantization should be configured with always_ram=true."""
-        info = _collection_info()
-        quant = info["config"].get("quantization_config", {})
-        assert "binary" in quant, (
-            f"Expected binary quantization config, got: {quant}"
-        )
-        assert quant["binary"]["always_ram"] is True, (
-            "Binary quantization should have always_ram=true"
-        )
-
 
 class TestSearchRoundTrip:
-    """Verify the full note -> embed -> search pipeline via direct Qdrant."""
+    """Verify the full note -> embed -> search pipeline."""
 
     @pytest.mark.flaky(reruns=0)
-    def test_embed_and_search_with_binary_quantization(self, seeded_note):
-        """Full pipeline: wait for indexing, embed via Ollama, search Qdrant.
-
-        Single test to avoid Qdrant disappearing between separate tests.
-        Reruns disabled — Qdrant may be gone on retry, masking the real error.
-        """
+    def test_embed_and_search(self, seeded_note):
+        """Full pipeline: wait for indexing, embed via Ollama, search Qdrant."""
         note_path = seeded_note["path"]
 
         # Step 1: Wait for note to be indexed in Qdrant
@@ -122,14 +102,13 @@ class TestSearchRoundTrip:
             time.sleep(3)
 
         assert points > 0, (
-            f"Qdrant should have >0 points after indexing, got {points}. "
-            f"Embedding pipeline may have failed (Ollama unreachable?)."
+            f"Qdrant should have >0 points after indexing, got {points}."
         )
 
         # Step 2: Embed query directly via Ollama
         embed_resp = requests.post(
             f"{OLLAMA_URL}/api/embed",
-            json={"model": "mxbai-embed-large", "input": "binary quantization verification"},
+            json={"model": "mxbai-embed-large", "input": "prod parity embedding pipeline"},
             timeout=60,
         )
         assert embed_resp.status_code == 200, (
@@ -138,19 +117,13 @@ class TestSearchRoundTrip:
         vector = embed_resp.json()["embeddings"][0]
         assert len(vector) == 1024, f"Expected 1024d vector, got {len(vector)}d"
 
-        # Step 3: Search Qdrant directly with binary quantization rescore
+        # Step 3: Search Qdrant directly
         search_resp = requests.post(
             f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/query",
             json={
                 "query": vector,
                 "limit": 10,
                 "with_payload": True,
-                "params": {
-                    "quantization": {
-                        "rescore": True,
-                        "oversampling": 3.0,
-                    }
-                },
             },
             timeout=10,
         )

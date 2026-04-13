@@ -14,6 +14,9 @@ defmodule Engram.Vector.Qdrant do
   defp base_url, do: Application.get_env(:engram, :qdrant_url, @default_url)
   defp collection, do: Application.get_env(:engram, :qdrant_collection, @default_collection)
 
+  defp binary_quantization_enabled?,
+    do: Application.get_env(:engram, :qdrant_binary_quantization, true)
+
   defp req_opts do
     {retry, max_retries} =
       case Application.get_env(:engram, :qdrant_retry, :transient) do
@@ -46,17 +49,16 @@ defmodule Engram.Vector.Qdrant do
   def ensure_collection(col \\ nil, dims) do
     col = col || collection()
 
-    opts =
-      [
-        json: %{
-          vectors: %{size: dims, distance: "Cosine"},
-          quantization_config: %{
-            binary: %{
-              always_ram: true
-            }
-          }
-        }
-      ] ++ req_opts()
+    vectors = %{size: dims, distance: "Cosine"}
+
+    body =
+      if binary_quantization_enabled?() do
+        %{vectors: vectors, quantization_config: %{binary: %{always_ram: true}}}
+      else
+        %{vectors: vectors}
+      end
+
+    opts = [json: body] ++ req_opts()
 
     case Req.put("#{base_url()}/collections/#{col}", opts) do
       {:ok, %{status: status}} when status in [200, 201, 409] -> :ok
@@ -176,18 +178,19 @@ defmodule Engram.Vector.Qdrant do
     must = if tags, do: [%{key: "tags", match: %{any: tags}} | must], else: must
     must = if folder, do: [%{key: "folder", match: %{value: folder}} | must], else: must
 
-    body = %{
+    base = %{
       query: vector,
       filter: %{must: must},
       limit: limit,
-      with_payload: true,
-      params: %{
-        quantization: %{
-          rescore: true,
-          oversampling: 3.0
-        }
-      }
+      with_payload: true
     }
+
+    body =
+      if binary_quantization_enabled?() do
+        Map.put(base, :params, %{quantization: %{rescore: true, oversampling: 3.0}})
+      else
+        base
+      end
     opts = [json: body] ++ req_opts()
 
     case Req.post("#{base_url()}/collections/#{col}/points/query", opts) do

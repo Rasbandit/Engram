@@ -34,6 +34,7 @@ services:
       EMBED_MODEL: mxbai-embed-large
       EMBED_DIMS: "1024"
       EMBED_BACKEND: ollama
+      QDRANT_BINARY_QUANTIZATION: "false"
       CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
       CLERK_ISSUER: ${CLERK_ISSUER:-}
     healthcheck:
