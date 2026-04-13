@@ -83,7 +83,7 @@ jobs:
               -e EMBED_MODEL=nomic-embed-text \
               -e EMBED_BACKEND=ollama \
               -e 'OLLAMA_URL=http://ollama:11434' \
-              -e 'QDRANT_URL=http://qdrant:6333' \
+              -e 'QDRANT_URL=http://10.0.20.201:6333' \
               -e QDRANT_COLLECTION=obsidian_notes \
               "${REGISTRY}:${VERSION}"
 
