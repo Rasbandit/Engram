@@ -87,6 +87,11 @@ jobs:
               -e "VOYAGE_API_KEY=${VOYAGE_API_KEY}" \
               -e 'QDRANT_URL=http://10.0.20.201:6333' \
               -e QDRANT_COLLECTION=obsidian_notes \
+              -e PHX_HOST=engram.ax \
+              -e PHX_SCHEME=http \
+              -e PHX_PORT=80 \
+              -e 'CLERK_JWKS_URL=https://rare-kingfish-16.clerk.accounts.dev/.well-known/jwks.json' \
+              -e 'CLERK_ISSUER=https://rare-kingfish-16.clerk.accounts.dev' \
               "${REGISTRY}:${VERSION}"
 
             # Update version in remote .env
