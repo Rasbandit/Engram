@@ -2,7 +2,7 @@ defmodule EngramWeb.HealthController do
   use EngramWeb, :controller
 
   def index(conn, _params) do
-    json(conn, %{status: "ok"})
+    json(conn, %{status: "ok", version: Application.spec(:engram, :vsn) |> to_string()})
   end
 
   def deep(conn, _params) do
