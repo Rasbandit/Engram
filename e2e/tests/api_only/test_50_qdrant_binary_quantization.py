@@ -41,6 +41,12 @@ def _wait_for_collection(timeout=30):
 @pytest.fixture(scope="module")
 def seeded_note(api_sync):
     """Create a note to trigger ensure_collection + indexing pipeline."""
+    # Get a vault-scoped client (VaultPlug requires X-Vault-ID for notes/search)
+    vaults = api_sync.list_vaults()
+    assert vaults, "At least one vault must exist (created by api_only conftest)"
+    vault_id = vaults[0]["id"]
+    scoped = api_sync.with_vault(vault_id)
+
     ts = int(time.time())
     path = f"E2E/BinaryQuant/test50-{ts}.md"
     unique_phrase = f"qdrant-binary-quant-verification-{ts}"
@@ -49,13 +55,13 @@ def seeded_note(api_sync):
         f"This note verifies the full embedding pipeline.\n"
         f"Unique phrase: {unique_phrase}\n"
     )
-    note = api_sync.create_note(path, content)
+    note = scoped.create_note(path, content)
     assert note is not None, "Note creation should succeed"
 
     # Wait for async indexing to create the collection
     _wait_for_collection()
 
-    return {"path": path, "unique_phrase": unique_phrase, "api": api_sync}
+    return {"path": path, "unique_phrase": unique_phrase, "api": scoped}
 
 
 class TestQdrantBinaryQuantization:
