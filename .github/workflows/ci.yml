@@ -152,7 +152,7 @@ jobs:
             git checkout -- .
             git clean -fd
             git fetch origin "$BRANCH"
-            git checkout -B "$BRANCH" "origin/$BRANCH"
+            git checkout -B "$BRANCH" FETCH_HEAD
           else
             git clone --branch "$BRANCH" --single-branch \
               "https://x-access-token:${GH_TOKEN}@github.com/Rasbandit/Engram-obsidian-sync.git" plugin-src
