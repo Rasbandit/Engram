@@ -33,7 +33,7 @@ defmodule EngramWeb.SearchController do
 
         conn
         |> put_status(500)
-        |> json(%{error: "search_failed", detail: inspect(reason)})
+        |> json(%{error: "search_failed"})
     end
   end
 
