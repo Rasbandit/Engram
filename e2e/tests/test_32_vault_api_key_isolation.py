@@ -17,6 +17,7 @@ Note: WebSocket/SyncChannel API key restriction is covered by unit tests
 import logging
 import os
 import secrets
+import subprocess
 import time
 
 import pytest
@@ -27,6 +28,8 @@ from helpers.clerk_auth import provision_clerk_user
 
 logger = logging.getLogger(__name__)
 
+CI_POSTGRES_CONTAINER = os.environ.get("CI_POSTGRES_CONTAINER", "engram-postgres-1")
+
 API_URL = os.environ.get("ENGRAM_API_URL", "http://localhost:8100/api")
 CLERK_SECRET = os.environ.get("E2E_CLERK_SECRET_KEY", "")
 
@@ -34,6 +37,23 @@ pytestmark = pytest.mark.skipif(
     not CLERK_SECRET,
     reason="E2E_CLERK_SECRET_KEY not set — Clerk auth required for vault isolation tests",
 )
+
+
+def _set_vault_limit(user_id: int, limit: int) -> None:
+    """Insert/update a user_overrides row to set max_vaults via docker exec SQL."""
+    sql = (
+        f"INSERT INTO user_overrides (user_id, overrides, reason, created_at, updated_at) "
+        f"VALUES ({user_id}, '{{\"max_vaults\": {limit}}}', 'e2e-test', NOW(), NOW()) "
+        f"ON CONFLICT (user_id) DO UPDATE SET overrides = "
+        f"jsonb_set(user_overrides.overrides, '{{max_vaults}}', '{limit}'), updated_at = NOW()"
+    )
+    result = subprocess.run(
+        ["docker", "exec", "-i", CI_POSTGRES_CONTAINER,
+         "psql", "-U", "engram", "-d", "engram", "-c", sql],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to set vault limit: {result.stderr}")
 
 
 def _register_test_user(ts: int):
@@ -64,23 +84,35 @@ def vault_setup():
     """Create a Clerk user with two vaults for multi-vault isolation testing.
 
     Workflow:
-    1. Create Clerk user (default: max_vaults=-1, unlimited)
-    2. Create vault A
-    3. Create vault B
-    4. Seed notes in both vaults
+    1. Create Clerk user (default: max_vaults=1)
+    2. Create vault A (succeeds — first vault)
+    3. Verify vault B blocked by limit (402)
+    4. Lift limit via user_overrides SQL
+    5. Create vault B (succeeds now)
+    6. Seed notes in both vaults
     """
     ts = int(time.time())
 
     user_id, unrestricted_api, clerk_client, clerk_user_id = _register_test_user(ts)
 
-    # Create vault A
+    # Create vault A (within default limit of 1)
     vault_a_data, status = unrestricted_api.register_vault("Vault A", f"client-a-{ts}")
     assert status in (200, 201), f"Failed to register vault A: {status}"
     vault_a_id = vault_a_data["id"]
 
-    # Create vault B (default limit is unlimited)
+    # Vault B should be blocked by free plan limit
     vault_b_data, status = unrestricted_api.register_vault("Vault B", f"client-b-{ts}")
-    assert status in (200, 201), f"Failed to register vault B: {status}"
+    assert status == 402, (
+        f"Expected 402 (vault limit), got {status} — "
+        f"free plan should block second vault creation"
+    )
+
+    # Lift the limit via user_overrides
+    _set_vault_limit(user_id, 5)
+
+    # Now vault B should succeed
+    vault_b_data, status = unrestricted_api.register_vault("Vault B", f"client-b-{ts}")
+    assert status in (200, 201), f"Failed to register vault B after limit lift: {status}"
     vault_b_id = vault_b_data["id"]
 
     # Seed notes in both vaults

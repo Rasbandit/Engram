@@ -11,7 +11,7 @@ defmodule Engram.Billing do
   alias Engram.Billing.UserOverride
 
   @default_limits %{
-    "max_vaults" => -1,
+    "max_vaults" => 1,
     "max_storage_bytes" => 104_857_600,
     "cross_vault_search" => false,
     "vault_scoped_keys" => false

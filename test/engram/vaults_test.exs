@@ -37,14 +37,37 @@ defmodule Engram.VaultsTest do
       assert vault2.is_default == false
     end
 
-    test "enforces billing limit", %{user: user} do
-      # set explicit limit of 1
-      insert(:user_override, user: user, overrides: %{"max_vaults" => 1})
-
+    test "enforces default billing limit of 1", %{user: user} do
       {:ok, _} = Vaults.create_vault(user, %{name: "First"})
 
-      # second vault hits the limit
       assert {:error, :vault_limit_reached} = Vaults.create_vault(user, %{name: "Second"})
+    end
+
+    test "unlimited override (-1) allows any number of vaults", %{user: user} do
+      insert(:user_override, user: user, overrides: %{"max_vaults" => -1})
+
+      {:ok, _} = Vaults.create_vault(user, %{name: "First"})
+      {:ok, _} = Vaults.create_vault(user, %{name: "Second"})
+      {:ok, _} = Vaults.create_vault(user, %{name: "Third"})
+    end
+
+    test "specific override enforces that exact limit", %{user: user} do
+      insert(:user_override, user: user, overrides: %{"max_vaults" => 2})
+
+      {:ok, _} = Vaults.create_vault(user, %{name: "First"})
+      {:ok, _} = Vaults.create_vault(user, %{name: "Second"})
+      assert {:error, :vault_limit_reached} = Vaults.create_vault(user, %{name: "Third"})
+    end
+
+    test "override upgrade: blocked by default, then lifted", %{user: user} do
+      {:ok, _} = Vaults.create_vault(user, %{name: "First"})
+      assert {:error, :vault_limit_reached} = Vaults.create_vault(user, %{name: "Second"})
+
+      # Lift the limit via per-user override
+      insert(:user_override, user: user, overrides: %{"max_vaults" => 5})
+
+      {:ok, _} = Vaults.create_vault(user, %{name: "Second"})
+      {:ok, _} = Vaults.create_vault(user, %{name: "Third"})
     end
 
     test "deduplicates slug collision with numeric suffix", %{user: user} do
@@ -123,9 +146,7 @@ defmodule Engram.VaultsTest do
       refute new_vault.id == vault.id
     end
 
-    test "returns :vault_limit_reached when limit exceeded", %{user: user} do
-      insert(:user_override, user: user, overrides: %{"max_vaults" => 1})
-
+    test "returns :vault_limit_reached when default limit exceeded", %{user: user} do
       Vaults.register_vault(user, "First", "client-1")
 
       assert {:error, :vault_limit_reached} =
