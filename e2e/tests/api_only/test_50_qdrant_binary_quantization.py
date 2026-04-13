@@ -97,14 +97,28 @@ class TestQdrantBinaryQuantization:
 class TestSearchRoundTrip:
     """Verify the full note -> embed -> search pipeline works."""
 
-    def test_note_to_search_pipeline(self, seeded_note):
-        """Full pipeline: note upsert -> Oban embed -> Qdrant upsert -> search."""
+    def test_note_indexed_in_qdrant(self, seeded_note):
+        """Verify the note was actually embedded and stored in Qdrant."""
+        deadline = time.monotonic() + 50
+        points = 0
+        while time.monotonic() < deadline:
+            info = _collection_info()
+            points = info.get("points_count", 0)
+            if points > 0:
+                break
+            time.sleep(3)
+
+        assert points > 0, (
+            f"Qdrant should have >0 points after indexing, got {points}. "
+            f"Embedding pipeline may have failed (Ollama unreachable?)."
+        )
+
+    def test_search_returns_results(self, seeded_note):
+        """Search endpoint should return results for indexed content."""
         api = seeded_note["api"]
-        unique_phrase = seeded_note["unique_phrase"]
         note_path = seeded_note["path"]
 
-        # Poll search until our note appears or timeout.
-        # Budget 50s: Oban 5s debounce + Ollama cold-start + Qdrant indexing.
+        # Poll search — allow time for embedding + Qdrant indexing
         deadline = time.monotonic() + 50
         found = False
         last_status = None
