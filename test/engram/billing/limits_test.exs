@@ -55,7 +55,7 @@ defmodule Engram.Billing.LimitsTest do
       plan = insert_plan(%{})
       user = user_with_plan(plan)
 
-      assert Billing.effective_limit(user, "max_vaults") == 1
+      assert Billing.effective_limit(user, "max_vaults") == -1
     end
 
     test "returns nil for unknown key not in defaults" do
@@ -67,7 +67,7 @@ defmodule Engram.Billing.LimitsTest do
     test "returns default limits when user has no plan (nil plan_id)" do
       user = user_without_plan()
 
-      assert Billing.effective_limit(user, "max_vaults") == 1
+      assert Billing.effective_limit(user, "max_vaults") == -1
       assert Billing.effective_limit(user, "max_storage_bytes") == 104_857_600
       assert Billing.effective_limit(user, "cross_vault_search") == false
       assert Billing.effective_limit(user, "vault_scoped_keys") == false
@@ -125,10 +125,9 @@ defmodule Engram.Billing.LimitsTest do
     test "uses default limit when user has no plan" do
       user = user_without_plan()
 
-      # default max_vaults is 1, so count 0 is ok
+      # default max_vaults is -1 (unlimited), so any count is ok
       assert Billing.check_limit(user, "max_vaults", 0) == :ok
-      # count 1 is at limit
-      assert Billing.check_limit(user, "max_vaults", 1) == {:error, :limit_reached}
+      assert Billing.check_limit(user, "max_vaults", 9999) == :ok
     end
   end
 

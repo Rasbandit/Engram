@@ -31,6 +31,10 @@ defmodule EngramWeb.DeviceAuthController do
       {:ok, vault} ->
         do_authorize(conn, user_code, user, vault.id)
 
+      {:error, :vault_limit_reached} ->
+        limit = Engram.Billing.effective_limit(user, "max_vaults")
+        conn |> put_status(402) |> json(%{error: "vault_limit_reached", limit: limit})
+
       {:error, _changeset} ->
         conn |> put_status(422) |> json(%{error: "failed to create vault"})
     end

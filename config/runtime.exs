@@ -130,6 +130,16 @@ if config_env() != :test do
   config :engram, :stripe_pro_price_id, System.get_env("STRIPE_PRO_PRICE_ID")
 end
 
+# Endpoint URL — used by EngramWeb.Endpoint.url() for device flow verification links,
+# email URLs, etc. Works in dev and prod. Defaults to localhost in dev.
+if phx_host = System.get_env("PHX_HOST") do
+  scheme = System.get_env("PHX_SCHEME") || if(config_env() == :prod, do: "https", else: "http")
+  url_port = String.to_integer(System.get_env("PHX_PORT") || if(config_env() == :prod, do: "443", else: "80"))
+
+  config :engram, EngramWeb.Endpoint,
+    url: [host: phx_host, port: url_port, scheme: scheme]
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
@@ -168,28 +178,21 @@ if config_env() == :prod do
 
   config :joken, default_signer: jwt_secret
 
-  host = System.get_env("PHX_HOST") || "example.com"
-  scheme = System.get_env("PHX_SCHEME") || "https"
-  url_port = String.to_integer(System.get_env("PHX_PORT") || "443")
-
   config :engram, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   config :engram, EngramWeb.Endpoint,
-    url: [host: host, port: url_port, scheme: scheme],
     http: [
       # Enable IPv6 and bind on all interfaces.
-      # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
-      # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
-      # for details about using IPv6 vs IPv4 and loopback vs public addresses.
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ],
     secret_key_base: secret_key_base
 
   # CORS and WebSocket origin — only lock down when PHX_HOST is explicitly set.
   # Without it (CI, local dev), defaults apply: CORS allows "*", WS allows all.
-  if System.get_env("PHX_HOST") do
-    config :engram, :cors_origin, "https://#{host}"
-    config :engram, :websocket_check_origin, ["https://#{host}", "app://obsidian.md"]
+  if phx_host = System.get_env("PHX_HOST") do
+    scheme = System.get_env("PHX_SCHEME") || "https"
+    config :engram, :cors_origin, "#{scheme}://#{phx_host}"
+    config :engram, :websocket_check_origin, ["#{scheme}://#{phx_host}", "app://obsidian.md"]
   end
 
   # ## SSL Support

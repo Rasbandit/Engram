@@ -38,7 +38,9 @@ defmodule Engram.VaultsTest do
     end
 
     test "enforces billing limit", %{user: user} do
-      # default limit is 1 — first vault succeeds
+      # set explicit limit of 1
+      insert(:user_override, user: user, overrides: %{"max_vaults" => 1})
+
       {:ok, _} = Vaults.create_vault(user, %{name: "First"})
 
       # second vault hits the limit
@@ -122,6 +124,8 @@ defmodule Engram.VaultsTest do
     end
 
     test "returns :vault_limit_reached when limit exceeded", %{user: user} do
+      insert(:user_override, user: user, overrides: %{"max_vaults" => 1})
+
       Vaults.register_vault(user, "First", "client-1")
 
       assert {:error, :vault_limit_reached} =
