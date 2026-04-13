@@ -1,9 +1,12 @@
 """Test 50: Verify Qdrant binary quantization and 1024d prod-parity config.
 
-API-only test. Queries Qdrant's collection info endpoint directly to confirm
-the app created the collection with binary quantization (always_ram=true)
-and the correct vector dimensions. Then exercises a note create + search
-round-trip to prove the full embedding pipeline works end-to-end.
+API-only test. Creates a note to trigger collection creation and indexing,
+then queries Qdrant's collection info endpoint directly to confirm binary
+quantization (always_ram=true) and correct vector dimensions. Finally
+verifies the note is searchable, proving the full embedding pipeline.
+
+Note: ensure_collection is called lazily on first index_note, so we must
+create and index a note before inspecting the collection config.
 """
 
 import os
@@ -16,34 +19,66 @@ QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6334")
 QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "ci_test_notes")
 
 
+def _collection_info():
+    resp = requests.get(
+        f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}", timeout=10
+    )
+    resp.raise_for_status()
+    return resp.json()["result"]
+
+
+def _wait_for_collection(timeout=30):
+    """Poll until the Qdrant collection exists (created on first indexing)."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            return _collection_info()
+        except (requests.HTTPError, requests.ConnectionError, KeyError):
+            time.sleep(2)
+    raise TimeoutError(f"Collection {QDRANT_COLLECTION} not created within {timeout}s")
+
+
+@pytest.fixture(scope="module")
+def seeded_note(api_sync):
+    """Create a note to trigger ensure_collection + indexing pipeline."""
+    ts = int(time.time())
+    path = f"E2E/BinaryQuant/test50-{ts}.md"
+    unique_phrase = f"qdrant-binary-quant-verification-{ts}"
+    content = (
+        f"# Binary Quantization Test\n\n"
+        f"This note verifies the full embedding pipeline.\n"
+        f"Unique phrase: {unique_phrase}\n"
+    )
+    note = api_sync.create_note(path, content)
+    assert note is not None, "Note creation should succeed"
+
+    # Wait for async indexing to create the collection
+    _wait_for_collection()
+
+    return {"path": path, "unique_phrase": unique_phrase, "api": api_sync}
+
+
 class TestQdrantBinaryQuantization:
     """Verify Qdrant collection config matches prod expectations."""
 
-    def _collection_info(self):
-        resp = requests.get(
-            f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}", timeout=10
-        )
-        resp.raise_for_status()
-        return resp.json()["result"]
-
-    def test_collection_exists(self):
-        """The app should have created the collection on boot."""
-        info = self._collection_info()
+    def test_collection_exists(self, seeded_note):
+        """The app should have created the collection after indexing."""
+        info = _collection_info()
         assert info is not None, "Collection should exist"
         assert info.get("points_count", -1) >= 0
 
-    def test_vector_dimensions_1024(self):
+    def test_vector_dimensions_1024(self, seeded_note):
         """Vectors should be 1024d to match Voyage prod config."""
-        info = self._collection_info()
+        info = _collection_info()
         vectors = info["config"]["params"]["vectors"]
         assert vectors["size"] == 1024, (
             f"Expected 1024d vectors (prod parity), got {vectors['size']}d"
         )
         assert vectors["distance"] == "Cosine"
 
-    def test_binary_quantization_enabled(self):
+    def test_binary_quantization_enabled(self, seeded_note):
         """Binary quantization should be configured with always_ram=true."""
-        info = self._collection_info()
+        info = _collection_info()
         quant = info["config"].get("quantization_config", {})
         assert "binary" in quant, (
             f"Expected binary quantization config, got: {quant}"
@@ -54,31 +89,20 @@ class TestQdrantBinaryQuantization:
 
 
 class TestSearchRoundTrip:
-    """Create a note, wait for indexing, search, and verify results."""
+    """Verify the full note -> embed -> search pipeline works."""
 
-    def test_note_to_search_pipeline(self, api_sync):
+    def test_note_to_search_pipeline(self, seeded_note):
         """Full pipeline: note upsert -> Oban embed -> Qdrant upsert -> search."""
-        ts = int(time.time())
-        path = f"E2E/BinaryQuant/test50-{ts}.md"
-        unique_phrase = f"qdrant-binary-quant-verification-{ts}"
-        content = (
-            f"# Binary Quantization Test\n\n"
-            f"This note verifies the full embedding pipeline.\n"
-            f"Unique phrase: {unique_phrase}\n"
-        )
+        api = seeded_note["api"]
+        unique_phrase = seeded_note["unique_phrase"]
 
-        # Create note via API
-        note = api_sync.create_note(path, content)
-        assert note is not None, "Note creation should succeed"
-
-        # Wait for async indexing (Oban embed worker has 5s debounce)
         # Poll search until our note appears or timeout
         deadline = time.monotonic() + 30
         found = False
         while time.monotonic() < deadline:
             time.sleep(3)
-            resp = api_sync.session.post(
-                f"{api_sync.base_url}/search",
+            resp = api.session.post(
+                f"{api.base_url}/search",
                 json={"query": unique_phrase, "limit": 5},
                 timeout=10,
             )
