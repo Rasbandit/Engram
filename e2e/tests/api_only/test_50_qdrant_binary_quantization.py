@@ -113,7 +113,6 @@ class TestSearchRoundTrip:
             f"Embedding pipeline may have failed (Ollama unreachable?)."
         )
 
-    @pytest.mark.xfail(reason="Search endpoint returns 500 in CI — tracked separately")
     def test_search_returns_results(self, seeded_note):
         """Search endpoint should return results for indexed content."""
         api = seeded_note["api"]
