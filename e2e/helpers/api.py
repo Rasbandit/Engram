@@ -23,6 +23,22 @@ class ApiClient:
         else:
             self.session.auth = auth
 
+    @staticmethod
+    def _log_error_response(resp: requests.Response) -> None:
+        """Log non-2xx response details for post-mortem debugging."""
+        if resp.status_code < 400:
+            return
+        body = resp.text[:500] if resp.text else "(empty)"
+        logger.error(
+            "%s %s → %d: %s",
+            resp.request.method, resp.request.url, resp.status_code, body,
+        )
+
+    def _raise_for_status(self, resp: requests.Response) -> None:
+        """Log error details, then raise."""
+        self._log_error_response(resp)
+        self._raise_for_status(resp)
+
     def ping(self) -> bool:
         """GET /folders — returns True if auth works."""
         resp = self.session.get(f"{self.base_url}/folders", timeout=10)
@@ -35,7 +51,7 @@ class ApiClient:
         )
         if resp.status_code == 404:
             return None
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     def create_note(
@@ -50,7 +66,7 @@ class ApiClient:
         resp = self.session.post(
             f"{self.base_url}/notes", json=payload, timeout=10
         )
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     def delete_note(self, path: str) -> int:
@@ -67,7 +83,7 @@ class ApiClient:
             params={"since": since},
             timeout=10,
         )
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     def wait_for_note(
@@ -169,7 +185,7 @@ class ApiClient:
     def list_vaults(self) -> list[dict]:
         """GET /vaults. Returns list of vault dicts."""
         resp = self.session.get(f"{self.base_url}/vaults", timeout=10)
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json().get("vaults", [])
 
     def register_vault(self, name: str, client_id: str) -> tuple[dict, int]:
@@ -179,6 +195,7 @@ class ApiClient:
             json={"name": name, "client_id": client_id},
             timeout=10,
         )
+        self._log_error_response(resp)
         return resp.json() if resp.status_code in (200, 201) else {}, resp.status_code
 
     def create_vault(self, name: str) -> tuple[dict, int]:
@@ -188,6 +205,7 @@ class ApiClient:
             json={"name": name},
             timeout=10,
         )
+        self._log_error_response(resp)
         return resp.json() if resp.status_code in (200, 201) else {}, resp.status_code
 
     def get_vault(self, vault_id: int) -> tuple[dict | None, int]:
@@ -230,7 +248,7 @@ class ApiClient:
     def get_manifest(self) -> dict:
         """GET /sync/manifest. Returns manifest dict."""
         resp = self.session.get(f"{self.base_url}/sync/manifest", timeout=10)
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     def ingest_logs(self, entries: list[dict]) -> int:
@@ -252,7 +270,7 @@ class ApiClient:
         resp = self.session.get(
             f"{self.base_url}/logs", params=params, timeout=10
         )
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     def list_folder(self, folder: str = "") -> dict:
@@ -262,12 +280,12 @@ class ApiClient:
             params={"folder": folder},
             timeout=10,
         )
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json()
 
     def get_folders(self) -> list:
         """GET /folders."""
         resp = self.session.get(f"{self.base_url}/folders", timeout=10)
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         return resp.json().get("folders", [])
 

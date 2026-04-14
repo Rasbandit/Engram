@@ -5,6 +5,7 @@
 # Python (benchmarks, e2e)
 __pycache__/
 .pytest_cache/
+pytest-e2e.log
 
 # Elixir/Phoenix
 /_build/

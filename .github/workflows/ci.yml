@@ -445,6 +445,8 @@ jobs:
           mkdir -p ci-artifacts
           docker compose -f docker-compose.ci.yml -p "$CI_PROJECT" logs > ci-artifacts/docker-compose.log 2>&1
           cp ${MARKER_PREFIX}-*.log ci-artifacts/ 2>/dev/null || true
+          # Pytest detailed log (captures DEBUG+ from all helpers)
+          cp e2e/pytest-e2e.log ci-artifacts/ 2>/dev/null || true
           for v in ${E2E_VAULT_PREFIX}-*; do
             [ -d "$v" ] && tar czf "ci-artifacts/$(basename $v).tar.gz" -C /tmp "$(basename $v)" 2>/dev/null || true
           done

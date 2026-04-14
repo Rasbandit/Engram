@@ -1,6 +1,5 @@
 # syntax=docker/dockerfile:1
 # Multi-stage build: compile release in builder, run in minimal image
-# Build: 2026-04-13
 ARG ELIXIR_VERSION=1.17.3
 ARG OTP_VERSION=27.1.2
 ARG DEBIAN_VERSION=bookworm-20241202-slim
@@ -39,20 +38,25 @@ COPY mix.exs mix.lock ./
 RUN --mount=type=cache,target=/app/deps,id=mix-deps \
     mix deps.get --only $MIX_ENV
 
-# Compile deps (no _build cache mount — stale .beam files caused CI bugs)
+# Compile deps — cache mount preserves compiled artifacts between builds
 RUN mkdir -p config
 COPY config/config.exs config/runtime.exs config/prod.exs config/
 RUN --mount=type=cache,target=/app/deps,id=mix-deps \
+    --mount=type=cache,target=/app/_build,id=mix-build \
     mix deps.compile
 
-# Compile app code and build release
+# Compile app code
 COPY priv priv
 COPY --from=frontend /priv/static/app priv/static/app
 COPY lib lib
 COPY config/runtime.exs config/
 
+# Build release — force-compile app code to avoid stale .beam from cache,
+# then build release and copy out of the cache mount
 RUN --mount=type=cache,target=/app/deps,id=mix-deps \
-    mix compile --force && mix release
+    --mount=type=cache,target=/app/_build,id=mix-build \
+    mix compile --force && mix release && \
+    cp -r /app/_build/prod/rel/engram /app/_release
 
 # ─── Runner ───────────────────────────────────────────────────────────────
 FROM ${RUNNER_IMAGE}
@@ -68,7 +72,7 @@ ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8
 WORKDIR /app
 RUN chown nobody /app
 
-COPY --from=builder --chown=nobody:root /app/_build/prod/rel/engram ./
+COPY --from=builder --chown=nobody:root /app/_release ./
 
 USER nobody
 
