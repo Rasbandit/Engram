@@ -37,7 +37,7 @@ class ApiClient:
     def _raise_for_status(self, resp: requests.Response) -> None:
         """Log error details, then raise."""
         self._log_error_response(resp)
-        self._raise_for_status(resp)
+        resp.raise_for_status()
 
     def ping(self) -> bool:
         """GET /folders — returns True if auth works."""
