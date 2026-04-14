@@ -59,34 +59,16 @@ defmodule Engram.Vaults do
     {:error, :vault_limit_reached}
   """
   def register_vault(user, name, client_id) do
-    require Logger
-
-    Logger.error(
-      "[vault_debug] register_vault ENTRY user_id=#{user.id} name=#{inspect(name)} client_id=#{inspect(client_id)}"
-    )
-
     result =
       Repo.with_tenant(user.id, fn ->
         existing = find_by_client_id(user.id, client_id)
 
-        Logger.error(
-          "[vault_debug] find_by_client_id user_id=#{user.id} client_id=#{inspect(client_id)} found=#{inspect(existing != nil)}"
-        )
-
         case existing do
           %Vault{} = vault ->
-            Logger.error("[vault_debug] returning EXISTING vault id=#{vault.id}")
             {:ok, vault, :existing}
 
           nil ->
             current_count = count_vaults(user.id)
-            limit = Billing.effective_limit(user, "max_vaults")
-
-            Logger.error(
-              "[vault_debug] NEW vault check user_id=#{user.id} plan_id=#{inspect(user.plan_id)} " <>
-                "current_count=#{current_count} effective_limit=#{inspect(limit)} " <>
-                "default_limits=#{inspect(Billing.default_limits())}"
-            )
 
             case Billing.check_limit(user, "max_vaults", current_count) do
               {:error, :limit_reached} ->
