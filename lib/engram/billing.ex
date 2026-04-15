@@ -10,12 +10,19 @@ defmodule Engram.Billing do
   alias Engram.Billing.Subscription
   alias Engram.Billing.UserOverride
 
+  require Logger
+
   @default_limits %{
     "max_vaults" => 1,
     "max_storage_bytes" => 104_857_600,
     "cross_vault_search" => false,
     "vault_scoped_keys" => false
   }
+
+  # Log compiled default_limits at module load so we can verify the running binary
+  def __billing_debug__ do
+    Logger.error("[billing:startup] compiled default_limits=#{inspect(@default_limits)}")
+  end
 
   # ── Limits ────────────────────────────────────────────────────────
 
@@ -30,16 +37,29 @@ defmodule Engram.Billing do
   Uses explicit nil-checking (not ||) so that `false` values are honoured.
   """
   def effective_limit(user, key) do
-    case override_value(user.id, key) do
-      nil ->
-        case plan_value(user, key) do
-          nil -> Map.get(@default_limits, key)
-          val -> val
-        end
+    override = override_value(user.id, key)
+    plan = plan_value(user, key)
+    default = Map.get(@default_limits, key)
 
-      val ->
-        val
-    end
+    result =
+      case override do
+        nil ->
+          case plan do
+            nil -> default
+            val -> val
+          end
+
+        val ->
+          val
+      end
+
+    Logger.error(
+      "[billing:effective_limit] user_id=#{user.id} key=#{key} " <>
+        "override=#{inspect(override)} plan_val=#{inspect(plan)} " <>
+        "default=#{inspect(default)} result=#{inspect(result)}"
+    )
+
+    result
   end
 
   @doc """
@@ -47,11 +67,21 @@ defmodule Engram.Billing do
   Returns {:error, :limit_reached} when at or over the limit.
   """
   def check_limit(user, key, current_count) do
-    case effective_limit(user, key) do
-      -1 -> :ok
-      limit when is_integer(limit) and current_count < limit -> :ok
-      _ -> {:error, :limit_reached}
-    end
+    limit = effective_limit(user, key)
+
+    result =
+      case limit do
+        -1 -> :ok
+        l when is_integer(l) and current_count < l -> :ok
+        _ -> {:error, :limit_reached}
+      end
+
+    Logger.error(
+      "[billing:check_limit] user_id=#{user.id} key=#{key} " <>
+        "count=#{current_count} limit=#{inspect(limit)} result=#{inspect(result)}"
+    )
+
+    result
   end
 
   @doc """
