@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -12,17 +12,35 @@ function loadAuthState(): { email: string; password: string; clerk_user_id: stri
 }
 
 // Verified selectors from live Clerk v5 DOM inspection:
-//   Root:   data-clerk-component="SignIn", classes: cl-rootBox cl-signIn-root
-//   Input:  cl-formFieldInput__identifier (email/username), cl-formFieldInput__password
-//   Submit: cl-formButtonPrimary
-//   Title:  h1.cl-headerTitle
+//   Root:     data-clerk-component="SignIn" / "SignUp"
+//   Email:    input[name="identifier"]
+//   Password: input[name="password"]
+//   Submit:   .cl-formButtonPrimary (only one per step — social buttons use cl-socialButtonsIconButton)
+//   User btn: data-clerk-component="UserButton"
 const SIGN_IN = '[data-clerk-component="SignIn"]'
 const SIGN_UP = '[data-clerk-component="SignUp"]'
-const EMAIL_INPUT = '.cl-formFieldInput__identifier input, input.cl-formFieldInput__identifier'
-const PASSWORD_INPUT = '.cl-formFieldInput__password input, input.cl-formFieldInput__password'
-const SUBMIT_BTN = '.cl-formButtonPrimary'
 const USER_BUTTON = '[data-clerk-component="UserButton"]'
-const ERROR_TEXT = '.cl-formFieldErrorText'
+
+/** Sign in through Clerk's multi-step flow (email → password → dashboard). */
+async function clerkSignIn(page: Page, email: string, password: string) {
+  await page.goto('/app/sign-in/')
+  await expect(page.locator(SIGN_IN)).toBeVisible({ timeout: 15_000 })
+
+  // Step 1: enter email
+  await page.locator('input[name="identifier"]').fill(email)
+  await page.locator('.cl-formButtonPrimary').click()
+
+  // Step 2: enter password (Clerk navigates to #/factor-one)
+  const pwInput = page.locator('input[name="password"]')
+  await expect(pwInput).toBeVisible({ timeout: 10_000 })
+  await pwInput.fill(password)
+  // Wait for Clerk's submit button to be enabled after fill
+  const submitBtn = page.locator('.cl-formButtonPrimary')
+  await expect(submitBtn).toBeEnabled({ timeout: 5_000 })
+  await submitBtn.click()
+
+  await expect(page).toHaveURL(/\/app\/?$/, { timeout: 15_000 })
+}
 
 test.describe('Clerk auth provider', () => {
   const state = loadAuthState()
@@ -42,42 +60,18 @@ test.describe('Clerk auth provider', () => {
   })
 
   test('sign in via Clerk → dashboard', async ({ page }) => {
-    await page.goto('/app/sign-in/')
-    await expect(page.locator(SIGN_IN)).toBeVisible({ timeout: 15_000 })
-
-    await page.locator(EMAIL_INPUT).first().fill(state.email)
-    await page.locator(SUBMIT_BTN).first().click()
-
-    await expect(page.locator(PASSWORD_INPUT).first()).toBeVisible({ timeout: 10_000 })
-    await page.locator(PASSWORD_INPUT).first().fill(state.password)
-    await page.locator(SUBMIT_BTN).first().click()
-
-    await expect(page).toHaveURL(/\/app\/?$/, { timeout: 15_000 })
+    await clerkSignIn(page, state.email, state.password)
   })
 
   test('Clerk UserButton renders in header', async ({ page }) => {
-    await page.goto('/app/sign-in/')
-    await expect(page.locator(SIGN_IN)).toBeVisible({ timeout: 15_000 })
-    await page.locator(EMAIL_INPUT).first().fill(state.email)
-    await page.locator(SUBMIT_BTN).first().click()
-    await expect(page.locator(PASSWORD_INPUT).first()).toBeVisible({ timeout: 10_000 })
-    await page.locator(PASSWORD_INPUT).first().fill(state.password)
-    await page.locator(SUBMIT_BTN).first().click()
-    await expect(page).toHaveURL(/\/app\/?$/, { timeout: 15_000 })
+    await clerkSignIn(page, state.email, state.password)
 
     await expect(page.locator(USER_BUTTON)).toBeVisible()
     await expect(page.getByLabel('User menu')).toHaveCount(0)
   })
 
   test('sign out via Clerk → redirects', async ({ page }) => {
-    await page.goto('/app/sign-in/')
-    await expect(page.locator(SIGN_IN)).toBeVisible({ timeout: 15_000 })
-    await page.locator(EMAIL_INPUT).first().fill(state.email)
-    await page.locator(SUBMIT_BTN).first().click()
-    await expect(page.locator(PASSWORD_INPUT).first()).toBeVisible({ timeout: 10_000 })
-    await page.locator(PASSWORD_INPUT).first().fill(state.password)
-    await page.locator(SUBMIT_BTN).first().click()
-    await expect(page).toHaveURL(/\/app\/?$/, { timeout: 15_000 })
+    await clerkSignIn(page, state.email, state.password)
 
     await page.locator(USER_BUTTON).click()
     await page.getByRole('menuitem', { name: /sign out/i }).click()
@@ -89,13 +83,15 @@ test.describe('Clerk auth provider', () => {
     await page.goto('/app/sign-in/')
     await expect(page.locator(SIGN_IN)).toBeVisible({ timeout: 15_000 })
 
-    await page.locator(EMAIL_INPUT).first().fill(state.email)
-    await page.locator(SUBMIT_BTN).first().click()
-    await expect(page.locator(PASSWORD_INPUT).first()).toBeVisible({ timeout: 10_000 })
-    await page.locator(PASSWORD_INPUT).first().fill('WrongPassword!99')
-    await page.locator(SUBMIT_BTN).first().click()
+    await page.locator('input[name="identifier"]').fill(state.email)
+    await page.locator('.cl-formButtonPrimary').click()
 
-    await expect(page.locator(ERROR_TEXT).first()).toBeVisible({ timeout: 10_000 })
+    const pwInput = page.locator('input[name="password"]')
+    await expect(pwInput).toBeVisible({ timeout: 10_000 })
+    await pwInput.fill('WrongPassword!99')
+    await page.locator('.cl-formButtonPrimary').click()
+
+    await expect(page.locator('.cl-formFieldErrorText').first()).toBeVisible({ timeout: 10_000 })
     await expect(page).toHaveURL(/\/sign-in/)
   })
 })
