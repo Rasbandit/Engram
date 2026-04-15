@@ -557,18 +557,25 @@ jobs:
         env:
           SSH_OPTS: "-o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
         run: |
-          # Copy deploy script to FastRaid
+          VERSION="${{ steps.version.outputs.version }}"
           scp $SSH_OPTS deploy/fastraid-deploy.sh root@10.0.20.214:/opt/engram/deploy.sh
-          ssh $SSH_OPTS root@10.0.20.214 'chmod +x /opt/engram/deploy.sh && bash /opt/engram/deploy.sh'
+          ssh $SSH_OPTS root@10.0.20.214 "chmod +x /opt/engram/deploy.sh && bash /opt/engram/deploy.sh ${VERSION}"
 
       - name: Verify deployment from CI runner
         run: |
+          VERSION="${{ steps.version.outputs.version }}"
           for i in $(seq 1 15); do
-            if curl -sf http://10.0.20.214:8000/api/health > /dev/null 2>&1; then
-              echo "FastRaid deploy verified — healthy"
-              exit 0
+            HEALTH=$(curl -sf http://10.0.20.214:8000/api/health 2>/dev/null || true)
+            if [ -n "$HEALTH" ]; then
+              RUNNING=$(echo "$HEALTH" | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
+              if [ "$RUNNING" = "$VERSION" ]; then
+                echo "FastRaid deploy verified — engram ${VERSION} is healthy"
+                exit 0
+              else
+                echo "Version mismatch: expected ${VERSION}, got ${RUNNING:-no response}"
+              fi
             fi
             sleep 2
           done
-          echo "ERROR: FastRaid health check failed from CI runner"
+          echo "ERROR: FastRaid deploy failed — version ${VERSION} not running after 30s"
           exit 1
