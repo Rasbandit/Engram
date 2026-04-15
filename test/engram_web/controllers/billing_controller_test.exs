@@ -5,8 +5,8 @@ defmodule EngramWeb.BillingControllerTest do
 
   setup %{conn: conn} do
     user = insert(:user)
-    token = Accounts.generate_jwt(user)
-    conn = put_req_header(conn, "authorization", "Bearer #{token}")
+    {:ok, raw_key, _api_key} = Accounts.create_api_key(user, "test")
+    conn = put_req_header(conn, "authorization", "Bearer #{raw_key}")
     {:ok, conn: conn, user: user}
   end
 

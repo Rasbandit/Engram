@@ -7,9 +7,8 @@ defmodule EngramWeb.Plugs.AuthTest do
   setup do
     user = insert(:user)
     {:ok, raw_key, _api_key} = Accounts.create_api_key(user, "test")
-    jwt = Accounts.generate_jwt(user)
 
-    %{user: user, raw_key: raw_key, jwt: jwt}
+    %{user: user, raw_key: raw_key}
   end
 
   test "authenticates with valid API key", %{user: user, raw_key: raw_key} do
@@ -22,13 +21,22 @@ defmodule EngramWeb.Plugs.AuthTest do
     refute conn.halted
   end
 
-  test "authenticates with valid JWT", %{user: user, jwt: jwt} do
+  test "authenticates with valid local JWT" do
+    Application.put_env(:engram, :auth_provider, :local)
+
+    on_exit(fn -> Application.put_env(:engram, :auth_provider, :local) end)
+
+    {:ok, %{external_id: ext_id}} =
+      Engram.Auth.Providers.Local.register_user("plugtest@example.com", "StrongPass123!", %{})
+
+    token = Engram.Auth.Providers.Local.issue_access_token(ext_id, "plugtest@example.com")
+
     conn =
       build_conn()
-      |> put_req_header("authorization", "Bearer #{jwt}")
+      |> put_req_header("authorization", "Bearer #{token}")
       |> Auth.call([])
 
-    assert conn.assigns.current_user.id == user.id
+    assert conn.assigns.current_user.external_id == ext_id
     refute conn.halted
   end
 
@@ -81,8 +89,11 @@ defmodule EngramWeb.Plugs.AuthTest do
     setup do
       {bypass, jwks_url} = Engram.ClerkHelpers.start_jwks_server()
 
+      prev_provider = Application.get_env(:engram, :auth_provider)
+
       Application.put_env(:engram, :clerk_jwks_url, jwks_url)
       Application.put_env(:engram, :clerk_issuer, Engram.ClerkHelpers.issuer())
+      Application.put_env(:engram, :auth_provider, :clerk)
 
       start_supervised!(
         {Engram.Auth.ClerkStrategy, time_interval: 60_000, first_fetch_sync: true}
@@ -91,6 +102,7 @@ defmodule EngramWeb.Plugs.AuthTest do
       on_exit(fn ->
         Application.delete_env(:engram, :clerk_jwks_url)
         Application.delete_env(:engram, :clerk_issuer)
+        Application.put_env(:engram, :auth_provider, prev_provider || :local)
       end)
 
       %{bypass: bypass}
