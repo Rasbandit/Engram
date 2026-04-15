@@ -25,6 +25,7 @@ export default async function globalSetup() {
     },
     body: JSON.stringify({
       email_address: [email],
+      username: `e2e-browser-${ts}`,
       password,
       skip_password_checks: true,
     }),
