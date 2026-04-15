@@ -23,6 +23,8 @@ async function clerkSignIn(page: Page, email: string, password: string) {
     page,
     signInParams: { strategy: 'password', identifier: email, password },
   })
+  // clerk.signIn() sets the session but doesn't navigate — go to the app
+  await page.goto('/app/')
   await expect(page).toHaveURL(/\/app\/?$/, { timeout: 15_000 })
 }
 
