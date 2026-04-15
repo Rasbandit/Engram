@@ -61,9 +61,11 @@ defmodule Engram.Vaults do
   def register_vault(user, name, client_id) do
     result =
       Repo.with_tenant(user.id, fn ->
-        case find_by_client_id(user.id, client_id) do
-          %Vault{} = existing ->
-            {:ok, existing, :existing}
+        existing = find_by_client_id(user.id, client_id)
+
+        case existing do
+          %Vault{} = vault ->
+            {:ok, vault, :existing}
 
           nil ->
             current_count = count_vaults(user.id)

@@ -3,7 +3,9 @@ defmodule EngramWeb.HealthControllerTest do
 
   test "GET /health returns 200 with status ok", %{conn: conn} do
     conn = get(conn, "/api/health")
-    assert json_response(conn, 200) == %{"status" => "ok"}
+    body = json_response(conn, 200)
+    assert body["status"] == "ok"
+    assert is_binary(body["version"])
   end
 
   describe "GET /health/deep" do

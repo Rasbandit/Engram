@@ -113,6 +113,16 @@ class ClerkClient:
         resp.raise_for_status()
         logger.info("Deleted Clerk user %s", user_id)
 
+    def list_users(self, limit: int = 100, offset: int = 0) -> list[dict]:
+        """List Clerk users with pagination."""
+        resp = self.session.get(
+            f"{self.base_url}/users",
+            params={"limit": limit, "offset": offset, "order_by": "created_at"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def cleanup_user(self, email: str) -> None:
         """Find and delete a user by email. No-op if not found."""
         user_id = self.find_user_by_email(email)

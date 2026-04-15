@@ -86,6 +86,42 @@ def cleanup_clerk_users(clerk_client, clerk_user_ids: list[str]) -> None:
             logger.warning("Failed to delete Clerk user %s: %s", user_id, e)
 
 
+_E2E_EMAIL_PREFIXES = ("e2e-sync-", "e2e-iso-", "e2e-vault-iso-", "e2e-oauth-", "e2e-clerk-")
+
+
+def cleanup_all_e2e_clerk_users(clerk_client) -> int:
+    """Find and delete ALL e2e-* users in the Clerk instance.
+
+    This is the nuclear option — it doesn't rely on fixture-tracked IDs,
+    so it catches orphans left by crashed fixtures or failed test runs.
+    Returns the number of users deleted.
+    """
+    deleted = 0
+    offset = 0
+    while True:
+        try:
+            batch = clerk_client.list_users(limit=100, offset=offset)
+        except Exception as e:
+            logger.warning("Failed to list Clerk users at offset %d: %s", offset, e)
+            break
+        if not batch:
+            break
+        for user in batch:
+            emails = [ea["email_address"] for ea in user.get("email_addresses", [])]
+            if any(e.startswith(pfx) for e in emails for pfx in _E2E_EMAIL_PREFIXES):
+                try:
+                    clerk_client.delete_user(user["id"])
+                    deleted += 1
+                except Exception as exc:
+                    logger.warning("Failed to delete Clerk user %s: %s", user["id"], exc)
+        if len(batch) < 100:
+            break
+        offset += 100
+    if deleted:
+        logger.info("Cleaned up %d orphaned e2e Clerk users", deleted)
+    return deleted
+
+
 def cleanup_vaults() -> None:
     """Remove all E2E vault and config directories."""
     for path in VAULT_PATHS + CONFIG_PATHS:

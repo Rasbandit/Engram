@@ -28,8 +28,9 @@ from helpers.clerk_auth import provision_clerk_user
 
 logger = logging.getLogger(__name__)
 
-API_URL = os.environ.get("ENGRAM_API_URL", "http://localhost:8100/api")
 CI_POSTGRES_CONTAINER = os.environ.get("CI_POSTGRES_CONTAINER", "engram-postgres-1")
+
+API_URL = os.environ.get("ENGRAM_API_URL", "http://localhost:8100/api")
 CLERK_SECRET = os.environ.get("E2E_CLERK_SECRET_KEY", "")
 
 pytestmark = pytest.mark.skipif(
@@ -89,54 +90,60 @@ def vault_setup():
     4. Lift limit via user_overrides SQL
     5. Create vault B (succeeds now)
     6. Seed notes in both vaults
+
+    Uses try/finally so the Clerk user is always cleaned up, even if
+    setup assertions fail (yield teardown only runs if yield is reached).
     """
     ts = int(time.time())
+    clerk_client = None
+    clerk_user_id = None
 
-    user_id, unrestricted_api, clerk_client, clerk_user_id = _register_test_user(ts)
-
-    # Create vault A (within default limit of 1)
-    vault_a_data, status = unrestricted_api.register_vault("Vault A", f"client-a-{ts}")
-    assert status in (200, 201), f"Failed to register vault A: {status}"
-    vault_a_id = vault_a_data["id"]
-
-    # Vault B should be blocked by free plan limit
-    vault_b_data, status = unrestricted_api.register_vault("Vault B", f"client-b-{ts}")
-    assert status == 402, (
-        f"Expected 402 (vault limit), got {status} — "
-        f"free plan should block second vault creation"
-    )
-
-    # Lift the limit via user_overrides
-    _set_vault_limit(user_id, 5)
-
-    # Now vault B should succeed
-    vault_b_data, status = unrestricted_api.register_vault("Vault B", f"client-b-{ts}")
-    assert status in (200, 201), f"Failed to register vault B after limit lift: {status}"
-    vault_b_id = vault_b_data["id"]
-
-    # Seed notes in both vaults
-    api_a = unrestricted_api.with_vault(vault_a_id)
-    api_a.create_note("E2E/VaultA-Secret.md", "# Vault A Secret\nOnly for vault A")
-    api_a.wait_for_note("E2E/VaultA-Secret.md", timeout=10)
-
-    api_b = unrestricted_api.with_vault(vault_b_id)
-    api_b.create_note("E2E/VaultB-Secret.md", "# Vault B Secret\nOnly for vault B")
-    api_b.wait_for_note("E2E/VaultB-Secret.md", timeout=10)
-
-    yield {
-        "user_id": user_id,
-        "unrestricted_api": unrestricted_api,
-        "vault_a_id": vault_a_id,
-        "vault_b_id": vault_b_id,
-        "api_vault_a": api_a,
-        "api_vault_b": api_b,
-    }
-
-    # Cleanup: delete Clerk user after tests
     try:
-        clerk_client.delete_user(clerk_user_id)
-    except Exception as e:
-        logger.warning("Failed to cleanup Clerk user %s: %s", clerk_user_id, e)
+        user_id, unrestricted_api, clerk_client, clerk_user_id = _register_test_user(ts)
+
+        # Create vault A (within default limit of 1)
+        vault_a_data, status = unrestricted_api.register_vault("Vault A", f"client-a-{ts}")
+        assert status in (200, 201), f"Failed to register vault A: {status}"
+        vault_a_id = vault_a_data["id"]
+
+        # Vault B should be blocked by free plan limit
+        vault_b_data, status = unrestricted_api.register_vault("Vault B", f"client-b-{ts}")
+        assert status == 402, (
+            f"Expected 402 (vault limit), got {status} — "
+            f"free plan should block second vault creation"
+        )
+
+        # Lift the limit via user_overrides
+        _set_vault_limit(user_id, 5)
+
+        # Now vault B should succeed
+        vault_b_data, status = unrestricted_api.register_vault("Vault B", f"client-b-{ts}")
+        assert status in (200, 201), f"Failed to register vault B after limit lift: {status}"
+        vault_b_id = vault_b_data["id"]
+
+        # Seed notes in both vaults
+        api_a = unrestricted_api.with_vault(vault_a_id)
+        api_a.create_note("E2E/VaultA-Secret.md", "# Vault A Secret\nOnly for vault A")
+        api_a.wait_for_note("E2E/VaultA-Secret.md", timeout=10)
+
+        api_b = unrestricted_api.with_vault(vault_b_id)
+        api_b.create_note("E2E/VaultB-Secret.md", "# Vault B Secret\nOnly for vault B")
+        api_b.wait_for_note("E2E/VaultB-Secret.md", timeout=10)
+
+        yield {
+            "user_id": user_id,
+            "unrestricted_api": unrestricted_api,
+            "vault_a_id": vault_a_id,
+            "vault_b_id": vault_b_id,
+            "api_vault_a": api_a,
+            "api_vault_b": api_b,
+        }
+    finally:
+        if clerk_client and clerk_user_id:
+            try:
+                clerk_client.delete_user(clerk_user_id)
+            except Exception as e:
+                logger.warning("Failed to cleanup Clerk user %s: %s", clerk_user_id, e)
 
 
 # ---------------------------------------------------------------------------
