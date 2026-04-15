@@ -1,12 +1,13 @@
 import { test, expect, type Page } from '@playwright/test'
+import { setupClerkTestingToken } from '@clerk/testing/playwright'
 import fs from 'node:fs'
 import path from 'node:path'
 
 const AUTH_STATE_PATH = path.join(__dirname, '.auth-state.json')
 
-function loadAuthState(): { email: string; password: string; clerk_user_id: string; testing_token: string; skipped: boolean } {
+function loadAuthState(): { email: string; password: string; clerk_user_id: string; skipped: boolean } {
   if (!fs.existsSync(AUTH_STATE_PATH)) {
-    return { email: '', password: '', clerk_user_id: '', testing_token: '', skipped: true }
+    return { email: '', password: '', clerk_user_id: '', skipped: true }
   }
   return JSON.parse(fs.readFileSync(AUTH_STATE_PATH, 'utf-8'))
 }
@@ -44,14 +45,10 @@ test.describe('Clerk auth provider', () => {
 
   test.skip(() => state.skipped, 'E2E_CLERK_SECRET_KEY not set — skipping Clerk browser tests')
 
-  // Bypass Clerk's bot detection in development mode.
-  // Must be injected before page load via addInitScript so the Clerk SDK sees it.
+  // Bypass Clerk's bot detection — intercepts Clerk Frontend API requests
+  // and injects testing token + captcha bypass via @clerk/testing
   test.beforeEach(async ({ page }) => {
-    if (state.testing_token) {
-      await page.addInitScript((token) => {
-        (window as any).__clerk_testing_token = token
-      }, state.testing_token)
-    }
+    await setupClerkTestingToken({ page })
   })
 
   test('redirects unauthenticated users to sign-in with Clerk UI', async ({ page }) => {
