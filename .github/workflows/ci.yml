@@ -560,7 +560,7 @@ jobs:
         run: |
           export PATH="$HOME/.bun/bin:$PATH"
           bun install
-          bunx playwright install --with-deps chromium
+          bunx playwright install chromium
 
       - name: Run Playwright tests
         working-directory: frontend
