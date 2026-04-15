@@ -44,15 +44,13 @@ test.describe('Clerk auth provider', () => {
 
   test.skip(() => state.skipped, 'E2E_CLERK_SECRET_KEY not set — skipping Clerk browser tests')
 
-  // Bypass Clerk's bot detection in development mode
+  // Bypass Clerk's bot detection in development mode.
+  // Must be injected before page load via addInitScript so the Clerk SDK sees it.
   test.beforeEach(async ({ page }) => {
     if (state.testing_token) {
-      await page.context().addCookies([{
-        name: '__clerk_testing_token',
-        value: state.testing_token,
-        domain: 'localhost',
-        path: '/',
-      }])
+      await page.addInitScript((token) => {
+        (window as any).__clerk_testing_token = token
+      }, state.testing_token)
     }
   })
 
