@@ -8,17 +8,17 @@ ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-$
 ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"
 
 # ─── Frontend build ──────────────────────────────────────────────────────
-ARG NODE_IMAGE="node:20-slim"
-FROM ${NODE_IMAGE} AS frontend
+FROM oven/bun:1 AS frontend
 
 WORKDIR /frontend
-COPY frontend/package.json frontend/package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci
+COPY frontend/package.json frontend/bun.lockb ./
+RUN bun install --frozen-lockfile
 COPY frontend/ ./
+ARG VITE_AUTH_PROVIDER="local"
 ARG VITE_CLERK_PUBLISHABLE_KEY=""
+ENV VITE_AUTH_PROVIDER=$VITE_AUTH_PROVIDER
 ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
-RUN npm run build
+RUN bun run build
 
 # ─── Elixir build ────────────────────────────────────────────────────────
 FROM ${BUILDER_IMAGE} AS builder
