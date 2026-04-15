@@ -23,7 +23,6 @@ defmodule Engram.AuthTest do
   end
 
   describe "supports_credentials?/0" do
-    @tag :skip
     test "returns true for local provider" do
       prev = Application.get_env(:engram, :auth_provider)
       Application.put_env(:engram, :auth_provider, :local)

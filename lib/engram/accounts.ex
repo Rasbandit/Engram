@@ -6,6 +6,8 @@ defmodule Engram.Accounts do
   import Ecto.Query
   alias Engram.Repo
   alias Engram.Accounts.{User, ApiKey}
+  alias Engram.Auth.RefreshToken
+  alias Bcrypt
 
   @api_key_prefix "engram_"
 
@@ -37,6 +39,118 @@ defmodule Engram.Accounts do
             |> Repo.insert(skip_tenant_check: true)
         end
     end
+  end
+
+  # ── Local Auth ─────────────────────────────────────────────────
+
+  def create_user_with_password(email, password) do
+    role = if Repo.aggregate(User, :count) == 0, do: "admin", else: "member"
+    external_id = Ecto.UUID.generate()
+
+    %User{
+      email: email,
+      external_id: external_id,
+      password_hash: Bcrypt.hash_pwd_salt(password),
+      role: role
+    }
+    |> Ecto.Changeset.change()
+    |> Ecto.Changeset.unique_constraint(:email)
+    |> Repo.insert(skip_tenant_check: true)
+  end
+
+  def verify_password(email, password) do
+    case Repo.one(from(u in User, where: u.email == ^email), skip_tenant_check: true) do
+      %User{password_hash: hash} = user when is_binary(hash) ->
+        if Bcrypt.verify_pass(password, hash),
+          do: {:ok, user},
+          else: {:error, :invalid_credentials}
+
+      %User{password_hash: nil} ->
+        Bcrypt.no_user_verify()
+        {:error, :invalid_credentials}
+
+      nil ->
+        Bcrypt.no_user_verify()
+        {:error, :invalid_credentials}
+    end
+  end
+
+  # ── Refresh Tokens ─────────────────────────────────────────────
+
+  @refresh_token_ttl_days 30
+
+  def create_refresh_token(user, family_id \\ nil) do
+    raw_token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    token_hash = hash_refresh_token(raw_token)
+    family_id = family_id || Ecto.UUID.generate()
+
+    {:ok, record} =
+      %RefreshToken{}
+      |> RefreshToken.changeset(%{
+        user_id: user.id,
+        token_hash: token_hash,
+        family_id: family_id,
+        expires_at:
+          DateTime.add(DateTime.utc_now(), @refresh_token_ttl_days * 24 * 3600, :second)
+          |> DateTime.truncate(:second)
+      })
+      |> Repo.insert(skip_tenant_check: true)
+
+    {raw_token, record}
+  end
+
+  def consume_refresh_token(raw_token) do
+    token_hash = hash_refresh_token(raw_token)
+
+    case Repo.one(
+           from(rt in RefreshToken, where: rt.token_hash == ^token_hash, preload: :user),
+           skip_tenant_check: true
+         ) do
+      nil ->
+        {:error, :invalid_token}
+
+      %RefreshToken{revoked_at: revoked} when not is_nil(revoked) ->
+        # Reuse of revoked token — compromise detected. Revoke entire family.
+        revoke_token_family(token_hash)
+        {:error, :token_reused}
+
+      %RefreshToken{expires_at: expires_at} = token ->
+        if DateTime.compare(DateTime.utc_now(), expires_at) == :gt do
+          {:error, :expired}
+        else
+          token
+          |> Ecto.Changeset.change(%{revoked_at: DateTime.utc_now() |> DateTime.truncate(:second)})
+          |> Repo.update(skip_tenant_check: true)
+
+          {new_raw, new_record} = create_refresh_token(token.user, token.family_id)
+          {:ok, token.user, new_raw, new_record}
+        end
+    end
+  end
+
+  def revoke_token_family(family_id_or_token_hash) do
+    family_id =
+      case Repo.one(
+             from(rt in RefreshToken,
+               where: rt.token_hash == ^family_id_or_token_hash,
+               select: rt.family_id
+             ),
+             skip_tenant_check: true
+           ) do
+        nil -> family_id_or_token_hash
+        fid -> fid
+      end
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    from(rt in RefreshToken,
+      where: rt.family_id == ^family_id and is_nil(rt.revoked_at)
+    )
+    |> Repo.update_all([set: [revoked_at: now]], skip_tenant_check: true)
+  end
+
+  defp hash_refresh_token(raw_token) do
+    :crypto.hash(:sha256, raw_token) |> Base.encode16(case: :lower)
   end
 
   # ── JWT ─────────────────────────────────────────────────────────

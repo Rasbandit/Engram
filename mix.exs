@@ -52,6 +52,7 @@ defmodule Engram.MixProject do
       # Auth
       {:joken, "~> 2.6"},
       {:joken_jwks, "~> 1.7"},
+      {:bcrypt_elixir, "~> 3.0"},
 
       # Payments
       {:stripity_stripe, "~> 3.2"},
