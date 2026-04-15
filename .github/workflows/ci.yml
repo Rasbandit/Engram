@@ -110,9 +110,6 @@ jobs:
 
   e2e:
     runs-on: [self-hosted, engram]
-    concurrency:
-      group: engram-e2e
-      cancel-in-progress: false
 
     env:
       CI_PROJECT: engram-ci-${{ github.run_id }}
