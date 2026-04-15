@@ -1,11 +1,11 @@
 import { useEffect } from 'react'
-import { useAuth } from '@clerk/clerk-react'
+import { useAuthAdapter } from '../auth/use-auth-adapter'
 import { connectChannel, disconnectChannel } from './channel'
 import { queryClient } from './query-client'
 import { useMe } from './queries'
 
 export function useChannel() {
-  const { getToken } = useAuth()
+  const { getToken } = useAuthAdapter()
   const { data: user } = useMe()
 
   useEffect(() => {
