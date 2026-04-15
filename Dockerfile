@@ -11,7 +11,7 @@ ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"
 FROM oven/bun:1.3 AS frontend
 
 WORKDIR /frontend
-COPY frontend/package.json frontend/bun.lockb ./
+COPY frontend/package.json frontend/bun.lock ./
 RUN bun install --frozen-lockfile
 COPY frontend/ ./
 ARG VITE_AUTH_PROVIDER="local"
