@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:local": "playwright test --project=local",
+    "test:e2e:clerk": "playwright test --project=clerk"
   },
   "keywords": [],
   "author": "",
@@ -25,6 +28,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.2.2",
     "@types/phoenix": "^1.6.7",
     "@types/react": "^19.2.14",

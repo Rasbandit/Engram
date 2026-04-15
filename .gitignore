@@ -39,3 +39,8 @@ priv/static/app/
 .env*
 frontend/.vite/
 .worktrees/
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+frontend/e2e/.auth-state.json
