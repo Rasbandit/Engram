@@ -16,14 +16,15 @@ const SIGN_IN = '[data-clerk-component="SignIn"]'
 const SIGN_UP = '[data-clerk-component="SignUp"]'
 const USER_BUTTON = '[data-clerk-component="UserButton"]'
 
-/** Sign in programmatically via Clerk's JS API, bypassing the form and bot detection. */
-async function clerkSignIn(page: Page, email: string, password: string) {
-  await page.goto('/app/')
-  await clerk.signIn({
-    page,
-    signInParams: { strategy: 'password', identifier: email, password },
-  })
-  // clerk.signIn() sets the session but doesn't navigate — go to the app
+/**
+ * Sign in via Clerk Backend API ticket — bypasses form + bot detection entirely.
+ * Creates a sign-in token server-side, then uses it client-side via strategy: 'ticket'.
+ * Requires CLERK_SECRET_KEY env var (set in global-setup).
+ */
+async function clerkSignIn(page: Page, email: string) {
+  // Navigate first so Clerk JS SDK loads on the page
+  await page.goto('/app/sign-in/')
+  await clerk.signIn({ page, emailAddress: email })
   await page.goto('/app/')
   await expect(page).toHaveURL(/\/app\/?$/, { timeout: 15_000 })
 }
@@ -52,18 +53,18 @@ test.describe('Clerk auth provider', () => {
   })
 
   test('sign in via Clerk → dashboard', async ({ page }) => {
-    await clerkSignIn(page, state.email, state.password)
+    await clerkSignIn(page, state.email)
   })
 
   test('Clerk UserButton renders in header', async ({ page }) => {
-    await clerkSignIn(page, state.email, state.password)
+    await clerkSignIn(page, state.email)
 
     await expect(page.locator(USER_BUTTON)).toBeVisible()
     await expect(page.getByLabel('User menu')).toHaveCount(0)
   })
 
   test('sign out via Clerk → redirects', async ({ page }) => {
-    await clerkSignIn(page, state.email, state.password)
+    await clerkSignIn(page, state.email)
 
     await page.locator(USER_BUTTON).click()
     await page.getByRole('menuitem', { name: /sign out/i }).click()
