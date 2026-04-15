@@ -51,10 +51,10 @@ COPY --from=frontend /priv/static/app priv/static/app
 COPY lib lib
 COPY config/runtime.exs config/
 
-# Build release — force-compile app code to avoid stale .beam from cache,
-# then build release and copy out of the cache mount
+# Build release — no _build cache mount here; BuildKit's COPY-from-builder
+# layer cache doesn't see filesystem changes made alongside cache mounts,
+# causing stale release binaries. deps cache is fine (read-only here).
 RUN --mount=type=cache,target=/app/deps,id=mix-deps \
-    --mount=type=cache,target=/app/_build,id=mix-build \
     mix compile --force && mix release && \
     cp -r /app/_build/prod/rel/engram /app/_release
 

@@ -47,17 +47,9 @@ defmodule Engram.Billing do
   Returns {:error, :limit_reached} when at or over the limit.
   """
   def check_limit(user, key, current_count) do
-    limit = effective_limit(user, key)
-
-    require Logger
-
-    Logger.info(
-      "[billing] check_limit user_id=#{user.id} key=#{key} count=#{current_count} limit=#{inspect(limit)}"
-    )
-
-    case limit do
+    case effective_limit(user, key) do
       -1 -> :ok
-      l when is_integer(l) and current_count < l -> :ok
+      limit when is_integer(limit) and current_count < limit -> :ok
       _ -> {:error, :limit_reached}
     end
   end
