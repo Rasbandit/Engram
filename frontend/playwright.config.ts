@@ -45,9 +45,11 @@ export default defineConfig({
     {
       command: 'mix phx.server',
       cwd: '..',
-      port: LOCAL_BACKEND_PORT,
-      timeout: 30_000,
+      url: `http://localhost:${LOCAL_BACKEND_PORT}/api/health`,
+      timeout: 120_000,
       reuseExistingServer: !isCI,
+      stdout: 'pipe',
+      stderr: 'pipe',
       env: {
         MIX_ENV: 'dev',
         AUTH_PROVIDER: 'local',
@@ -69,9 +71,11 @@ export default defineConfig({
     {
       command: 'mix phx.server',
       cwd: '..',
-      port: CLERK_BACKEND_PORT,
-      timeout: 30_000,
+      url: `http://localhost:${CLERK_BACKEND_PORT}/api/health`,
+      timeout: 120_000,
       reuseExistingServer: !isCI,
+      stdout: 'pipe',
+      stderr: 'pipe',
       env: {
         MIX_ENV: 'dev',
         AUTH_PROVIDER: 'clerk',

@@ -580,12 +580,14 @@ jobs:
           export PATH="$HOME/.bun/bin:$PATH"
           bunx playwright test
 
-      - name: Upload Playwright report on failure
+      - name: Upload Playwright artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: playwright-report-${{ github.sha }}
-          path: frontend/playwright-report/
+          name: playwright-artifacts-${{ github.sha }}
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
           retention-days: 7
 
       - name: Stop ephemeral postgres

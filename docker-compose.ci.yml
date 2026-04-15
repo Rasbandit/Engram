@@ -38,6 +38,7 @@ services:
       EMBED_MODEL: mxbai-embed-large
       EMBED_DIMS: "1024"
       EMBED_BACKEND: ollama
+      AUTH_PROVIDER: clerk
       CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
       CLERK_ISSUER: ${CLERK_ISSUER:-}
     healthcheck:
