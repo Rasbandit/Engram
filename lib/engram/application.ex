@@ -22,11 +22,6 @@ defmodule Engram.Application do
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
-    # Debug: log compiled billing defaults at startup to verify binary is fresh
-    require Logger
-    Logger.error("[app:start] Billing defaults: #{inspect(Engram.Billing.__billing_debug__())}")
-    Engram.Billing.__billing_debug__()
-
     opts = [strategy: :one_for_one, name: Engram.Supervisor]
     Supervisor.start_link(children, opts)
   end

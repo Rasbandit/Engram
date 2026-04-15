@@ -59,37 +59,22 @@ defmodule Engram.Vaults do
     {:error, :vault_limit_reached}
   """
   def register_vault(user, name, client_id) do
-    require Logger
-
-    Logger.error(
-      "[vaults:register] START user_id=#{user.id} name=#{inspect(name)} client_id=#{inspect(client_id)} plan_id=#{inspect(user.plan_id)}"
-    )
-
     result =
       Repo.with_tenant(user.id, fn ->
         existing = find_by_client_id(user.id, client_id)
 
-        Logger.error(
-          "[vaults:register] find_by_client_id=#{inspect(existing != nil)} user_id=#{user.id} client_id=#{inspect(client_id)}"
-        )
-
         case existing do
           %Vault{} = vault ->
-            Logger.error("[vaults:register] EXISTING vault_id=#{vault.id}")
             {:ok, vault, :existing}
 
           nil ->
             current_count = count_vaults(user.id)
 
-            Logger.error("[vaults:register] NEW count=#{current_count} calling check_limit")
-
             case Billing.check_limit(user, "max_vaults", current_count) do
               {:error, :limit_reached} ->
-                Logger.error("[vaults:register] BLOCKED by limit")
                 {:error, :vault_limit_reached}
 
               :ok ->
-                Logger.error("[vaults:register] ALLOWED — creating vault")
                 is_default = current_count == 0
                 slug = unique_slug(user.id, slugify(name))
 
@@ -109,7 +94,6 @@ defmodule Engram.Vaults do
         end
       end)
 
-    Logger.error("[vaults:register] RESULT=#{inspect(elem(result, 0))}")
     unwrap_register_transaction(result)
   end
 
