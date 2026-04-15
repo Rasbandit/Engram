@@ -108,15 +108,18 @@ if config_env() != :test do
 end
 
 # Auth provider selection: "local" (built-in email/password) or "clerk" (SaaS JWKS)
+# Default: local — self-hosters get working auth with zero third-party config.
 config :engram, :auth_provider,
   System.get_env("AUTH_PROVIDER", "local") |> String.to_existing_atom()
 
-# Clerk auth (JWKS for JWT verification)
-if clerk_jwks_url = System.get_env("CLERK_JWKS_URL") do
+# Clerk auth (only required when AUTH_PROVIDER=clerk)
+if Application.get_env(:engram, :auth_provider) == :clerk do
+  clerk_jwks_url = System.get_env("CLERK_JWKS_URL") ||
+    raise "CLERK_JWKS_URL is required when AUTH_PROVIDER=clerk"
   config :engram, :clerk_jwks_url, String.trim(clerk_jwks_url)
-end
 
-if clerk_issuer = System.get_env("CLERK_ISSUER") do
+  clerk_issuer = System.get_env("CLERK_ISSUER") ||
+    raise "CLERK_ISSUER is required when AUTH_PROVIDER=clerk"
   config :engram, :clerk_issuer, String.trim(clerk_issuer)
 end
 
