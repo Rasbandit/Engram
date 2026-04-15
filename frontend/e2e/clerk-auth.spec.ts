@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { setupClerkTestingToken } from '@clerk/testing/playwright'
+import { setupClerkTestingToken, clerk } from '@clerk/testing/playwright'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -12,31 +12,17 @@ function loadAuthState(): { email: string; password: string; clerk_user_id: stri
   return JSON.parse(fs.readFileSync(AUTH_STATE_PATH, 'utf-8'))
 }
 
-// Verified selectors from live Clerk v5 DOM inspection:
-//   Root:     data-clerk-component="SignIn" / "SignUp"
-//   Email:    input[name="identifier"]
-//   Password: input[name="password"]
-//   Submit:   .cl-formButtonPrimary (only one per step — social buttons use cl-socialButtonsIconButton)
-//   User btn: data-clerk-component="UserButton"
 const SIGN_IN = '[data-clerk-component="SignIn"]'
 const SIGN_UP = '[data-clerk-component="SignUp"]'
 const USER_BUTTON = '[data-clerk-component="UserButton"]'
 
-/** Sign in through Clerk's multi-step flow (email → password → dashboard). */
+/** Sign in programmatically via Clerk's JS API, bypassing the form and bot detection. */
 async function clerkSignIn(page: Page, email: string, password: string) {
-  await page.goto('/app/sign-in/')
-  await expect(page.locator(SIGN_IN)).toBeVisible({ timeout: 15_000 })
-
-  // Step 1: enter email
-  await page.locator('input[name="identifier"]').fill(email)
-  await page.locator('.cl-formButtonPrimary').click()
-
-  // Step 2: enter password (Clerk navigates to #/factor-one)
-  const pwInput = page.locator('input[name="password"]')
-  await expect(pwInput).toBeVisible({ timeout: 10_000 })
-  await pwInput.fill(password)
-  await page.locator('.cl-formButtonPrimary').click()
-
+  await page.goto('/app/')
+  await clerk.signIn({
+    page,
+    signInParams: { strategy: 'password', identifier: email, password },
+  })
   await expect(page).toHaveURL(/\/app\/?$/, { timeout: 15_000 })
 }
 
