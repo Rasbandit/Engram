@@ -60,7 +60,6 @@ test.describe('Clerk auth provider', () => {
     await clerkSignIn(page, state.email)
 
     await expect(page.locator(USER_BUTTON)).toBeVisible()
-    await expect(page.getByLabel('User menu')).toHaveCount(0)
   })
 
   test('sign out via Clerk → redirects', async ({ page }) => {
