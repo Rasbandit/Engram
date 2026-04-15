@@ -8,7 +8,7 @@ ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-$
 ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"
 
 # ─── Frontend build ──────────────────────────────────────────────────────
-FROM oven/bun:1 AS frontend
+FROM oven/bun:1.3 AS frontend
 
 WORKDIR /frontend
 COPY frontend/package.json frontend/bun.lockb ./
