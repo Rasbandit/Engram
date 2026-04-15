@@ -107,6 +107,10 @@ if config_env() != :test do
   end
 end
 
+# Auth provider selection: "local" (built-in email/password) or "clerk" (SaaS JWKS)
+config :engram, :auth_provider,
+  System.get_env("AUTH_PROVIDER", "local") |> String.to_existing_atom()
+
 # Clerk auth (JWKS for JWT verification)
 if clerk_jwks_url = System.get_env("CLERK_JWKS_URL") do
   config :engram, :clerk_jwks_url, String.trim(clerk_jwks_url)
