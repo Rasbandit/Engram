@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useAuth } from '@clerk/clerk-react'
+import { useAuthAdapter } from '../auth/use-auth-adapter'
 import { useNavigate } from 'react-router'
 import { api } from '../api/client'
 
@@ -8,7 +8,7 @@ type Vault = { id: number; name: string; note_count: number }
 type Step = 'enter-code' | 'pick-vault' | 'success' | 'error'
 
 export default function DeviceLinkPage() {
-  const { isSignedIn } = useAuth()
+  const { isSignedIn } = useAuthAdapter()
   const navigate = useNavigate()
   const [step, setStep] = useState<Step>('enter-code')
   const [userCode, setUserCode] = useState('')
