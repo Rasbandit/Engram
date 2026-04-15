@@ -33,6 +33,9 @@ export default async function globalSetup() {
   process.env.CLERK_SECRET_KEY = secretKey
   await clerkSetup()
 
+  // Clean up orphaned Clerk users from previous failed runs
+  await cleanupOrphanedClerkUsers(secretKey)
+
   const ts = Date.now()
   const email = `e2e-browser-${ts}@test.com`
   const password = crypto.randomBytes(12).toString('base64url')
@@ -68,4 +71,29 @@ export default async function globalSetup() {
       skipped: false,
     }),
   )
+}
+
+const E2E_PREFIXES = ['e2e-browser-', 'e2e-sync-', 'e2e-iso-', 'e2e-oauth-']
+
+async function cleanupOrphanedClerkUsers(secretKey: string) {
+  const headers = { Authorization: `Bearer ${secretKey}` }
+  let deleted = 0
+
+  for (let offset = 0; ; offset += 100) {
+    const resp = await fetch(`${CLERK_API}/users?limit=100&offset=${offset}&order_by=created_at`, { headers })
+    if (!resp.ok) break
+    const users = await resp.json()
+    if (!users.length) break
+
+    for (const user of users) {
+      const emails: string[] = user.email_addresses?.map((ea: { email_address: string }) => ea.email_address) ?? []
+      if (emails.some((e: string) => E2E_PREFIXES.some((p) => e.startsWith(p)))) {
+        const del = await fetch(`${CLERK_API}/users/${user.id}`, { method: 'DELETE', headers })
+        if (del.ok) deleted++
+      }
+    }
+    if (users.length < 100) break
+  }
+
+  if (deleted) console.log(`Cleaned up ${deleted} orphaned Clerk test user(s)`)
 }

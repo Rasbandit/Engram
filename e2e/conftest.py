@@ -24,7 +24,7 @@ import pytest
 
 from helpers.api import ApiClient
 from helpers.cdp import CdpClient
-from helpers.cleanup import cleanup_test_data, cleanup_clerk_users, cleanup_vaults
+from helpers.cleanup import cleanup_test_data, cleanup_clerk_users, cleanup_all_e2e_clerk_users, cleanup_vaults
 from helpers.clerk import ClerkClient
 from helpers.clerk_auth import ClerkAuth, provision_clerk_user
 from helpers.obsidian import ObsidianInstance
@@ -60,7 +60,10 @@ def ts():
 def clerk_client():
     """Clerk Backend API client — None if E2E_CLERK_SECRET_KEY not set."""
     if CLERK_SECRET:
-        return ClerkClient(CLERK_SECRET)
+        client = ClerkClient(CLERK_SECRET)
+        # Pre-cleanup: delete orphaned e2e users from previous failed runs
+        cleanup_all_e2e_clerk_users(client)
+        return client
     return None
 
 
