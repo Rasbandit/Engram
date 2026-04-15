@@ -5,7 +5,7 @@ defmodule Engram.Factory do
     %Engram.Accounts.User{
       email: sequence(:email, &"user#{&1}@test.com"),
       display_name: sequence(:display_name, &"User #{&1}"),
-      clerk_id: nil
+      external_id: nil
     }
   end
 

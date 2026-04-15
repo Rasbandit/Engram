@@ -53,13 +53,13 @@ defmodule Engram.Auth.TokenResolverTest do
     token = Engram.ClerkHelpers.sign_clerk_jwt(claims)
 
     assert {:ok, user} = TokenResolver.resolve(token)
-    assert user.clerk_id == "clerk_new_user_xyz"
+    assert user.external_id == "clerk_new_user_xyz"
     assert user.email == "new@clerk.example"
   end
 
   test "resolves a valid Clerk JWT for an existing Clerk user" do
     clerk_id = "clerk_existing_abc"
-    existing = insert(:user, clerk_id: clerk_id, email: "existing@clerk.example")
+    existing = insert(:user, external_id: clerk_id, email: "existing@clerk.example")
 
     claims = Engram.ClerkHelpers.clerk_claims(clerk_id, email: existing.email)
     token = Engram.ClerkHelpers.sign_clerk_jwt(claims)

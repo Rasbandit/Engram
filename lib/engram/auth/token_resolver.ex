@@ -57,9 +57,9 @@ defmodule Engram.Auth.TokenResolver do
 
   defp authenticate_clerk_jwt(token) do
     with {:ok, claims} <- Engram.Auth.ClerkToken.verify_clerk_jwt(token),
-         clerk_id when is_binary(clerk_id) <- claims["sub"],
+         external_id when is_binary(external_id) <- claims["sub"],
          email when is_binary(email) <- claims["email"] do
-      Accounts.find_or_create_by_clerk_id(clerk_id, %{email: email})
+      Accounts.find_or_create_by_external_id(external_id, %{email: email})
     else
       {:error, reason} ->
         require Logger

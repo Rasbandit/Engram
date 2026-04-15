@@ -108,15 +108,15 @@ defmodule EngramWeb.Plugs.AuthTest do
         |> Auth.call([])
 
       refute conn.halted
-      assert conn.assigns.current_user.clerk_id == "clerk_new_user"
+      assert conn.assigns.current_user.external_id == "clerk_new_user"
       assert conn.assigns.current_user.email == "clerktest@example.com"
     end
 
-    test "authenticates with Clerk JWT and finds existing user by clerk_id" do
+    test "authenticates with Clerk JWT and finds existing user by external_id" do
       user = insert(:user, email: "existing_clerk@test.com")
 
       user
-      |> Ecto.Changeset.change(%{clerk_id: "clerk_existing"})
+      |> Ecto.Changeset.change(%{external_id: "clerk_existing"})
       |> Engram.Repo.update!(skip_tenant_check: true)
 
       claims =

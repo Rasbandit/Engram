@@ -16,12 +16,12 @@ defmodule Engram.Accounts do
   # ── Clerk Auth ─────────────────────────────────────────────────
 
   @doc """
-  Finds a user by Clerk ID, or links/creates one.
+  Finds a user by external ID (Clerk sub), or links/creates one.
 
-  Priority: clerk_id match > email match (link clerk_id) > create new user.
+  Priority: external_id match > email match (link external_id) > create new user.
   """
-  def find_or_create_by_clerk_id(clerk_id, %{email: email}) do
-    case Repo.one(from(u in User, where: u.clerk_id == ^clerk_id), skip_tenant_check: true) do
+  def find_or_create_by_external_id(external_id, %{email: email}) do
+    case Repo.one(from(u in User, where: u.external_id == ^external_id), skip_tenant_check: true) do
       %User{} = user ->
         {:ok, user}
 
@@ -29,11 +29,11 @@ defmodule Engram.Accounts do
         case Repo.one(from(u in User, where: u.email == ^email), skip_tenant_check: true) do
           %User{} = user ->
             user
-            |> Ecto.Changeset.change(%{clerk_id: clerk_id})
+            |> Ecto.Changeset.change(%{external_id: external_id})
             |> Repo.update(skip_tenant_check: true)
 
           nil ->
-            %User{clerk_id: clerk_id, email: email}
+            %User{external_id: external_id, email: email}
             |> Repo.insert(skip_tenant_check: true)
         end
     end
