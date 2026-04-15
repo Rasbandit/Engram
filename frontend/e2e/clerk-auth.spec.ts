@@ -4,9 +4,9 @@ import path from 'node:path'
 
 const AUTH_STATE_PATH = path.join(__dirname, '.auth-state.json')
 
-function loadAuthState(): { email: string; password: string; clerk_user_id: string; skipped: boolean } {
+function loadAuthState(): { email: string; password: string; clerk_user_id: string; testing_token: string; skipped: boolean } {
   if (!fs.existsSync(AUTH_STATE_PATH)) {
-    return { email: '', password: '', clerk_user_id: '', skipped: true }
+    return { email: '', password: '', clerk_user_id: '', testing_token: '', skipped: true }
   }
   return JSON.parse(fs.readFileSync(AUTH_STATE_PATH, 'utf-8'))
 }
@@ -34,8 +34,7 @@ async function clerkSignIn(page: Page, email: string, password: string) {
   const pwInput = page.locator('input[name="password"]')
   await expect(pwInput).toBeVisible({ timeout: 10_000 })
   await pwInput.fill(password)
-  // Press Enter to submit — more reliable than clicking Clerk's button
-  await pwInput.press('Enter')
+  await page.locator('.cl-formButtonPrimary').click()
 
   await expect(page).toHaveURL(/\/app\/?$/, { timeout: 15_000 })
 }
@@ -44,6 +43,18 @@ test.describe('Clerk auth provider', () => {
   const state = loadAuthState()
 
   test.skip(() => state.skipped, 'E2E_CLERK_SECRET_KEY not set — skipping Clerk browser tests')
+
+  // Bypass Clerk's bot detection in development mode
+  test.beforeEach(async ({ page }) => {
+    if (state.testing_token) {
+      await page.context().addCookies([{
+        name: '__clerk_testing_token',
+        value: state.testing_token,
+        domain: 'localhost',
+        path: '/',
+      }])
+    }
+  })
 
   test('redirects unauthenticated users to sign-in with Clerk UI', async ({ page }) => {
     await page.goto('/app/')

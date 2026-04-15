@@ -54,12 +54,23 @@ export default async function globalSetup() {
   const user = await resp.json()
   console.log(`Clerk test user created: ${email} (${user.id})`)
 
+  // Fetch a testing token to bypass Clerk's bot detection in browser tests
+  const ttResp = await fetch(`${CLERK_API}/testing_tokens`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${secretKey}` },
+  })
+  const testingToken = ttResp.ok ? (await ttResp.json()).token : ''
+  if (!testingToken) {
+    console.warn('Failed to get Clerk testing token — sign-in tests may fail')
+  }
+
   fs.writeFileSync(
     AUTH_STATE_PATH,
     JSON.stringify({
       email,
       password,
       clerk_user_id: user.id,
+      testing_token: testingToken,
       skipped: false,
     }),
   )
