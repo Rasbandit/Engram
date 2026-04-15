@@ -73,7 +73,9 @@ export default async function globalSetup() {
   )
 }
 
-const E2E_PREFIXES = ['e2e-browser-', 'e2e-sync-', 'e2e-iso-', 'e2e-oauth-']
+// Only clean up browser-e2e's own users — other prefixes belong to the
+// Python E2E job which may be running in parallel on the same Clerk account.
+const E2E_PREFIXES = ['e2e-browser-']
 
 async function cleanupOrphanedClerkUsers(secretKey: string) {
   const headers = { Authorization: `Bearer ${secretKey}` }

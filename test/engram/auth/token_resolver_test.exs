@@ -99,6 +99,20 @@ defmodule Engram.Auth.TokenResolverTest do
     assert user.email == "local@test.com"
   end
 
+  # ---- Internal JWT / device flow (always available as fallback) ----
+
+  test "resolves a valid internal JWT (device flow token) when provider is clerk" do
+    user = insert(:user)
+    token = Accounts.generate_jwt(user)
+
+    assert {:ok, resolved} = TokenResolver.resolve(token)
+    assert resolved.id == user.id
+  end
+
+  test "rejects a tampered internal JWT" do
+    assert {:error, _reason} = TokenResolver.resolve("not.a.valid.jwt")
+  end
+
   # ---- Edge cases ----
 
   test "rejects nil" do
