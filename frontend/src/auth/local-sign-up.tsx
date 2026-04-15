@@ -1,0 +1,93 @@
+import { useState, type FormEvent } from 'react'
+import { Link, useNavigate } from 'react-router'
+import { useAuthAdapter } from './use-auth-adapter'
+
+export default function LocalSignUp() {
+  const { register } = useAuthAdapter()
+  const navigate = useNavigate()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    setError('')
+
+    if (password !== confirm) {
+      setError('Passwords do not match')
+      return
+    }
+
+    setLoading(true)
+
+    try {
+      await register!(email, password)
+      navigate('/')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Registration failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <main className="flex justify-center pt-16">
+      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4">
+        <h1 className="text-2xl font-semibold text-gray-900">Create your account</h1>
+
+        {error && (
+          <p role="alert" className="text-sm text-red-600">{error}</p>
+        )}
+
+        <label className="block">
+          <span className="text-sm font-medium text-gray-700">Email</span>
+          <input
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-sm font-medium text-gray-700">Password</span>
+          <input
+            type="password"
+            required
+            minLength={8}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-sm font-medium text-gray-700">Confirm password</span>
+          <input
+            type="password"
+            required
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            className="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </label>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {loading ? 'Creating account...' : 'Create account'}
+        </button>
+
+        <p className="text-center text-sm text-gray-500">
+          Already have an account?{' '}
+          <Link to="/sign-in" className="text-blue-600 hover:underline">Sign in</Link>
+        </p>
+      </form>
+    </main>
+  )
+}

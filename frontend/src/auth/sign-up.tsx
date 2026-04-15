@@ -1,9 +1,25 @@
-import { SignUp } from '@clerk/clerk-react'
+import { lazy, Suspense } from 'react'
+
+const isClerk = import.meta.env.VITE_AUTH_PROVIDER === 'clerk'
+
+const ClerkSignUpPage = isClerk
+  ? lazy(() =>
+      import('@clerk/clerk-react').then((mod) => ({
+        default: () => (
+          <main style={{ display: 'flex', justifyContent: 'center', paddingTop: '4rem' }}>
+            <mod.SignUp routing="hash" forceRedirectUrl="/app" />
+          </main>
+        ),
+      }))
+    )
+  : null
+
+const LocalSignUp = lazy(() => import('./local-sign-up'))
 
 export default function SignUpPage() {
   return (
-    <main style={{ display: 'flex', justifyContent: 'center', paddingTop: '4rem' }}>
-      <SignUp routing="hash" forceRedirectUrl="/app" />
-    </main>
+    <Suspense fallback={<p>Loading...</p>}>
+      {ClerkSignUpPage ? <ClerkSignUpPage /> : <LocalSignUp />}
+    </Suspense>
   )
 }

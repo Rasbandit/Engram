@@ -1,6 +1,11 @@
-import { UserButton } from '@clerk/clerk-react'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Link, Outlet } from 'react-router'
+
+const isClerk = import.meta.env.VITE_AUTH_PROVIDER === 'clerk'
+const ClerkUserButton = isClerk
+  ? lazy(() => import('@clerk/clerk-react').then((mod) => ({ default: mod.UserButton })))
+  : null
+const LocalUserMenu = lazy(() => import('../auth/local-user-menu'))
 import { useChannel } from '../api/use-channel'
 import { useBillingStatus } from '../api/queries'
 import FolderTree from '../viewer/folder-tree'
@@ -48,7 +53,9 @@ export default function AppLayout() {
             <Link to="/billing" className="text-sm text-gray-600 hover:text-gray-900 hover:underline">
               Billing
             </Link>
-            <UserButton />
+            <Suspense fallback={null}>
+              {ClerkUserButton ? <ClerkUserButton /> : <LocalUserMenu />}
+            </Suspense>
           </nav>
         </header>
 
