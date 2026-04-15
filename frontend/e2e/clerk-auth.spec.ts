@@ -34,10 +34,8 @@ async function clerkSignIn(page: Page, email: string, password: string) {
   const pwInput = page.locator('input[name="password"]')
   await expect(pwInput).toBeVisible({ timeout: 10_000 })
   await pwInput.fill(password)
-  // Wait for Clerk's submit button to be enabled after fill
-  const submitBtn = page.locator('.cl-formButtonPrimary')
-  await expect(submitBtn).toBeEnabled({ timeout: 5_000 })
-  await submitBtn.click()
+  // Press Enter to submit — more reliable than clicking Clerk's button
+  await pwInput.press('Enter')
 
   await expect(page).toHaveURL(/\/app\/?$/, { timeout: 15_000 })
 }
