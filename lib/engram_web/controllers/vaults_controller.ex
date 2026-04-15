@@ -97,13 +97,9 @@ defmodule EngramWeb.VaultsController do
   # ── register ───────────────────────────────────────────────────────────────
 
   def register(conn, params) do
-    require Logger
     user = conn.assigns.current_user
     name = params["name"]
     client_id = params["client_id"]
-
-    vault_count = Engram.Repo.one(from(v in Engram.Vaults.Vault, where: v.user_id == ^user.id and is_nil(v.deleted_at), select: count(v.id)))
-    Logger.error("[vault_reg] user_id=#{user.id} plan_id=#{inspect(user.plan_id)} vault_count=#{vault_count} effective_limit=#{inspect(Billing.effective_limit(user, "max_vaults"))}")
 
     if is_nil(name) or is_nil(client_id) do
       conn
