@@ -117,7 +117,9 @@ end
 config :engram, :auth_provider, auth_provider
 
 # Clerk auth (only required when AUTH_PROVIDER=clerk)
-if Application.get_env(:engram, :auth_provider) == :clerk do
+# Note: use local variable, not Application.get_env — runtime.exs config
+# is accumulated and not yet applied, so get_env reads stale config.
+if auth_provider == :clerk do
   clerk_jwks_url = System.get_env("CLERK_JWKS_URL") ||
     raise "CLERK_JWKS_URL is required when AUTH_PROVIDER=clerk"
   config :engram, :clerk_jwks_url, String.trim(clerk_jwks_url)
