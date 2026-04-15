@@ -37,6 +37,7 @@ defmodule Engram.Auth.Providers.Local do
   def register_user(email, password, _opts) do
     case Engram.Accounts.create_user_with_password(email, password) do
       {:ok, user} -> {:ok, %{external_id: user.external_id, email: user.email}}
+      {:error, :password_too_short} -> {:error, :password_too_short}
       {:error, changeset} -> {:error, changeset}
     end
   end

@@ -43,7 +43,7 @@ defmodule Engram.Accounts do
 
   # ── Local Auth ─────────────────────────────────────────────────
 
-  def create_user_with_password(email, password) do
+  def create_user_with_password(email, password) when byte_size(password) >= 8 do
     role = if Repo.aggregate(User, :count) == 0, do: "admin", else: "member"
     external_id = Ecto.UUID.generate()
 
@@ -56,6 +56,10 @@ defmodule Engram.Accounts do
     |> Ecto.Changeset.change()
     |> Ecto.Changeset.unique_constraint(:email)
     |> Repo.insert(skip_tenant_check: true)
+  end
+
+  def create_user_with_password(_email, _password) do
+    {:error, :password_too_short}
   end
 
   def verify_password(email, password) do
@@ -118,12 +122,18 @@ defmodule Engram.Accounts do
         if DateTime.compare(DateTime.utc_now(), expires_at) == :gt do
           {:error, :expired}
         else
-          token
-          |> Ecto.Changeset.change(%{revoked_at: DateTime.utc_now() |> DateTime.truncate(:second)})
-          |> Repo.update(skip_tenant_check: true)
+          Repo.transaction(fn ->
+            token
+            |> Ecto.Changeset.change(%{revoked_at: DateTime.utc_now() |> DateTime.truncate(:second)})
+            |> Repo.update!(skip_tenant_check: true)
 
-          {new_raw, new_record} = create_refresh_token(token.user, token.family_id)
-          {:ok, token.user, new_raw, new_record}
+            {new_raw, new_record} = create_refresh_token(token.user, token.family_id)
+            {token.user, new_raw, new_record}
+          end, skip_tenant_check: true)
+          |> case do
+            {:ok, {user, new_raw, new_record}} -> {:ok, user, new_raw, new_record}
+            {:error, reason} -> {:error, reason}
+          end
         end
     end
   end

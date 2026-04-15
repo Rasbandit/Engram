@@ -29,6 +29,10 @@ defmodule Engram.Auth.Providers.LocalTest do
       {:ok, _} = Local.register_user("dup@local.test", "StrongPass123!", %{})
       assert {:error, _} = Local.register_user("dup@local.test", "StrongPass123!", %{})
     end
+
+    test "rejects password shorter than 8 characters" do
+      assert {:error, :password_too_short} = Local.register_user("short@local.test", "abc", %{})
+    end
   end
 
   describe "authenticate_credentials/2" do
