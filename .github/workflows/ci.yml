@@ -108,7 +108,7 @@ jobs:
         if: always()
         run: docker rm -f "$PG_CONTAINER" 2>/dev/null || true
 
-  e2e:
+  e2e-clerk:
     runs-on: [self-hosted, engram]
 
     env:
@@ -479,7 +479,7 @@ jobs:
           # Clean up ci-artifacts from this run
           rm -rf ci-artifacts/
 
-  e2e-local-auth:
+  e2e-local:
     runs-on: [self-hosted, engram]
 
     env:
@@ -586,11 +586,11 @@ jobs:
             -p "$CI_PROJECT" down -v --remove-orphans 2>/dev/null || true
           rm -rf ci-artifacts-local/
 
-  browser-e2e:
+  e2e-browser:
     runs-on: [self-hosted, engram]
 
     env:
-      PG_CONTAINER: engram-browser-e2e-${{ github.run_id }}
+      PG_CONTAINER: engram-e2e-browser-${{ github.run_id }}
 
     steps:
       - uses: actions/checkout@v6
@@ -675,7 +675,7 @@ jobs:
         working-directory: frontend
         env:
           DATABASE_URL: postgresql://engram:engram@localhost:${{ steps.pg.outputs.pg_port }}/engram_dev
-          JWT_SECRET: test-browser-e2e-secret
+          JWT_SECRET: test-e2e-browser-secret
           PW_LOCAL_BACKEND_PORT: ${{ steps.ports.outputs.pw_local_backend_port }}
           PW_LOCAL_VITE_PORT: ${{ steps.ports.outputs.pw_local_vite_port }}
           PW_CLERK_BACKEND_PORT: ${{ steps.ports.outputs.pw_clerk_backend_port }}
@@ -705,24 +705,24 @@ jobs:
 
   ci:
     if: always()
-    needs: [version-check, unit-tests, e2e, e2e-local-auth, browser-e2e]
+    needs: [version-check, unit-tests, e2e-clerk, e2e-local, e2e-browser]
     runs-on: ubuntu-latest
     steps:
       - name: Check required jobs
         run: |
           VC="${{ needs.version-check.result }}"
           UT="${{ needs.unit-tests.result }}"
-          E2E="${{ needs.e2e.result }}"
-          BE2E="${{ needs.browser-e2e.result }}"
+          EC="${{ needs.e2e-clerk.result }}"
+          EL="${{ needs.e2e-local.result }}"
+          EB="${{ needs.e2e-browser.result }}"
 
           # version-check is skipped on main (only runs on branches) — that's expected
           if [ "$VC" != "success" ] && [ "$VC" != "skipped" ]; then
             echo "::error::version-check failed — bump mix.exs version before merging"
             exit 1
           fi
-          ELA="${{ needs.e2e-local-auth.result }}"
-          if [ "$UT" != "success" ] || [ "$E2E" != "success" ] || [ "$ELA" != "success" ] || [ "$BE2E" != "success" ]; then
-            echo "Required jobs failed: unit-tests=$UT, e2e=$E2E, e2e-local-auth=$ELA, browser-e2e=$BE2E"
+          if [ "$UT" != "success" ] || [ "$EC" != "success" ] || [ "$EL" != "success" ] || [ "$EB" != "success" ]; then
+            echo "Required jobs failed: unit-tests=$UT, e2e-clerk=$EC, e2e-local=$EL, e2e-browser=$EB"
             exit 1
           fi
 
