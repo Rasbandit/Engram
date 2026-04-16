@@ -8,8 +8,11 @@ defmodule EngramWeb.SpaControllerTest do
     index = Path.join(path, "index.html")
 
     unless File.exists?(index) do
-      File.write!(index, ~s(<!DOCTYPE html><html><body><div id="root"></div></body></html>))
+      File.write!(index, ~s(<!DOCTYPE html><html><head></head><body><div id="root"></div></body></html>))
     end
+
+    # Invalidate cached HTML so tests pick up the stub
+    :persistent_term.erase({EngramWeb.SpaController, :html})
 
     :ok
   end
@@ -39,6 +42,12 @@ defmodule EngramWeb.SpaControllerTest do
     conn = get(conn, "/share/abc123/folder/note")
     assert conn.status == 200
     assert response(conn, 200) =~ "<!DOCTYPE html>"
+  end
+
+  test "GET /app injects runtime config script", %{conn: conn} do
+    body = conn |> get("/app") |> response(200)
+    assert body =~ "window.__ENGRAM_CONFIG__="
+    assert body =~ ~s("authProvider":)
   end
 
   test "API routes are NOT caught by SPA fallback", %{conn: conn} do
