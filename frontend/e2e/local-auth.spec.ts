@@ -5,6 +5,37 @@ const TEST_EMAIL = `e2e-local-${ts}@test.com`
 const TEST_EMAIL_2 = `e2e-local-${ts}-2@test.com`
 const TEST_PASSWORD = 'E2eTestPass!99'
 
+// Capture browser console + network for debugging CI failures
+test.beforeEach(async ({ page }) => {
+  const messages: string[] = []
+  page.on('console', (msg) => {
+    const text = msg.text()
+    if (text.startsWith('[AUTH') || text.startsWith('[SIGN') || text.startsWith('[PAGE')) {
+      messages.push(`[console:${msg.type()}] ${text}`)
+    }
+  })
+  page.on('pageerror', (err) => {
+    messages.push(`[PAGE-ERROR] ${err.message}`)
+  })
+  // Log auth-related API requests/responses
+  page.on('response', (response) => {
+    const url = response.url()
+    if (url.includes('/api/auth/')) {
+      messages.push(`[network] ${response.request().method()} ${url} → ${response.status()}`)
+    }
+  })
+  ;(page as unknown as Record<string, unknown>).__authLogs = messages
+})
+
+test.afterEach(async ({ page }, testInfo) => {
+  const messages = (page as unknown as Record<string, unknown>).__authLogs as string[] | undefined
+  if (messages?.length) {
+    console.log('=== Auth debug logs for:', testInfo.title, '===')
+    for (const m of messages) console.log(m)
+    console.log('=== End auth debug logs ===')
+  }
+})
+
 test.describe('Local auth provider', () => {
   test('redirects unauthenticated users to sign-in', async ({ page }) => {
     await page.goto('/app/')
@@ -30,7 +61,13 @@ test.describe('Local auth provider', () => {
     await page.goto('/app/sign-in/')
     await page.getByLabel('Email').fill(TEST_EMAIL)
     await page.getByLabel('Password', { exact: true }).fill(TEST_PASSWORD)
+    console.log('[TEST:sign-out] clicking Sign in, current URL:', page.url())
     await page.getByRole('button', { name: 'Sign in' }).click()
+    // Wait a beat then dump state before assertion
+    await page.waitForTimeout(2_000)
+    const logs = (page as unknown as Record<string, unknown>).__authLogs as string[]
+    console.log('[TEST:sign-out] pre-assert URL:', page.url(), 'log count:', logs.length)
+    for (const m of logs) console.log(m)
     await expect(page).toHaveURL(/\/app\/?$/, { timeout: 10_000 })
 
     await page.getByLabel('User menu').click()
@@ -43,8 +80,13 @@ test.describe('Local auth provider', () => {
     await page.goto('/app/sign-in/')
     await page.getByLabel('Email').fill(TEST_EMAIL)
     await page.getByLabel('Password', { exact: true }).fill(TEST_PASSWORD)
+    console.log('[TEST:sign-in] clicking Sign in, current URL:', page.url())
     await page.getByRole('button', { name: 'Sign in' }).click()
-
+    // Wait a beat then dump state before assertion
+    await page.waitForTimeout(2_000)
+    const logs = (page as unknown as Record<string, unknown>).__authLogs as string[]
+    console.log('[TEST:sign-in] pre-assert URL:', page.url(), 'log count:', logs.length)
+    for (const m of logs) console.log(m)
     await expect(page).toHaveURL(/\/app\/?$/, { timeout: 10_000 })
   })
 

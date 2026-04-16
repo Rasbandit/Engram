@@ -12,18 +12,25 @@ export default function LocalSignIn() {
 
   // Navigate after auth state propagates (React 18 batching)
   useEffect(() => {
-    if (isSignedIn) navigate('/', { replace: true })
+    console.log('[SIGN-IN] useEffect: isSignedIn=%s', isSignedIn)
+    if (isSignedIn) {
+      console.log('[SIGN-IN] useEffect: navigating to /')
+      navigate('/', { replace: true })
+    }
   }, [isSignedIn, navigate])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
     setLoading(true)
+    console.log('[SIGN-IN] handleSubmit: starting login for', email)
 
     try {
       if (!login) throw new Error('Login not available for this auth provider')
       await login(email, password)
+      console.log('[SIGN-IN] handleSubmit: login() resolved successfully')
     } catch (err) {
+      console.log('[SIGN-IN] handleSubmit: login() threw:', err)
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {
       setLoading(false)
