@@ -41,17 +41,23 @@ RUN --mount=type=cache,target=/app/deps,id=mix-deps \
     --mount=type=cache,target=/app/_build,id=mix-build \
     mix deps.compile
 
-# Compile app code
-COPY priv priv
-COPY --from=frontend /priv/static/app priv/static/app
+# Compile app code — frontend assets not needed for compilation,
+# only for the release. Keeping them separate means frontend-only
+# changes don't invalidate the Elixir compile layer.
 COPY lib lib
+COPY priv priv
 COPY config/runtime.exs config/
-
-# Build release — no _build cache mount here; BuildKit's COPY-from-builder
-# layer cache doesn't see filesystem changes made alongside cache mounts,
-# causing stale release binaries. deps cache is fine (read-only here).
 RUN --mount=type=cache,target=/app/deps,id=mix-deps \
-    mix compile --force && mix release && \
+    --mount=type=cache,target=/app/_build,id=mix-build \
+    mix compile
+
+# Build release — copy frontend assets in, then assemble.
+# Uses separate _build cache for compile above, then copies out
+# to avoid stale release binaries from cached _build.
+COPY --from=frontend /priv/static/app priv/static/app
+RUN --mount=type=cache,target=/app/deps,id=mix-deps \
+    --mount=type=cache,target=/app/_build,id=mix-build \
+    mix release && \
     cp -r /app/_build/prod/rel/engram /app/_release
 
 # ─── Runner ───────────────────────────────────────────────────────────────
