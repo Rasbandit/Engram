@@ -1,7 +1,8 @@
 """Test 60: Local auth provider — register, login, refresh, logout.
 
-API-only test. Exercises the full local auth lifecycle without Clerk.
-Only runs when AUTH_PROVIDER=local (skipped otherwise).
+API-only test. Exercises local auth lifecycle endpoints that only
+exist when AUTH_PROVIDER=local. Provider-agnostic tests (API keys,
+/me, token rejection) are in test_61_auth_agnostic.py.
 
 Tests:
 - First user registration → admin role
@@ -11,8 +12,6 @@ Tests:
 - Refresh token rotation
 - Refresh token reuse detection (theft)
 - Logout + cookie invalidation
-- Local JWT → API key creation → API key auth
-- Local JWT → WebSocket auth
 """
 
 import os
@@ -26,7 +25,7 @@ AUTH_PROVIDER = os.environ.get("AUTH_PROVIDER", "local")
 
 pytestmark = pytest.mark.skipif(
     AUTH_PROVIDER != "local",
-    reason="Local auth tests only run when AUTH_PROVIDER=local",
+    reason="Local auth endpoint tests only run when AUTH_PROVIDER=local",
 )
 
 
@@ -256,111 +255,3 @@ class TestLogout:
             timeout=10,
         )
         assert refresh_resp.status_code == 401
-
-
-# ---------------------------------------------------------------------------
-# Access token auth → authenticated endpoints
-# ---------------------------------------------------------------------------
-
-
-class TestAccessTokenAuth:
-    @pytest.fixture(autouse=True)
-    def _registered_session(self):
-        self.email = unique_email("authed")
-        resp = requests.post(
-            f"{API_URL}/auth/register",
-            json={"email": self.email, "password": PASSWORD},
-            timeout=10,
-        )
-        assert resp.status_code == 201
-        self.access_token = resp.json()["access_token"]
-
-    def test_me_endpoint(self):
-        """/me returns the authenticated user."""
-        resp = requests.get(
-            f"{API_URL}/me",
-            headers={"Authorization": f"Bearer {self.access_token}"},
-            timeout=10,
-        )
-        assert resp.status_code == 200
-        assert resp.json()["user"]["email"] == self.email
-
-    def test_create_api_key(self):
-        """Can create an API key using local JWT auth, then use it."""
-        # Create API key
-        resp = requests.post(
-            f"{API_URL}/api-keys",
-            headers={"Authorization": f"Bearer {self.access_token}"},
-            json={"name": "e2e-local-test"},
-            timeout=10,
-        )
-        assert resp.status_code in (200, 201), f"API key creation failed: {resp.text}"
-        api_key = resp.json().get("key") or resp.json().get("raw_key")
-        assert api_key is not None, f"No key in response: {resp.json()}"
-        assert api_key.startswith("engram_")
-
-        # Use API key for /me
-        me_resp = requests.get(
-            f"{API_URL}/me",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=10,
-        )
-        assert me_resp.status_code == 200
-        assert me_resp.json()["user"]["email"] == self.email
-
-    def test_invalid_token_rejected(self):
-        """Garbage token returns 401."""
-        resp = requests.get(
-            f"{API_URL}/me",
-            headers={"Authorization": "Bearer not.a.real.jwt"},
-            timeout=10,
-        )
-        assert resp.status_code == 401
-
-    def test_no_auth_rejected(self):
-        """Request without auth header returns 401."""
-        resp = requests.get(f"{API_URL}/me", timeout=10)
-        assert resp.status_code == 401
-
-
-# ---------------------------------------------------------------------------
-# Multi-user isolation
-# ---------------------------------------------------------------------------
-
-
-class TestMultiUserIsolation:
-    def test_users_cannot_see_each_other(self):
-        """Two local users get different user IDs and can't cross-access."""
-        email_a = unique_email("iso-a")
-        email_b = unique_email("iso-b")
-
-        reg_a = requests.post(
-            f"{API_URL}/auth/register",
-            json={"email": email_a, "password": PASSWORD},
-            timeout=10,
-        )
-        reg_b = requests.post(
-            f"{API_URL}/auth/register",
-            json={"email": email_b, "password": PASSWORD},
-            timeout=10,
-        )
-        assert reg_a.status_code == 201
-        assert reg_b.status_code == 201
-
-        token_a = reg_a.json()["access_token"]
-        token_b = reg_b.json()["access_token"]
-
-        me_a = requests.get(
-            f"{API_URL}/me",
-            headers={"Authorization": f"Bearer {token_a}"},
-            timeout=10,
-        ).json()
-        me_b = requests.get(
-            f"{API_URL}/me",
-            headers={"Authorization": f"Bearer {token_b}"},
-            timeout=10,
-        ).json()
-
-        assert me_a["user"]["email"] == email_a
-        assert me_b["user"]["email"] == email_b
-        assert me_a["user"]["id"] != me_b["user"]["id"], "Users should have different IDs"

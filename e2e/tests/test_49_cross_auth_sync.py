@@ -59,7 +59,7 @@ async def test_apikey_push_oauth_receives(
     """
     tokens = await provision_oauth_for_existing_user(
         clerk_client, API_URL, sync_user[1], label="cross",
-        api_key=sync_user[3],
+        api_key=sync_user[2],
     )
     original_settings = None
 
@@ -98,7 +98,7 @@ async def test_oauth_push_apikey_receives(
     """
     tokens = await provision_oauth_for_existing_user(
         clerk_client, API_URL, sync_user[1], label="cross",
-        api_key=sync_user[3],
+        api_key=sync_user[2],
     )
     original_settings = None
 
