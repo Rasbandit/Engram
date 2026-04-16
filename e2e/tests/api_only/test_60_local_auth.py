@@ -21,12 +21,6 @@ import pytest
 import requests
 
 API_URL = os.environ.get("ENGRAM_API_URL") or "http://localhost:8100/api"
-AUTH_PROVIDER = os.environ.get("AUTH_PROVIDER", "local")
-
-pytestmark = pytest.mark.skipif(
-    AUTH_PROVIDER != "local",
-    reason="Local auth endpoint tests only run when AUTH_PROVIDER=local",
-)
 
 
 def unique_email(label: str) -> str:
