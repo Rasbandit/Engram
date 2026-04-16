@@ -1,15 +1,20 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useAuthAdapter } from './use-auth-adapter'
 
 export default function LocalSignUp() {
-  const { register } = useAuthAdapter()
+  const { register, isSignedIn } = useAuthAdapter()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Navigate after auth state propagates (React 18 batching)
+  useEffect(() => {
+    if (isSignedIn) navigate('/', { replace: true })
+  }, [isSignedIn, navigate])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -25,7 +30,6 @@ export default function LocalSignUp() {
     try {
       if (!register) throw new Error('Registration not available for this auth provider')
       await register(email, password)
-      navigate('/')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')
     } finally {
