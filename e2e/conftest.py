@@ -45,6 +45,19 @@ def _worker_index() -> int:
 
 _WORKER = _worker_index()
 
+# --------------------------------------------------------------------------
+# Worker-stride constants (single source of truth)
+#
+# Each worker runs INSTANCES_PER_WORKER Obsidian instances (A, B, C).
+# Each instance needs its own CDP port and Xvfb display.
+# To keep workers non-overlapping, we stride ports/displays by the number
+# of instances per worker. Keeping _PORT_STRIDE == _DISPLAY_STRIDE ==
+# INSTANCES_PER_WORKER means bumping instance count updates both in one place.
+# --------------------------------------------------------------------------
+INSTANCES_PER_WORKER = 3
+_PORT_STRIDE = INSTANCES_PER_WORKER
+_DISPLAY_STRIDE = INSTANCES_PER_WORKER
+
 
 def _worker_port(name: str, legacy_default: str) -> int:
     """Prefer per-worker env var (E2E_CDP_PORT_A_W1), fall back to base + stride.
@@ -57,7 +70,7 @@ def _worker_port(name: str, legacy_default: str) -> int:
     if scoped:
         return int(scoped)
     base = int(os.environ.get(name) or legacy_default)
-    return base + _WORKER * 3
+    return base + _WORKER * _PORT_STRIDE
 
 
 # Dynamic ports/paths for parallel CI runs (defaults match legacy hardcoded values)
@@ -66,7 +79,17 @@ CONFIG_PREFIX = os.environ.get("E2E_CONFIG_PREFIX", "/tmp/e2e-obsidian-config")
 CDP_PORT_A = _worker_port("E2E_CDP_PORT_A", "9250")
 CDP_PORT_B = _worker_port("E2E_CDP_PORT_B", "9251")
 CDP_PORT_C = _worker_port("E2E_CDP_PORT_C", "9252")
-DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE") or "99") - _WORKER * 3
+DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE") or "99") - _WORKER * _DISPLAY_STRIDE
+
+# Lowest display this worker will use (B=base-1, C=base-2 → base - (INSTANCES_PER_WORKER - 1)).
+# Must stay ≥ 1 (Xvfb display :0 is reserved for the host X server if any).
+_min_display = DISPLAY_BASE - (INSTANCES_PER_WORKER - 1)
+assert _min_display >= 1, (
+    f"DISPLAY_BASE={DISPLAY_BASE} too low for worker {_WORKER}: "
+    f"would use display :{_min_display}. "
+    f"Raise E2E_DISPLAY_BASE in CI (currently the floor is worker*_DISPLAY_STRIDE + INSTANCES_PER_WORKER)."
+)
+
 if _WORKER > 0:
     VAULT_PREFIX = f"{VAULT_PREFIX}-w{_WORKER}"
     CONFIG_PREFIX = f"{CONFIG_PREFIX}-w{_WORKER}"

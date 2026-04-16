@@ -1,8 +1,6 @@
 defmodule EngramWeb.SpaController do
   use EngramWeb, :controller
 
-  require Logger
-
   def index(conn, _params) do
     conn
     |> put_resp_content_type("text/html")
@@ -10,32 +8,45 @@ defmodule EngramWeb.SpaController do
   end
 
   defp injected_html do
-    case :persistent_term.get({__MODULE__, :html}, nil) do
+    {pre, post} = cached_split()
+    pre <> config_script() <> post
+  end
+
+  # Cache the split around </head> so each request only interpolates
+  # the (cheap) config script. Config changes are picked up on every
+  # request since we never cache the rendered output.
+  defp cached_split do
+    case :persistent_term.get({__MODULE__, :split}, nil) do
       nil ->
-        html = build_injected_html()
-        :persistent_term.put({__MODULE__, :html}, html)
-        html
+        split = build_split()
+        :persistent_term.put({__MODULE__, :split}, split)
+        split
 
       cached ->
         cached
     end
   end
 
-  defp build_injected_html do
+  defp build_split do
     path = Application.app_dir(:engram, "priv/static/app/index.html")
     html = File.read!(path)
-    result = String.replace(html, "</head>", config_script() <> "</head>", global: false)
 
-    if html == result do
-      Logger.error("Failed to inject runtime config: </head> not found in #{path}")
+    case String.split(html, "</head>", parts: 2) do
+      [pre, rest] -> {pre, "</head>" <> rest}
+      [_] -> raise "SPA index.html missing </head> — cannot inject runtime config (#{path})"
     end
-
-    result
   end
 
   defp config_script do
+    provider =
+      case Application.get_env(:engram, :auth_provider, :local) do
+        :local -> "local"
+        :clerk -> "clerk"
+        other -> raise "Invalid :auth_provider config: #{inspect(other)}"
+      end
+
     config = %{
-      authProvider: to_string(Application.get_env(:engram, :auth_provider, :local)),
+      authProvider: provider,
       clerkPublishableKey: Application.get_env(:engram, :clerk_publishable_key, "")
     }
 

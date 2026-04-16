@@ -2,8 +2,8 @@ defmodule EngramWeb.SpaControllerTest do
   use EngramWeb.ConnCase
 
   setup do
-    # Invalidate cached HTML so each test gets a fresh read
-    :persistent_term.erase({EngramWeb.SpaController, :html})
+    # Invalidate cached split so each test gets a fresh file read
+    :persistent_term.erase({EngramWeb.SpaController, :split})
     :ok
   end
 
