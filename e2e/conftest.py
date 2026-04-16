@@ -46,13 +46,34 @@ CDP_PORT_C = int(os.environ.get("E2E_CDP_PORT_C") or "9252")
 DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE") or "99")
 
 
+def _worker_index() -> int:
+    """xdist worker number (0 for master / serial runs)."""
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+    return int(worker[2:]) if worker.startswith("gw") else 0
+
+
+# Per-worker offsets: each xdist worker gets its own Obsidian pool, ports, display,
+# and filesystem prefixes. Three CDP ports + three display numbers per worker.
+_WORKER = _worker_index()
+_CDP_STRIDE = 3
+_DISPLAY_STRIDE = 3
+CDP_PORT_A += _WORKER * _CDP_STRIDE
+CDP_PORT_B += _WORKER * _CDP_STRIDE
+CDP_PORT_C += _WORKER * _CDP_STRIDE
+DISPLAY_BASE -= _WORKER * _DISPLAY_STRIDE
+if _WORKER > 0:
+    VAULT_PREFIX = f"{VAULT_PREFIX}-w{_WORKER}"
+    CONFIG_PREFIX = f"{CONFIG_PREFIX}-w{_WORKER}"
+
+
 # ---------------------------------------------------------------------------
 # Unique timestamp for this test run
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
 def ts():
-    return datetime.now().strftime("%Y%m%d%H%M%S%f")
+    """Per-worker unique timestamp so two workers never pick the same email."""
+    return f"{datetime.now().strftime('%Y%m%d%H%M%S%f')}w{_WORKER}"
 
 
 # ---------------------------------------------------------------------------
