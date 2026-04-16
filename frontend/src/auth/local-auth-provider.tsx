@@ -21,25 +21,19 @@ export default function LocalAuthProvider({ children }: { children: React.ReactN
 
   // On mount, attempt a silent refresh to restore session from cookie
   useEffect(() => {
-    console.log('[AUTH] mount: silent refresh starting')
     fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
       .then(async (res) => {
-        console.log('[AUTH] mount: refresh response status', res.status)
         if (res.ok) {
           const data = await res.json()
           const payload = parseJwtPayload(data.access_token)
           if (payload?.email) {
-            console.log('[AUTH] mount: refresh succeeded, setting token for', payload.email)
             setAccessToken(data.access_token)
             setUser({ email: payload.email as string })
           }
         }
       })
-      .catch((err) => console.error('[AUTH] mount: silent refresh failed:', err))
-      .finally(() => {
-        console.log('[AUTH] mount: setting isLoaded=true')
-        setIsLoaded(true)
-      })
+      .catch((err) => console.error('Silent refresh failed:', err))
+      .finally(() => setIsLoaded(true))
   }, [])
 
   const doRefresh = useCallback(async (): Promise<string | null> => {
@@ -77,7 +71,6 @@ export default function LocalAuthProvider({ children }: { children: React.ReactN
   }, [getToken])
 
   const login = useCallback(async (email: string, password: string) => {
-    console.log('[AUTH] login: calling /api/auth/login for', email)
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -85,22 +78,17 @@ export default function LocalAuthProvider({ children }: { children: React.ReactN
       body: JSON.stringify({ email, password }),
     })
 
-    console.log('[AUTH] login: response status', res.status)
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
-      console.log('[AUTH] login: FAILED', body)
       throw new Error(body.error ?? 'Login failed')
     }
 
     const data = await res.json()
-    console.log('[AUTH] login: SUCCESS, has access_token:', !!data.access_token, 'has user:', !!data.user)
     setAccessToken(data.access_token)
     setUser({ email: data.user.email })
-    console.log('[AUTH] login: setState calls complete')
   }, [])
 
   const register = useCallback(async (email: string, password: string) => {
-    console.log('[AUTH] register: calling /api/auth/register for', email)
     const res = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -108,18 +96,14 @@ export default function LocalAuthProvider({ children }: { children: React.ReactN
       body: JSON.stringify({ email, password }),
     })
 
-    console.log('[AUTH] register: response status', res.status)
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
-      console.log('[AUTH] register: FAILED', body)
       throw new Error(body.error ?? 'Registration failed')
     }
 
     const data = await res.json()
-    console.log('[AUTH] register: SUCCESS, has access_token:', !!data.access_token, 'has user:', !!data.user)
     setAccessToken(data.access_token)
     setUser({ email: data.user.email })
-    console.log('[AUTH] register: setState calls complete')
   }, [])
 
   const logout = useCallback(async () => {
@@ -129,20 +113,16 @@ export default function LocalAuthProvider({ children }: { children: React.ReactN
   }, [])
 
   const adapter: AuthAdapter = useMemo(
-    () => {
-      const isSignedIn = !!accessToken
-      console.log('[AUTH] adapter memo: isLoaded=%s isSignedIn=%s user=%s', isLoaded, isSignedIn, user?.email ?? 'null')
-      return {
-        isLoaded,
-        isSignedIn,
-        user,
-        getToken,
-        login,
-        register,
-        logout,
-        hasBuiltInUI: false,
-      }
-    },
+    () => ({
+      isLoaded,
+      isSignedIn: !!accessToken,
+      user,
+      getToken,
+      login,
+      register,
+      logout,
+      hasBuiltInUI: false,
+    }),
     [isLoaded, accessToken, user, getToken, login, register, logout],
   )
 
