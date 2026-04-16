@@ -110,6 +110,10 @@ jobs:
         if: always()
         run: docker rm -fv "$PG_CONTAINER" 2>/dev/null || true
 
+      - name: Clean temp files
+        if: always()
+        run: find /tmp -maxdepth 1 -name '.ff*.node' -mmin +60 -delete 2>/dev/null || true
+
   e2e-clerk:
     runs-on: [self-hosted, engram]
 
@@ -206,12 +210,8 @@ jobs:
         run: |
           # --- CI stack build + start (background) ---
           (
-            # Prevent /tmp tmpfs quota exhaustion (6-12GB shared by all runners)
+            # Cap Docker build cache (--mount=type=cache grows unbounded)
             docker builder prune --all --keep-storage=2gb -f 2>/dev/null || true
-            # Bun creates 8.8MB .node native cache files per CI run, never cleans them (~3.5GB/week)
-            find /tmp -maxdepth 1 -name '.ff*.node' -mmin +120 -delete 2>/dev/null || true
-            # Clean other stale temp files older than 2 days
-            find /tmp -maxdepth 1 -user "$(whoami)" -mtime +2 -exec rm -rf {} + 2>/dev/null || true
 
             # Clean up stale CI collection on SlowRaid Qdrant before starting
             curl -sf -X DELETE "http://10.0.20.201:6333/collections/${QDRANT_COLLECTION}" > /dev/null 2>&1 || true
@@ -489,8 +489,9 @@ jobs:
           # Keep only the 3 most recent engram-ci cache tags
           docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=engram-ci:*" \
             | tail -n +4 | xargs -r docker rmi 2>/dev/null || true
-          # Clean up ci-artifacts from this run
+          # Clean up ci-artifacts and stale Bun native cache files
           rm -rf ci-artifacts/
+          find /tmp -maxdepth 1 -name '.ff*.node' -mmin +60 -delete 2>/dev/null || true
 
   e2e-local:
     runs-on: [self-hosted, engram]
@@ -600,6 +601,7 @@ jobs:
             -p "$CI_PROJECT" down -v --remove-orphans --rmi local 2>/dev/null || true
           docker image prune -f 2>/dev/null || true
           rm -rf ci-artifacts-local/
+          find /tmp -maxdepth 1 -name '.ff*.node' -mmin +60 -delete 2>/dev/null || true
 
   e2e-browser:
     runs-on: [self-hosted, engram]
@@ -714,9 +716,11 @@ jobs:
             frontend/test-results/
           retention-days: 7
 
-      - name: Stop ephemeral postgres
+      - name: Tear down
         if: always()
-        run: docker rm -fv "$PG_CONTAINER" 2>/dev/null || true
+        run: |
+          docker rm -fv "$PG_CONTAINER" 2>/dev/null || true
+          find /tmp -maxdepth 1 -name '.ff*.node' -mmin +60 -delete 2>/dev/null || true
 
   ci:
     if: always()
