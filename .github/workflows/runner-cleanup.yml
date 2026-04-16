@@ -48,5 +48,12 @@ jobs:
           # cache naturally on next CI run.
           docker builder prune --all --keep-storage=2gb -f 2>/dev/null || true
 
+          # 8. Clean stale /tmp files (tmpfs has user quota, fills up fast)
+          find /tmp -maxdepth 1 -user "$(whoami)" -mtime +1 \
+            ! -name 'claude-*' \
+            ! -name 'bunx-*' \
+            -exec rm -rf {} + 2>/dev/null || true
           echo "=== After ==="
           docker system df
+          echo "=== /tmp ==="
+          du -sh /tmp/ 2>/dev/null || true

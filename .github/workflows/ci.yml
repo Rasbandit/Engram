@@ -206,8 +206,10 @@ jobs:
         run: |
           # --- CI stack build + start (background) ---
           (
-            # Prune Docker build cache if over 4GB — prevents disk quota exhaustion
-            docker builder prune --all --keep-storage=4gb -f 2>/dev/null || true
+            # Prune Docker build cache — prevents /tmp tmpfs quota exhaustion
+            docker builder prune --all --keep-storage=2gb -f 2>/dev/null || true
+            # Clean stale /tmp files older than 2 days (tmpfs has 6GB user quota)
+            find /tmp -maxdepth 1 -user "$(whoami)" -mtime +2 -exec rm -rf {} + 2>/dev/null || true
 
             # Clean up stale CI collection on SlowRaid Qdrant before starting
             curl -sf -X DELETE "http://10.0.20.201:6333/collections/${QDRANT_COLLECTION}" > /dev/null 2>&1 || true
