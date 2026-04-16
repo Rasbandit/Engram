@@ -2,18 +2,8 @@ defmodule EngramWeb.SpaControllerTest do
   use EngramWeb.ConnCase
 
   setup do
-    # Ensure a minimal index.html exists for SPA tests (CI has no frontend build)
-    path = Application.app_dir(:engram, "priv/static/app")
-    File.mkdir_p!(path)
-    index = Path.join(path, "index.html")
-
-    unless File.exists?(index) do
-      File.write!(index, ~s(<!DOCTYPE html><html><head></head><body><div id="root"></div></body></html>))
-    end
-
-    # Invalidate cached HTML so tests pick up the stub
+    # Invalidate cached HTML so each test gets a fresh read
     :persistent_term.erase({EngramWeb.SpaController, :html})
-
     :ok
   end
 
