@@ -113,7 +113,10 @@ async def test_live_sync_still_works_after_all_tests(
     """Smoke test: basic live sync still works at the end of the test suite.
 
     Guards against test pollution — if earlier tests leaked state or broke
-    auth, this catches it.
+    auth, this catches it. Under xdist --dist=loadfile this runs last
+    within the worker that owns this file (all four tests stay co-located),
+    so "after all tests" still means after every test that mutated this
+    worker's Obsidian instances.
     """
     for _ in range(20):
         a_ok = await cdp_a.check_stream_connected()
