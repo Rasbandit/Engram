@@ -16,7 +16,8 @@ export default function LocalSignIn() {
     setLoading(true)
 
     try {
-      await login!(email, password)
+      if (!login) throw new Error('Login not available for this auth provider')
+      await login(email, password)
       navigate('/')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')

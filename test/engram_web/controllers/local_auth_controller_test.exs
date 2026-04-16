@@ -1,5 +1,6 @@
 defmodule EngramWeb.LocalAuthControllerTest do
-  use EngramWeb.ConnCase, async: true
+  # async: false — tests mutate global Application config
+  use EngramWeb.ConnCase, async: false
 
   setup do
     prev = Application.get_env(:engram, :auth_provider)
@@ -16,7 +17,10 @@ defmodule EngramWeb.LocalAuthControllerTest do
                json_response(conn, 201)
 
       assert is_binary(token)
-      assert conn.resp_cookies["refresh_token"]
+      cookie = conn.resp_cookies["refresh_token"]
+      assert cookie
+      assert cookie.http_only == true
+      assert cookie.same_site == "Lax"
     end
 
     test "first user is admin, second is member", %{conn: conn} do
@@ -26,17 +30,29 @@ defmodule EngramWeb.LocalAuthControllerTest do
       assert %{"user" => %{"role" => "member"}} = json_response(conn2, 201)
     end
 
-    test "rejects duplicate email", %{conn: conn} do
+    test "rejects duplicate email with generic error", %{conn: conn} do
       post(conn, "/api/auth/register", %{email: "dup@test.com", password: "StrongPass123!"})
       conn2 = post(build_conn(), "/api/auth/register", %{email: "dup@test.com", password: "StrongPass123!"})
 
-      assert json_response(conn2, 422)
+      assert %{"error" => "registration_failed"} = json_response(conn2, 422)
+    end
+
+    test "rejects short password with specific error", %{conn: conn} do
+      conn = post(conn, "/api/auth/register", %{email: "short@test.com", password: "abc"})
+
+      assert %{"error" => "password_too_short"} = json_response(conn, 422)
+    end
+
+    test "rejects password over 72 bytes", %{conn: conn} do
+      conn = post(conn, "/api/auth/register", %{email: "long@test.com", password: String.duplicate("a", 73)})
+
+      assert %{"error" => "password_too_long"} = json_response(conn, 422)
     end
 
     test "rejects missing fields", %{conn: conn} do
       conn = post(conn, "/api/auth/register", %{email: "no@pass.com"})
 
-      assert json_response(conn, 422)
+      assert %{"error" => "email and password required"} = json_response(conn, 422)
     end
   end
 
@@ -54,16 +70,16 @@ defmodule EngramWeb.LocalAuthControllerTest do
       assert conn.resp_cookies["refresh_token"]
     end
 
-    test "rejects wrong password", %{conn: conn} do
+    test "rejects wrong password with generic error", %{conn: conn} do
       conn = post(conn, "/api/auth/login", %{email: "login@test.com", password: "WrongPass!"})
 
-      assert json_response(conn, 401)
+      assert %{"error" => "invalid_credentials"} = json_response(conn, 401)
     end
 
-    test "rejects nonexistent user", %{conn: conn} do
+    test "rejects nonexistent user with generic error", %{conn: conn} do
       conn = post(conn, "/api/auth/login", %{email: "nobody@test.com", password: "Whatever!"})
 
-      assert json_response(conn, 401)
+      assert %{"error" => "invalid_credentials"} = json_response(conn, 401)
     end
   end
 
@@ -86,7 +102,7 @@ defmodule EngramWeb.LocalAuthControllerTest do
     test "rejects missing cookie", %{conn: conn} do
       conn = post(conn, "/api/auth/refresh")
 
-      assert json_response(conn, 401)
+      assert %{"error" => "no_refresh_token"} = json_response(conn, 401)
     end
   end
 
@@ -102,6 +118,20 @@ defmodule EngramWeb.LocalAuthControllerTest do
 
       assert response(conn2, 204)
       assert conn2.resp_cookies["refresh_token"].max_age == 0
+    end
+  end
+
+  describe "RequireLocalAuth plug" do
+    test "returns 404 when auth_provider is clerk", %{conn: conn} do
+      Application.put_env(:engram, :auth_provider, :clerk)
+
+      conn = post(conn, "/api/auth/register", %{email: "blocked@test.com", password: "StrongPass123!"})
+      assert %{"error" => "not_found"} = json_response(conn, 404)
+    end
+
+    test "allows requests when auth_provider is local", %{conn: conn} do
+      conn = post(conn, "/api/auth/register", %{email: "allowed@test.com", password: "StrongPass123!"})
+      assert json_response(conn, 201)
     end
   end
 end

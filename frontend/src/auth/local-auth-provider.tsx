@@ -1,11 +1,23 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { AuthContext, type AuthAdapter } from './auth-context'
 import { setTokenGetter } from '../api/client'
+
+function parseJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const base64 = token.split('.')[1]
+    if (!base64) return null
+    const json = atob(base64.replace(/-/g, '+').replace(/_/g, '/'))
+    return JSON.parse(json)
+  } catch {
+    return null
+  }
+}
 
 export default function LocalAuthProvider({ children }: { children: React.ReactNode }) {
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [user, setUser] = useState<{ email: string } | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
+  const refreshPromiseRef = useRef<Promise<string | null> | null>(null)
 
   // On mount, attempt a silent refresh to restore session from cookie
   useEffect(() => {
@@ -13,34 +25,46 @@ export default function LocalAuthProvider({ children }: { children: React.ReactN
       .then(async (res) => {
         if (res.ok) {
           const data = await res.json()
-          setAccessToken(data.access_token)
-          const payload = JSON.parse(atob(data.access_token.split('.')[1] ?? ''))
-          setUser({ email: payload.email })
+          const payload = parseJwtPayload(data.access_token)
+          if (payload?.email) {
+            setAccessToken(data.access_token)
+            setUser({ email: payload.email as string })
+          }
         }
       })
-      .catch(() => {})
+      .catch((err) => console.error('Silent refresh failed:', err))
       .finally(() => setIsLoaded(true))
+  }, [])
+
+  const doRefresh = useCallback(async (): Promise<string | null> => {
+    const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+    if (res.ok) {
+      const data = await res.json()
+      setAccessToken(data.access_token)
+      return data.access_token
+    }
+    setAccessToken(null)
+    setUser(null)
+    return null
   }, [])
 
   const getToken = useCallback(async () => {
     if (!accessToken) return null
 
     // Check if token is expired (with 60s buffer)
-    const payload = JSON.parse(atob(accessToken.split('.')[1] ?? ''))
-    if (payload.exp * 1000 < Date.now() + 60_000) {
-      const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
-      if (res.ok) {
-        const data = await res.json()
-        setAccessToken(data.access_token)
-        return data.access_token
-      }
-      setAccessToken(null)
-      setUser(null)
-      return null
+    const payload = parseJwtPayload(accessToken)
+    if (payload && (payload.exp as number) * 1000 >= Date.now() + 60_000) {
+      return accessToken
     }
 
-    return accessToken
-  }, [accessToken])
+    // Deduplicate concurrent refresh requests
+    if (!refreshPromiseRef.current) {
+      refreshPromiseRef.current = doRefresh().finally(() => {
+        refreshPromiseRef.current = null
+      })
+    }
+    return refreshPromiseRef.current
+  }, [accessToken, doRefresh])
 
   useEffect(() => {
     setTokenGetter(getToken)
@@ -83,7 +107,7 @@ export default function LocalAuthProvider({ children }: { children: React.ReactN
   }, [])
 
   const logout = useCallback(async () => {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch((err) => console.error('Logout request failed:', err))
     setAccessToken(null)
     setUser(null)
   }, [])

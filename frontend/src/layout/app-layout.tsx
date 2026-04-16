@@ -30,7 +30,7 @@ export default function AppLayout() {
           {billing.trial_days_remaining} days left in your trial.
         </aside>
       )}
-      <div className="flex h-screen flex-col">
+      <section className="flex h-screen flex-col">
         <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2">
           <div className="flex items-center gap-3">
             <button
@@ -59,7 +59,7 @@ export default function AppLayout() {
           </nav>
         </header>
 
-        <div className="flex flex-1 overflow-hidden">
+        <section className="flex flex-1 overflow-hidden">
           <aside
             id="sidebar"
             aria-label="Folder navigation"
@@ -73,8 +73,8 @@ export default function AppLayout() {
           <main className="flex-1 overflow-y-auto p-6">
             <Outlet />
           </main>
-        </div>
-      </div>
+        </section>
+      </section>
     </>
   )
 }

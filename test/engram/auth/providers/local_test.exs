@@ -33,6 +33,25 @@ defmodule Engram.Auth.Providers.LocalTest do
     test "rejects password shorter than 8 characters" do
       assert {:error, :password_too_short} = Local.register_user("short@local.test", "abc", %{})
     end
+
+    test "rejects password longer than 72 bytes (bcrypt limit)" do
+      long_pass = String.duplicate("a", 73)
+      assert {:error, :password_too_long} = Local.register_user("long@local.test", long_pass, %{})
+    end
+
+    test "stores password as bcrypt hash, never plaintext" do
+      password = "StrongPass123!"
+      {:ok, %{external_id: ext_id}} = Local.register_user("hash@local.test", password, %{})
+
+      user = Engram.Repo.one!(from u in Engram.Accounts.User, where: u.external_id == ^ext_id)
+      assert String.starts_with?(user.password_hash, "$2b$")
+      refute user.password_hash == password
+    end
+
+    test "normalizes email to lowercase" do
+      {:ok, %{email: email}} = Local.register_user("UPPER@Local.Test", "StrongPass123!", %{})
+      assert email == "upper@local.test"
+    end
   end
 
   describe "authenticate_credentials/2" do
@@ -54,12 +73,35 @@ defmodule Engram.Auth.Providers.LocalTest do
       assert {:error, :invalid_credentials} =
                Local.authenticate_credentials("noone@local.test", "Whatever123!")
     end
+
+    test "login works with different email casing" do
+      {:ok, _} = Local.register_user("case@local.test", "StrongPass123!", %{})
+
+      assert {:ok, %{email: "case@local.test"}} =
+               Local.authenticate_credentials("CASE@Local.Test", "StrongPass123!")
+    end
+
+    test "rejects Clerk user (nil password_hash) attempting local login" do
+      # Simulate a Clerk-provisioned user with no password
+      Engram.Repo.insert!(
+        %Engram.Accounts.User{
+          external_id: "clerk_ext_123",
+          email: "clerk_user@test.com",
+          password_hash: nil,
+          role: "member"
+        },
+        skip_tenant_check: true
+      )
+
+      assert {:error, :invalid_credentials} =
+               Local.authenticate_credentials("clerk_user@test.com", "AnyPassword!")
+    end
   end
 
   describe "verify_token/1" do
     test "verifies a self-issued JWT" do
       {:ok, %{external_id: ext_id}} = Local.register_user("jwt@local.test", "StrongPass123!", %{})
-      token = Local.issue_access_token(ext_id, "jwt@local.test")
+      {:ok, token} = Local.issue_access_token(ext_id, "jwt@local.test")
 
       assert {:ok, %{external_id: ^ext_id, email: "jwt@local.test"}} = Local.verify_token(token)
     end
@@ -79,6 +121,17 @@ defmodule Engram.Auth.Providers.LocalTest do
 
     test "rejects garbage" do
       assert {:error, _} = Local.verify_token("not.a.jwt")
+    end
+
+    test "access token expires in ~15 minutes" do
+      {:ok, %{external_id: ext_id}} = Local.register_user("ttl@local.test", "StrongPass123!", %{})
+      {:ok, token} = Local.issue_access_token(ext_id, "ttl@local.test")
+      {:ok, claims} = Engram.Token.verify_and_validate(token)
+
+      now = :os.system_time(:second)
+      ttl = claims["exp"] - now
+      # Should be between 14 and 16 minutes (allow clock drift)
+      assert ttl >= 14 * 60 and ttl <= 16 * 60
     end
   end
 

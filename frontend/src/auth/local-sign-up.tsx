@@ -23,7 +23,8 @@ export default function LocalSignUp() {
     setLoading(true)
 
     try {
-      await register!(email, password)
+      if (!register) throw new Error('Registration not available for this auth provider')
+      await register(email, password)
       navigate('/')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')

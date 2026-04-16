@@ -1,5 +1,5 @@
 import { ClerkProvider, useAuth, useClerk } from '@clerk/clerk-react'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { AuthContext, type AuthAdapter } from './auth-context'
 import { setTokenGetter } from '../api/client'
 
@@ -11,19 +11,21 @@ function ClerkAdapterInner({ children }: { children: React.ReactNode }) {
 
   const tokenGetter = useCallback(() => getToken(), [getToken])
 
-  // Set token getter for API client (same as current AuthTokenProvider)
-  setTokenGetter(tokenGetter)
+  useEffect(() => {
+    setTokenGetter(tokenGetter)
+  }, [tokenGetter])
 
+  const email = clerk.user?.primaryEmailAddress?.emailAddress
   const adapter: AuthAdapter = useMemo(
     () => ({
       isLoaded,
       isSignedIn: isSignedIn ?? false,
-      user: isSignedIn ? { email: clerk.user?.primaryEmailAddress?.emailAddress ?? '' } : null,
+      user: isSignedIn && email ? { email } : null,
       getToken: tokenGetter,
       logout: async () => { await clerk.signOut() },
       hasBuiltInUI: true,
     }),
-    [isLoaded, isSignedIn, clerk, tokenGetter],
+    [isLoaded, isSignedIn, clerk, email, tokenGetter],
   )
 
   return <AuthContext.Provider value={adapter}>{children}</AuthContext.Provider>

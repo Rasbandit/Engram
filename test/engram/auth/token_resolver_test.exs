@@ -92,7 +92,7 @@ defmodule Engram.Auth.TokenResolverTest do
     {:ok, %{external_id: ext_id}} =
       Engram.Auth.Providers.Local.register_user("local@test.com", "StrongPass123!", %{})
 
-    token = Engram.Auth.Providers.Local.issue_access_token(ext_id, "local@test.com")
+    {:ok, token} = Engram.Auth.Providers.Local.issue_access_token(ext_id, "local@test.com")
 
     assert {:ok, user} = TokenResolver.resolve(token)
     assert user.external_id == ext_id

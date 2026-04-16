@@ -116,10 +116,8 @@ auth_provider = case System.get_env("AUTH_PROVIDER", "local") do
 end
 config :engram, :auth_provider, auth_provider
 
-# Optional rate limit override for CI (e.g., RATE_LIMIT_AUTH_OVERRIDE=1000)
-if override = System.get_env("RATE_LIMIT_AUTH_OVERRIDE") do
-  config :engram, :rate_limit_auth_override, String.to_integer(override)
-end
+# Rate limit override is only available in test builds (config/test.exs).
+# Production rate limits are never configurable via env vars.
 
 # Clerk auth (only required when AUTH_PROVIDER=clerk)
 # Note: use local variable, not Application.get_env — runtime.exs config

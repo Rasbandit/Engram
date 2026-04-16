@@ -1,14 +1,12 @@
 defmodule EngramWeb.LocalAuthController do
   use EngramWeb, :controller
 
-  import Ecto.Query
-
   alias Engram.Accounts
   alias Engram.Auth.Providers.Local
 
   @refresh_cookie_opts [
     http_only: true,
-    secure: true,
+    secure: Application.compile_env(:engram, :env, :prod) == :prod,
     same_site: "Lax",
     path: "/api/auth",
     max_age: 30 * 24 * 3600
@@ -16,16 +14,31 @@ defmodule EngramWeb.LocalAuthController do
 
   def register(conn, %{"email" => email, "password" => password})
       when is_binary(email) and is_binary(password) do
+    # Normalize timing: always run bcrypt even if we'll fail on duplicate email
     case Local.register_user(email, password, %{}) do
       {:ok, %{external_id: ext_id, email: user_email}} ->
-        user = Engram.Repo.one!(from u in Accounts.User, where: u.external_id == ^ext_id)
-        access_token = Local.issue_access_token(ext_id, user_email)
-        {raw_refresh, _record} = Accounts.create_refresh_token(user)
+        with {:ok, user} <- Accounts.find_by_external_id(ext_id),
+             {:ok, access_token} <- Local.issue_access_token(ext_id, user_email),
+             {:ok, raw_refresh, _record} <- Accounts.create_refresh_token(user) do
+          conn
+          |> put_resp_cookie("refresh_token", raw_refresh, @refresh_cookie_opts)
+          |> put_status(:created)
+          |> json(%{access_token: access_token, user: %{email: user.email, role: user.role}})
+        else
+          {:error, _} ->
+            conn |> put_status(500) |> json(%{error: "session_creation_failed"})
+        end
 
-        conn
-        |> put_resp_cookie("refresh_token", raw_refresh, @refresh_cookie_opts)
-        |> put_status(:created)
-        |> json(%{access_token: access_token, user: %{email: user.email, role: user.role}})
+      {:error, :password_too_short} ->
+        conn |> put_status(422) |> json(%{error: "password_too_short"})
+
+      {:error, :password_too_long} ->
+        conn |> put_status(422) |> json(%{error: "password_too_long"})
+
+      {:error, %Ecto.Changeset{}} ->
+        # Unique constraint or other validation failure — normalize timing
+        Bcrypt.no_user_verify()
+        conn |> put_status(422) |> json(%{error: "registration_failed"})
 
       {:error, _} ->
         conn |> put_status(422) |> json(%{error: "registration_failed"})
@@ -39,13 +52,16 @@ defmodule EngramWeb.LocalAuthController do
   def login(conn, %{"email" => email, "password" => password}) do
     case Local.authenticate_credentials(email, password) do
       {:ok, %{external_id: ext_id, email: user_email}} ->
-        user = Engram.Repo.one!(from u in Accounts.User, where: u.external_id == ^ext_id)
-        access_token = Local.issue_access_token(ext_id, user_email)
-        {raw_refresh, _record} = Accounts.create_refresh_token(user)
-
-        conn
-        |> put_resp_cookie("refresh_token", raw_refresh, @refresh_cookie_opts)
-        |> json(%{access_token: access_token, user: %{email: user.email, role: user.role}})
+        with {:ok, user} <- Accounts.find_by_external_id(ext_id),
+             {:ok, access_token} <- Local.issue_access_token(ext_id, user_email),
+             {:ok, raw_refresh, _record} <- Accounts.create_refresh_token(user) do
+          conn
+          |> put_resp_cookie("refresh_token", raw_refresh, @refresh_cookie_opts)
+          |> json(%{access_token: access_token, user: %{email: user.email, role: user.role}})
+        else
+          {:error, _} ->
+            conn |> put_status(500) |> json(%{error: "session_creation_failed"})
+        end
 
       {:error, _} ->
         conn |> put_status(401) |> json(%{error: "invalid_credentials"})
@@ -62,11 +78,15 @@ defmodule EngramWeb.LocalAuthController do
       raw_token ->
         case Accounts.consume_refresh_token(raw_token) do
           {:ok, user, new_raw_token, _record} ->
-            access_token = Local.issue_access_token(user.external_id, user.email)
+            case Local.issue_access_token(user.external_id, user.email) do
+              {:ok, access_token} ->
+                conn
+                |> put_resp_cookie("refresh_token", new_raw_token, @refresh_cookie_opts)
+                |> json(%{access_token: access_token})
 
-            conn
-            |> put_resp_cookie("refresh_token", new_raw_token, @refresh_cookie_opts)
-            |> json(%{access_token: access_token})
+              {:error, _} ->
+                conn |> put_status(500) |> json(%{error: "token_signing_failed"})
+            end
 
           {:error, _reason} ->
             conn
@@ -83,7 +103,7 @@ defmodule EngramWeb.LocalAuthController do
     case conn.req_cookies["refresh_token"] do
       nil -> :ok
       raw_token ->
-        token_hash = :crypto.hash(:sha256, raw_token) |> Base.encode16(case: :lower)
+        token_hash = Accounts.hash_refresh_token(raw_token)
         Accounts.revoke_token_family(token_hash)
     end
 

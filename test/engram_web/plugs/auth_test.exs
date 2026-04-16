@@ -29,7 +29,7 @@ defmodule EngramWeb.Plugs.AuthTest do
     {:ok, %{external_id: ext_id}} =
       Engram.Auth.Providers.Local.register_user("plugtest@example.com", "StrongPass123!", %{})
 
-    token = Engram.Auth.Providers.Local.issue_access_token(ext_id, "plugtest@example.com")
+    {:ok, token} = Engram.Auth.Providers.Local.issue_access_token(ext_id, "plugtest@example.com")
 
     conn =
       build_conn()

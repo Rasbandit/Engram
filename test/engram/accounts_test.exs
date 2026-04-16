@@ -99,6 +99,57 @@ defmodule Engram.AccountsTest do
     end
   end
 
+  describe "refresh tokens" do
+    setup do
+      user = insert(:user)
+      %{user: user}
+    end
+
+    test "create and consume refresh token round-trip", %{user: user} do
+      {:ok, raw_token, record} = Accounts.create_refresh_token(user)
+
+      assert is_binary(raw_token)
+      assert record.user_id == user.id
+      refute is_nil(record.family_id)
+
+      assert {:ok, same_user, new_raw, _new_record} = Accounts.consume_refresh_token(raw_token)
+      assert same_user.id == user.id
+      assert new_raw != raw_token
+    end
+
+    test "rejects completely invalid token" do
+      assert {:error, :invalid_token} = Accounts.consume_refresh_token("bogus_token")
+    end
+
+    test "reuse of revoked token triggers family-wide revocation", %{user: user} do
+      {:ok, raw_token, _record} = Accounts.create_refresh_token(user)
+
+      # Consume once — rotates to a new token
+      {:ok, _user, new_raw, _new_record} = Accounts.consume_refresh_token(raw_token)
+
+      # Replay the OLD token — should detect reuse and revoke the family
+      assert {:error, :token_reused} = Accounts.consume_refresh_token(raw_token)
+
+      # The rotated token should ALSO be revoked (entire family)
+      assert {:error, :token_reused} = Accounts.consume_refresh_token(new_raw)
+    end
+
+    test "expired refresh token is rejected", %{user: user} do
+      {:ok, raw_token, record} = Accounts.create_refresh_token(user)
+
+      # Manually expire the token
+      import Ecto.Query
+
+      from(rt in Engram.Auth.RefreshToken, where: rt.id == ^record.id)
+      |> Engram.Repo.update_all(
+        [set: [expires_at: DateTime.add(DateTime.utc_now(), -1, :second) |> DateTime.truncate(:second)]],
+        skip_tenant_check: true
+      )
+
+      assert {:error, :expired} = Accounts.consume_refresh_token(raw_token)
+    end
+  end
+
   describe "JWT" do
     test "generate and verify token round-trip" do
       user = insert(:user)

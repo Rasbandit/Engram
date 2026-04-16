@@ -11,7 +11,7 @@ defmodule Engram.Auth.Providers.Clerk do
     case Engram.Auth.ClerkToken.verify_clerk_jwt(token) do
       {:ok, claims} ->
         case {claims["sub"], claims["email"]} do
-          {ext_id, email} when is_binary(ext_id) and is_binary(email) ->
+          {ext_id, email} when is_binary(ext_id) and is_binary(email) and email != "" ->
             {:ok, %{external_id: ext_id, email: email}}
 
           _ ->
