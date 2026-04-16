@@ -106,7 +106,7 @@ jobs:
 
       - name: Stop ephemeral postgres
         if: always()
-        run: docker rm -f "$PG_CONTAINER" 2>/dev/null || true
+        run: docker rm -fv "$PG_CONTAINER" 2>/dev/null || true
 
   e2e-clerk:
     runs-on: [self-hosted, engram]
@@ -471,9 +471,10 @@ jobs:
           # Remove only this run's temp dirs + marker files
           rm -rf ${E2E_VAULT_PREFIX}-* ${E2E_CONFIG_PREFIX}-* ${MARKER_PREFIX}-*
           # Tear down only this run's Docker stack
-          docker compose -f docker-compose.ci.yml -p "$CI_PROJECT" down -v --remove-orphans 2>/dev/null || true
-          # Prune dangling images to reclaim disk (old CI builds)
+          docker compose -f docker-compose.ci.yml -p "$CI_PROJECT" down -v --remove-orphans --rmi local 2>/dev/null || true
+          # Prune dangling images + volumes to reclaim disk
           docker image prune -f 2>/dev/null || true
+          docker volume prune -f 2>/dev/null || true
           # Keep only the 3 most recent engram-ci cache tags
           docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=engram-ci:*" \
             | tail -n +4 | xargs -r docker rmi 2>/dev/null || true
@@ -585,7 +586,8 @@ jobs:
         run: |
           curl -sf -X DELETE "http://10.0.20.201:6333/collections/${QDRANT_COLLECTION}" > /dev/null 2>&1 || true
           docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml \
-            -p "$CI_PROJECT" down -v --remove-orphans 2>/dev/null || true
+            -p "$CI_PROJECT" down -v --remove-orphans --rmi local 2>/dev/null || true
+          docker image prune -f 2>/dev/null || true
           rm -rf ci-artifacts-local/
 
   e2e-browser:
@@ -703,7 +705,7 @@ jobs:
 
       - name: Stop ephemeral postgres
         if: always()
-        run: docker rm -f "$PG_CONTAINER" 2>/dev/null || true
+        run: docker rm -fv "$PG_CONTAINER" 2>/dev/null || true
 
   ci:
     if: always()
