@@ -10,8 +10,8 @@ defmodule EngramWeb.VaultsControllerTest do
     user = insert(:user)
     # Give the user unlimited vaults for most tests
     insert(:user_override, user: user, overrides: %{"max_vaults" => 10})
-    token = Accounts.generate_jwt(user)
-    conn = put_req_header(conn, "authorization", "Bearer #{token}")
+    {:ok, raw_key, _api_key} = Accounts.create_api_key(user, "test")
+    conn = put_req_header(conn, "authorization", "Bearer #{raw_key}")
     {:ok, conn: conn, user: user}
   end
 

@@ -107,12 +107,31 @@ if config_env() != :test do
   end
 end
 
-# Clerk auth (JWKS for JWT verification)
-if clerk_jwks_url = System.get_env("CLERK_JWKS_URL") do
-  config :engram, :clerk_jwks_url, String.trim(clerk_jwks_url)
+# Auth provider selection: "local" (built-in email/password) or "clerk" (SaaS JWKS)
+# Default: local — self-hosters get working auth with zero third-party config.
+auth_provider = case System.get_env("AUTH_PROVIDER", "local") do
+  "local" -> :local
+  "clerk" -> :clerk
+  other -> raise "Invalid AUTH_PROVIDER=#{other}. Valid values: local, clerk"
+end
+config :engram, :auth_provider, auth_provider
+
+# Rate limit override for CI E2E tests (only effective when CI=true).
+# Production deploys never set CI=true, so this is unreachable in prod.
+if override = System.get_env("RATE_LIMIT_AUTH_OVERRIDE") do
+  config :engram, :rate_limit_auth_override, String.to_integer(override)
 end
 
-if clerk_issuer = System.get_env("CLERK_ISSUER") do
+# Clerk auth (only required when AUTH_PROVIDER=clerk)
+# Note: use local variable, not Application.get_env — runtime.exs config
+# is accumulated and not yet applied, so get_env reads stale config.
+if auth_provider == :clerk do
+  clerk_jwks_url = System.get_env("CLERK_JWKS_URL") ||
+    raise "CLERK_JWKS_URL is required when AUTH_PROVIDER=clerk"
+  config :engram, :clerk_jwks_url, String.trim(clerk_jwks_url)
+
+  clerk_issuer = System.get_env("CLERK_ISSUER") ||
+    raise "CLERK_ISSUER is required when AUTH_PROVIDER=clerk"
   config :engram, :clerk_issuer, String.trim(clerk_issuer)
 end
 

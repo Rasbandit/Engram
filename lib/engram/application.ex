@@ -27,7 +27,8 @@ defmodule Engram.Application do
   end
 
   defp clerk_strategy_child do
-    if Application.get_env(:engram, :clerk_jwks_url) do
+    if Application.get_env(:engram, :auth_provider) == :clerk &&
+         Application.get_env(:engram, :clerk_jwks_url) do
       {Engram.Auth.ClerkStrategy, time_interval: 60_000, first_fetch_sync: true}
     end
   end

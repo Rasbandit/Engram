@@ -9,7 +9,7 @@ defmodule Engram.Token do
     # that would conflict with our explicit add_claim registrations below.
     # Without skip, Joken would try to register its own iss/aud generators and the
     # duplicate key definitions would raise a runtime error.
-    default_claims(default_exp: 7 * 24 * 3600, skip: [:iss, :aud])
+    default_claims(default_exp: 15 * 60, skip: [:iss, :aud])
     |> add_claim("iss", fn -> "engram" end, &(&1 == "engram"))
     |> add_claim("aud", fn -> "engram" end, &(&1 == "engram"))
   end

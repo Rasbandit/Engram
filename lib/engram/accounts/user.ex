@@ -3,7 +3,9 @@ defmodule Engram.Accounts.User do
 
   schema "users" do
     field :email, :string
-    field :clerk_id, :string
+    field :external_id, :string
+    field :password_hash, :string
+    field :role, :string, default: "member"
     field :display_name, :string
 
     belongs_to :plan, Engram.Billing.Plan

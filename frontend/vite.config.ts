@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import typography from '@tailwindcss/typography'
 
+const apiTarget = process.env.VITE_API_TARGET ?? 'http://localhost:4000'
+
 export default defineConfig({
   plugins: [react(), tailwindcss({ plugins: [typography] })],
   base: '/app/',
@@ -13,9 +15,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:4000',
+      '/api': apiTarget,
       '/socket': {
-        target: 'http://localhost:4000',
+        target: apiTarget,
         ws: true,
       },
     },

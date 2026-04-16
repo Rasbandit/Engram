@@ -1,6 +1,11 @@
-import { UserButton } from '@clerk/clerk-react'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Link, Outlet } from 'react-router'
+
+const isClerk = import.meta.env.VITE_AUTH_PROVIDER === 'clerk'
+const ClerkUserButton = isClerk
+  ? lazy(() => import('@clerk/clerk-react').then((mod) => ({ default: mod.UserButton })))
+  : null
+const LocalUserMenu = lazy(() => import('../auth/local-user-menu'))
 import { useChannel } from '../api/use-channel'
 import { useBillingStatus } from '../api/queries'
 import FolderTree from '../viewer/folder-tree'
@@ -25,7 +30,7 @@ export default function AppLayout() {
           {billing.trial_days_remaining} days left in your trial.
         </aside>
       )}
-      <div className="flex h-screen flex-col">
+      <section className="flex h-screen flex-col">
         <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2">
           <div className="flex items-center gap-3">
             <button
@@ -48,11 +53,13 @@ export default function AppLayout() {
             <Link to="/billing" className="text-sm text-gray-600 hover:text-gray-900 hover:underline">
               Billing
             </Link>
-            <UserButton />
+            <Suspense fallback={null}>
+              {ClerkUserButton ? <ClerkUserButton /> : <LocalUserMenu />}
+            </Suspense>
           </nav>
         </header>
 
-        <div className="flex flex-1 overflow-hidden">
+        <section className="flex flex-1 overflow-hidden">
           <aside
             id="sidebar"
             aria-label="Folder navigation"
@@ -66,8 +73,8 @@ export default function AppLayout() {
           <main className="flex-1 overflow-y-auto p-6">
             <Outlet />
           </main>
-        </div>
-      </div>
+        </section>
+      </section>
     </>
   )
 }

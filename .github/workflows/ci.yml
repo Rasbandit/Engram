@@ -106,9 +106,9 @@ jobs:
 
       - name: Stop ephemeral postgres
         if: always()
-        run: docker rm -f "$PG_CONTAINER" 2>/dev/null || true
+        run: docker rm -fv "$PG_CONTAINER" 2>/dev/null || true
 
-  e2e:
+  e2e-clerk:
     runs-on: [self-hosted, engram]
 
     env:
@@ -375,11 +375,13 @@ jobs:
       # ------------------------------------------------------------------
       - name: "Run API-only tests"
         working-directory: e2e
-        run: python3 -m pytest tests/api_only/ -v --timeout=180
+        run: python3 -m pytest tests/api_only/ --ignore=tests/api_only/test_60_local_auth.py -v --timeout=180
         env:
           ENGRAM_API_URL: http://localhost:${{ steps.ports.outputs.engram_port }}/api
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
           E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
+          AUTH_PROVIDER: clerk
+          CI_POSTGRES_CONTAINER: ${{ env.CI_PROJECT }}-postgres-1
           QDRANT_URL: http://10.0.20.201:6333
           QDRANT_COLLECTION: ${{ env.QDRANT_COLLECTION }}
           OLLAMA_URL: http://10.0.20.214:11434
@@ -396,6 +398,7 @@ jobs:
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
           CI_POSTGRES_CONTAINER: ${{ env.CI_PROJECT }}-postgres-1
           E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
+          AUTH_PROVIDER: clerk
           E2E_VAULT_PREFIX: ${{ env.E2E_VAULT_PREFIX }}
           E2E_CONFIG_PREFIX: ${{ env.E2E_CONFIG_PREFIX }}
           E2E_CDP_PORT_A: ${{ steps.ports.outputs.cdp_port_a }}
@@ -468,33 +471,262 @@ jobs:
           # Remove only this run's temp dirs + marker files
           rm -rf ${E2E_VAULT_PREFIX}-* ${E2E_CONFIG_PREFIX}-* ${MARKER_PREFIX}-*
           # Tear down only this run's Docker stack
-          docker compose -f docker-compose.ci.yml -p "$CI_PROJECT" down -v --remove-orphans 2>/dev/null || true
-          # Prune dangling images to reclaim disk (old CI builds)
+          docker compose -f docker-compose.ci.yml -p "$CI_PROJECT" down -v --remove-orphans --rmi local 2>/dev/null || true
+          # Prune dangling images + volumes to reclaim disk
           docker image prune -f 2>/dev/null || true
+          docker volume prune -f 2>/dev/null || true
           # Keep only the 3 most recent engram-ci cache tags
           docker images --format '{{.Repository}}:{{.Tag}}' --filter "reference=engram-ci:*" \
             | tail -n +4 | xargs -r docker rmi 2>/dev/null || true
           # Clean up ci-artifacts from this run
           rm -rf ci-artifacts/
 
+  e2e-local:
+    runs-on: [self-hosted, engram]
+
+    env:
+      CI_PROJECT: engram-ci-local-${{ github.run_id }}
+      QDRANT_COLLECTION: ci_local_${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          clean: false
+
+      - name: Allocate dynamic ports
+        id: ports
+        run: |
+          get_free_port() {
+            python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"
+          }
+          ENGRAM_PORT=$(get_free_port)
+          PG_PORT=$(get_free_port)
+          for var in ENGRAM_PORT PG_PORT; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Port allocation failed for $var"
+              exit 1
+            fi
+          done
+          echo "engram_port=$ENGRAM_PORT" >> "$GITHUB_OUTPUT"
+          echo "pg_port=$PG_PORT" >> "$GITHUB_OUTPUT"
+          echo "Ports: engram=$ENGRAM_PORT pg=$PG_PORT"
+
+      - name: Start CI stack (local auth)
+        env:
+          CI_ENGRAM_PORT: ${{ steps.ports.outputs.engram_port }}
+          CI_PG_PORT: ${{ steps.ports.outputs.pg_port }}
+          QDRANT_COLLECTION: ${{ env.QDRANT_COLLECTION }}
+        run: |
+          docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml \
+            -p "$CI_PROJECT" down -v --remove-orphans 2>/dev/null || true
+
+          # Clean up stale Qdrant collection
+          curl -sf -X DELETE "http://10.0.20.201:6333/collections/${QDRANT_COLLECTION}" > /dev/null 2>&1 || true
+
+          # Reuse cached image if available, otherwise build
+          IMG_HASH=$(find Dockerfile docker-compose.ci.yml mix.exs mix.lock config/ lib/ priv/ frontend/ \
+            -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
+          CACHED_TAG="engram-ci:${IMG_HASH}"
+
+          if docker image inspect "$CACHED_TAG" > /dev/null 2>&1; then
+            echo "Image $CACHED_TAG exists — skipping build"
+            docker tag "$CACHED_TAG" ${CI_PROJECT}-engram:latest
+            docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml \
+              -p "$CI_PROJECT" up -d --no-build --wait
+          else
+            docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml \
+              -p "$CI_PROJECT" up -d --build --wait
+            BUILT_IMG=$(docker images --format '{{.ID}}' --filter "reference=${CI_PROJECT}-engram" | head -1)
+            if [ -n "$BUILT_IMG" ]; then
+              docker tag "$BUILT_IMG" "$CACHED_TAG"
+            fi
+          fi
+
+          # Wait for health
+          for i in $(seq 1 60); do
+            if curl -sf "http://localhost:${CI_ENGRAM_PORT}/api/health" > /dev/null 2>&1; then
+              echo "Local auth stack healthy on port ${CI_ENGRAM_PORT}"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Local auth stack failed to start"
+          docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml \
+            -p "$CI_PROJECT" logs
+          exit 1
+
+      - name: Run local auth API tests
+        working-directory: e2e
+        env:
+          ENGRAM_API_URL: http://localhost:${{ steps.ports.outputs.engram_port }}/api
+          AUTH_PROVIDER: local
+          CI_POSTGRES_CONTAINER: ${{ env.CI_PROJECT }}-postgres-1
+          QDRANT_URL: http://10.0.20.201:6333
+          QDRANT_COLLECTION: ${{ env.QDRANT_COLLECTION }}
+          OLLAMA_URL: http://10.0.20.214:11434
+        run: python3 -m pytest tests/api_only/ -v --timeout=180
+
+      - name: Collect failure logs
+        if: failure()
+        run: |
+          mkdir -p ci-artifacts-local
+          docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml \
+            -p "$CI_PROJECT" logs > ci-artifacts-local/docker-compose.log 2>&1
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ci-local-auth-debug-${{ github.sha }}
+          path: ci-artifacts-local/
+          retention-days: 7
+
+      - name: Tear down
+        if: always()
+        run: |
+          curl -sf -X DELETE "http://10.0.20.201:6333/collections/${QDRANT_COLLECTION}" > /dev/null 2>&1 || true
+          docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml \
+            -p "$CI_PROJECT" down -v --remove-orphans --rmi local 2>/dev/null || true
+          docker image prune -f 2>/dev/null || true
+          rm -rf ci-artifacts-local/
+
+  e2e-browser:
+    runs-on: [self-hosted, engram]
+
+    env:
+      PG_CONTAINER: engram-e2e-browser-${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          clean: false
+
+      - name: Allocate dynamic ports
+        id: ports
+        run: |
+          get_free_port() {
+            python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"
+          }
+          PW_LOCAL_BACKEND_PORT=$(get_free_port)
+          PW_LOCAL_VITE_PORT=$(get_free_port)
+          PW_CLERK_BACKEND_PORT=$(get_free_port)
+          PW_CLERK_VITE_PORT=$(get_free_port)
+
+          for var in PW_LOCAL_BACKEND_PORT PW_LOCAL_VITE_PORT PW_CLERK_BACKEND_PORT PW_CLERK_VITE_PORT; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Port allocation failed for $var"
+              exit 1
+            fi
+          done
+
+          echo "pw_local_backend_port=$PW_LOCAL_BACKEND_PORT" >> "$GITHUB_OUTPUT"
+          echo "pw_local_vite_port=$PW_LOCAL_VITE_PORT" >> "$GITHUB_OUTPUT"
+          echo "pw_clerk_backend_port=$PW_CLERK_BACKEND_PORT" >> "$GITHUB_OUTPUT"
+          echo "pw_clerk_vite_port=$PW_CLERK_VITE_PORT" >> "$GITHUB_OUTPUT"
+          echo "Ports: local=$PW_LOCAL_BACKEND_PORT/$PW_LOCAL_VITE_PORT clerk=$PW_CLERK_BACKEND_PORT/$PW_CLERK_VITE_PORT"
+
+      - name: Start ephemeral postgres
+        id: pg
+        run: |
+          docker rm -f "$PG_CONTAINER" 2>/dev/null || true
+          if [ -n "${LOCAL_REGISTRY:-}" ]; then
+            PG_IMAGE="${LOCAL_REGISTRY}/postgres:16-alpine"
+            docker pull "$PG_IMAGE" 2>/dev/null || PG_IMAGE="postgres:16-alpine"
+          else
+            PG_IMAGE="postgres:16-alpine"
+          fi
+          docker run -d --name "$PG_CONTAINER" \
+            -e POSTGRES_USER=engram \
+            -e POSTGRES_PASSWORD=engram \
+            -e POSTGRES_DB=engram_dev \
+            -p 0:5432 \
+            --health-cmd "pg_isready -U engram" \
+            --health-interval 3s \
+            --health-timeout 3s \
+            --health-retries 10 \
+            "$PG_IMAGE"
+          PG_PORT=$(docker port "$PG_CONTAINER" 5432/tcp | head -1 | cut -d: -f2)
+          echo "pg_port=$PG_PORT" >> "$GITHUB_OUTPUT"
+          echo "Postgres on port $PG_PORT"
+
+      - name: Setup Elixir deps + DB
+        env:
+          DATABASE_URL: postgresql://engram:engram@localhost:${{ steps.pg.outputs.pg_port }}/engram_dev
+        run: |
+          if [ -d deps ] && [ -f deps/.mix_lock_hash ] && [ "$(md5sum mix.lock | cut -d' ' -f1)" = "$(cat deps/.mix_lock_hash)" ]; then
+            echo "mix.lock unchanged — skipping deps.get"
+          else
+            mix deps.get
+            md5sum mix.lock | cut -d' ' -f1 > deps/.mix_lock_hash
+          fi
+          for i in $(seq 1 30); do
+            if docker exec "$PG_CONTAINER" pg_isready -U engram > /dev/null 2>&1; then
+              echo "DB ready"; break
+            fi
+            sleep 1
+          done
+          mix ecto.create
+          mix ecto.migrate
+
+      - name: Install frontend deps + Playwright
+        working-directory: frontend
+        run: |
+          export PATH="$HOME/.bun/bin:$PATH"
+          bun install
+          bunx playwright install chromium
+
+      - name: Run Playwright tests
+        working-directory: frontend
+        env:
+          DATABASE_URL: postgresql://engram:engram@localhost:${{ steps.pg.outputs.pg_port }}/engram_dev
+          JWT_SECRET: test-e2e-browser-secret
+          PW_LOCAL_BACKEND_PORT: ${{ steps.ports.outputs.pw_local_backend_port }}
+          PW_LOCAL_VITE_PORT: ${{ steps.ports.outputs.pw_local_vite_port }}
+          PW_CLERK_BACKEND_PORT: ${{ steps.ports.outputs.pw_clerk_backend_port }}
+          PW_CLERK_VITE_PORT: ${{ steps.ports.outputs.pw_clerk_vite_port }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
+          CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
+          CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
+          CI: "true"
+        run: |
+          export PATH="$HOME/.bun/bin:$PATH"
+          bunx playwright test
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-artifacts-${{ github.sha }}
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
+
+      - name: Stop ephemeral postgres
+        if: always()
+        run: docker rm -fv "$PG_CONTAINER" 2>/dev/null || true
+
   ci:
     if: always()
-    needs: [version-check, unit-tests, e2e]
+    needs: [version-check, unit-tests, e2e-clerk, e2e-local, e2e-browser]
     runs-on: ubuntu-latest
     steps:
       - name: Check required jobs
         run: |
           VC="${{ needs.version-check.result }}"
           UT="${{ needs.unit-tests.result }}"
-          E2E="${{ needs.e2e.result }}"
+          EC="${{ needs.e2e-clerk.result }}"
+          EL="${{ needs.e2e-local.result }}"
+          EB="${{ needs.e2e-browser.result }}"
 
           # version-check is skipped on main (only runs on branches) — that's expected
           if [ "$VC" != "success" ] && [ "$VC" != "skipped" ]; then
             echo "::error::version-check failed — bump mix.exs version before merging"
             exit 1
           fi
-          if [ "$UT" != "success" ] || [ "$E2E" != "success" ]; then
-            echo "Required jobs failed: unit-tests=$UT, e2e=$E2E"
+          if [ "$UT" != "success" ] || [ "$EC" != "success" ] || [ "$EL" != "success" ] || [ "$EB" != "success" ]; then
+            echo "Required jobs failed: unit-tests=$UT, e2e-clerk=$EC, e2e-local=$EL, e2e-browser=$EB"
             exit 1
           fi
 

@@ -71,8 +71,12 @@ def cleanup_test_data(email_pattern: str = "e2e-%@example.com") -> None:
     result = subprocess.run(cmd, input=sql_script, capture_output=True, text=True, timeout=30)
 
     if result.returncode != 0:
-        logger.error("Cleanup SQL failed: %s", result.stderr)
-        raise RuntimeError(f"Cleanup failed: {result.stderr}")
+        stderr = result.stderr.strip()
+        if "No such container" in stderr:
+            logger.warning("Cleanup skipped — container %s not found", CI_POSTGRES_CONTAINER)
+            return
+        logger.error("Cleanup SQL failed: %s", stderr)
+        raise RuntimeError(f"Cleanup failed: {stderr}")
 
     logger.info("Cleanup SQL output: %s", result.stdout.strip())
 

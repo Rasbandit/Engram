@@ -40,62 +40,113 @@ defmodule Engram.AccountsTest do
     end
   end
 
-  describe "find_or_create_by_clerk_id/2" do
-    test "returns existing user when clerk_id matches" do
+  describe "find_or_create_by_external_id/2" do
+    test "returns existing user when external_id matches" do
       user = insert(:user, email: "existing@test.com")
 
-      # Manually set clerk_id (simulating a previous Clerk login)
+      # Manually set external_id (simulating a previous Clerk login)
       user
-      |> Ecto.Changeset.change(%{clerk_id: "clerk_user_abc"})
+      |> Ecto.Changeset.change(%{external_id: "clerk_user_abc"})
       |> Engram.Repo.update!(skip_tenant_check: true)
 
       assert {:ok, found} =
-               Accounts.find_or_create_by_clerk_id("clerk_user_abc", %{
+               Accounts.find_or_create_by_external_id("clerk_user_abc", %{
                  email: "existing@test.com"
                })
 
       assert found.id == user.id
-      assert found.clerk_id == "clerk_user_abc"
+      assert found.external_id == "clerk_user_abc"
     end
 
-    test "links clerk_id to existing user matched by email" do
+    test "links external_id to existing user matched by email" do
       user = insert(:user, email: "link@test.com")
 
       assert {:ok, linked} =
-               Accounts.find_or_create_by_clerk_id("clerk_user_link", %{
+               Accounts.find_or_create_by_external_id("clerk_user_link", %{
                  email: "link@test.com"
                })
 
       assert linked.id == user.id
-      assert linked.clerk_id == "clerk_user_link"
+      assert linked.external_id == "clerk_user_link"
     end
 
-    test "creates new user when no clerk_id or email match" do
+    test "creates new user when no external_id or email match" do
       assert {:ok, created} =
-               Accounts.find_or_create_by_clerk_id("clerk_user_new", %{
+               Accounts.find_or_create_by_external_id("clerk_user_new", %{
                  email: "brand_new@test.com"
                })
 
-      assert created.clerk_id == "clerk_user_new"
+      assert created.external_id == "clerk_user_new"
       assert created.email == "brand_new@test.com"
     end
 
-    test "returns existing clerk user even if email changed in Clerk" do
+    test "returns existing user even if email changed in provider" do
       user = insert(:user, email: "old@test.com")
 
       user
-      |> Ecto.Changeset.change(%{clerk_id: "clerk_stable"})
+      |> Ecto.Changeset.change(%{external_id: "clerk_stable"})
       |> Engram.Repo.update!(skip_tenant_check: true)
 
-      # Clerk now reports a different email, but clerk_id is the same
+      # Provider reports a different email, but external_id is the same
       assert {:ok, found} =
-               Accounts.find_or_create_by_clerk_id("clerk_stable", %{
+               Accounts.find_or_create_by_external_id("clerk_stable", %{
                  email: "new@test.com"
                })
 
       assert found.id == user.id
-      # clerk_id lookup takes precedence — email is NOT updated
+      # external_id lookup takes precedence — email is NOT updated
       assert found.email == "old@test.com"
+    end
+  end
+
+  describe "refresh tokens" do
+    setup do
+      user = insert(:user)
+      %{user: user}
+    end
+
+    test "create and consume refresh token round-trip", %{user: user} do
+      {:ok, raw_token, record} = Accounts.create_refresh_token(user)
+
+      assert is_binary(raw_token)
+      assert record.user_id == user.id
+      refute is_nil(record.family_id)
+
+      assert {:ok, same_user, new_raw, _new_record} = Accounts.consume_refresh_token(raw_token)
+      assert same_user.id == user.id
+      assert new_raw != raw_token
+    end
+
+    test "rejects completely invalid token" do
+      assert {:error, :invalid_token} = Accounts.consume_refresh_token("bogus_token")
+    end
+
+    test "reuse of revoked token triggers family-wide revocation", %{user: user} do
+      {:ok, raw_token, _record} = Accounts.create_refresh_token(user)
+
+      # Consume once — rotates to a new token
+      {:ok, _user, new_raw, _new_record} = Accounts.consume_refresh_token(raw_token)
+
+      # Replay the OLD token — should detect reuse and revoke the family
+      assert {:error, :token_reused} = Accounts.consume_refresh_token(raw_token)
+
+      # The rotated token should ALSO be revoked (entire family)
+      assert {:error, :token_reused} = Accounts.consume_refresh_token(new_raw)
+    end
+
+    test "expired refresh token is rejected", %{user: user} do
+      {:ok, raw_token, record} = Accounts.create_refresh_token(user)
+
+      # Manually expire the token
+      import Ecto.Query
+
+      from(rt in Engram.Auth.RefreshToken, where: rt.id == ^record.id)
+      |> Engram.Repo.update_all(
+        [set: [expires_at: DateTime.add(DateTime.utc_now(), -1, :second) |> DateTime.truncate(:second)]],
+        skip_tenant_check: true
+      )
+
+      assert {:error, :expired} = Accounts.consume_refresh_token(raw_token)
     end
   end
 

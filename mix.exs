@@ -4,7 +4,7 @@ defmodule Engram.MixProject do
   def project do
     [
       app: :engram,
-      version: "0.1.10",
+      version: "0.2.0",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -52,6 +52,7 @@ defmodule Engram.MixProject do
       # Auth
       {:joken, "~> 2.6"},
       {:joken_jwks, "~> 1.7"},
+      {:bcrypt_elixir, "~> 3.0"},
 
       # Payments
       {:stripity_stripe, "~> 3.2"},
