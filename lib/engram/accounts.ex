@@ -46,8 +46,18 @@ defmodule Engram.Accounts do
             |> Repo.update(skip_tenant_check: true)
 
           nil ->
-            %User{external_id: external_id, email: email}
+            %User{}
+            |> Ecto.Changeset.change(%{external_id: external_id, email: email})
+            |> Ecto.Changeset.unique_constraint(:email, name: :users_email_index)
             |> Repo.insert(skip_tenant_check: true)
+            |> case do
+              {:ok, user} ->
+                {:ok, user}
+
+              {:error, %Ecto.Changeset{errors: [email: _]}} ->
+                # Concurrent request won the insert — retry finds the winner
+                find_or_create_by_external_id(external_id, %{email: email})
+            end
         end
     end
   end
