@@ -15,4 +15,13 @@ defmodule Engram.Auth.Provider do
               {:ok, %{external_id: String.t(), email: String.t()}} | {:error, atom()}
 
   @callback supports_credentials?() :: boolean()
+
+  @doc """
+  Resolves a verified token's identity to a local user record.
+
+  Clerk: JIT provisioning — creates or links user on first token presentation.
+  Local: lookup only — user must already exist (created via /register).
+  """
+  @callback resolve_user(external_id :: String.t(), email :: String.t()) ::
+              {:ok, Engram.Accounts.User.t()} | {:error, atom()}
 end

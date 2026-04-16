@@ -31,4 +31,9 @@ defmodule Engram.Auth.Providers.Clerk do
 
   @impl true
   def supports_credentials?, do: false
+
+  @impl true
+  def resolve_user(external_id, email) do
+    Engram.Accounts.find_or_create_by_external_id(external_id, %{email: email})
+  end
 end

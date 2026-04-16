@@ -45,6 +45,11 @@ defmodule Engram.Auth.Providers.Local do
   @impl true
   def supports_credentials?, do: true
 
+  @impl true
+  def resolve_user(external_id, _email) do
+    Engram.Accounts.find_by_external_id(external_id)
+  end
+
   @doc "Issues a short-lived HS256 access token with sub, email, iss, and aud claims."
   def issue_access_token(external_id, email) do
     claims = %{

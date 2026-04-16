@@ -42,16 +42,14 @@ defmodule EngramWeb.Router do
     post "/auth/token/refresh", DeviceAuthController, :refresh
   end
 
-  # Local auth endpoints — only mounted when AUTH_PROVIDER=local
-  if Engram.Auth.supports_credentials?() do
-    scope "/api/auth", EngramWeb do
-      pipe_through [:api, :rate_limit_auth]
+  # Local auth endpoints — always compiled, guarded at runtime by RequireLocalAuth plug
+  scope "/api/auth", EngramWeb do
+    pipe_through [:api, :rate_limit_auth, EngramWeb.Plugs.RequireLocalAuth]
 
-      post "/register", LocalAuthController, :register
-      post "/login", LocalAuthController, :login
-      post "/refresh", LocalAuthController, :refresh
-      post "/logout", LocalAuthController, :logout
-    end
+    post "/register", LocalAuthController, :register
+    post "/login", LocalAuthController, :login
+    post "/refresh", LocalAuthController, :refresh
+    post "/logout", LocalAuthController, :logout
   end
 
   # User-scoped authenticated endpoints (no vault context needed)

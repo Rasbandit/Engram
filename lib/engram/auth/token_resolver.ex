@@ -27,7 +27,7 @@ defmodule Engram.Auth.TokenResolver do
   def resolve(token) when is_binary(token) do
     case Engram.Auth.provider().verify_token(token) do
       {:ok, %{external_id: ext_id, email: email}} ->
-        Accounts.find_or_create_by_external_id(ext_id, %{email: email})
+        Engram.Auth.provider().resolve_user(ext_id, email)
 
       {:error, _} ->
         # Fallback: try internal HS256 JWT (device flow access tokens).
