@@ -176,28 +176,43 @@ jobs:
           }
           ENGRAM_PORT=$(get_free_port)
           PG_PORT=$(get_free_port)
-          # CDP ports for 3 Obsidian instances
-          CDP_PORT_A=$(get_free_port)
-          CDP_PORT_B=$(get_free_port)
-          CDP_PORT_C=$(get_free_port)
-          # Xvfb display numbers (offset by run number to avoid collisions)
-          DISPLAY_BASE=$(( (GITHUB_RUN_NUMBER % 30) * 3 + 50 ))
+          # CDP ports: 3 Obsidian instances × 2 xdist workers = 6 ports total.
+          # Per-worker env vars (E2E_CDP_PORT_A_W{0,1} etc) are consumed by
+          # e2e/conftest.py so dynamic (non-contiguous) allocation is safe.
+          CDP_PORT_A_W0=$(get_free_port)
+          CDP_PORT_B_W0=$(get_free_port)
+          CDP_PORT_C_W0=$(get_free_port)
+          CDP_PORT_A_W1=$(get_free_port)
+          CDP_PORT_B_W1=$(get_free_port)
+          CDP_PORT_C_W1=$(get_free_port)
+          # Xvfb display numbers: 6 displays per run (2 workers × 3). Stride 6.
+          DISPLAY_BASE=$(( (GITHUB_RUN_NUMBER % 15) * 6 + 50 ))
 
           # Validate all ports are non-empty (get_free_port can fail silently)
-          for var in ENGRAM_PORT PG_PORT CDP_PORT_A CDP_PORT_B CDP_PORT_C; do
+          for var in ENGRAM_PORT PG_PORT \
+                     CDP_PORT_A_W0 CDP_PORT_B_W0 CDP_PORT_C_W0 \
+                     CDP_PORT_A_W1 CDP_PORT_B_W1 CDP_PORT_C_W1; do
             if [ -z "${!var}" ]; then
               echo "::error::Port allocation failed for $var"
               exit 1
             fi
           done
 
-          echo "engram_port=$ENGRAM_PORT" >> "$GITHUB_OUTPUT"
-          echo "pg_port=$PG_PORT" >> "$GITHUB_OUTPUT"
-          echo "cdp_port_a=$CDP_PORT_A" >> "$GITHUB_OUTPUT"
-          echo "cdp_port_b=$CDP_PORT_B" >> "$GITHUB_OUTPUT"
-          echo "cdp_port_c=$CDP_PORT_C" >> "$GITHUB_OUTPUT"
-          echo "display_base=$DISPLAY_BASE" >> "$GITHUB_OUTPUT"
-          echo "Ports: engram=$ENGRAM_PORT pg=$PG_PORT cdp=$CDP_PORT_A/$CDP_PORT_B/$CDP_PORT_C display=:$DISPLAY_BASE+"
+          {
+            echo "engram_port=$ENGRAM_PORT"
+            echo "pg_port=$PG_PORT"
+            echo "cdp_port_a_w0=$CDP_PORT_A_W0"
+            echo "cdp_port_b_w0=$CDP_PORT_B_W0"
+            echo "cdp_port_c_w0=$CDP_PORT_C_W0"
+            echo "cdp_port_a_w1=$CDP_PORT_A_W1"
+            echo "cdp_port_b_w1=$CDP_PORT_B_W1"
+            echo "cdp_port_c_w1=$CDP_PORT_C_W1"
+            echo "display_base=$DISPLAY_BASE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Ports: engram=$ENGRAM_PORT pg=$PG_PORT"
+          echo "  w0 cdp: $CDP_PORT_A_W0 $CDP_PORT_B_W0 $CDP_PORT_C_W0"
+          echo "  w1 cdp: $CDP_PORT_A_W1 $CDP_PORT_B_W1 $CDP_PORT_C_W1"
+          echo "  display base :$DISPLAY_BASE (uses :$DISPLAY_BASE..:$((DISPLAY_BASE-5)))"
 
       - name: "Background: CI stack + plugin build + Playwright + Ollama + Qdrant"
         env:
@@ -403,7 +418,13 @@ jobs:
       - name: "Run Obsidian E2E tests"
         if: always()
         working-directory: e2e
-        run: python3 -m pytest tests/ --ignore=tests/api_only/ -v --timeout=300 -p no:cacheprovider --no-header
+        # -n 2 --dist=loadfile: two xdist workers, each owns whole test files
+        # (preserves intra-file ordering for test_31 restart + test_50 smoke).
+        # E2E_WORKERS defaults to 2 but can be overridden to 1 for rollback.
+        run: |
+          python3 -m pytest tests/ --ignore=tests/api_only/ \
+            -n "${E2E_WORKERS:-2}" --dist=loadfile \
+            -v --timeout=300 -p no:cacheprovider --no-header
         env:
           ENGRAM_API_URL: http://localhost:${{ steps.ports.outputs.engram_port }}/api
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
@@ -412,9 +433,12 @@ jobs:
           AUTH_PROVIDER: clerk
           E2E_VAULT_PREFIX: ${{ env.E2E_VAULT_PREFIX }}
           E2E_CONFIG_PREFIX: ${{ env.E2E_CONFIG_PREFIX }}
-          E2E_CDP_PORT_A: ${{ steps.ports.outputs.cdp_port_a }}
-          E2E_CDP_PORT_B: ${{ steps.ports.outputs.cdp_port_b }}
-          E2E_CDP_PORT_C: ${{ steps.ports.outputs.cdp_port_c }}
+          E2E_CDP_PORT_A_W0: ${{ steps.ports.outputs.cdp_port_a_w0 }}
+          E2E_CDP_PORT_B_W0: ${{ steps.ports.outputs.cdp_port_b_w0 }}
+          E2E_CDP_PORT_C_W0: ${{ steps.ports.outputs.cdp_port_c_w0 }}
+          E2E_CDP_PORT_A_W1: ${{ steps.ports.outputs.cdp_port_a_w1 }}
+          E2E_CDP_PORT_B_W1: ${{ steps.ports.outputs.cdp_port_b_w1 }}
+          E2E_CDP_PORT_C_W1: ${{ steps.ports.outputs.cdp_port_c_w1 }}
           E2E_DISPLAY_BASE: ${{ steps.ports.outputs.display_base }}
 
       # ------------------------------------------------------------------

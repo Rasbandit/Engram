@@ -37,30 +37,36 @@ API_URL = os.environ.get("ENGRAM_API_URL") or "http://localhost:8100/api"
 PLUGIN_SRC = Path(os.environ.get("ENGRAM_PLUGIN_SRC", Path(__file__).parent.parent / "plugin"))
 OBSIDIAN_BIN = Path.home() / "Applications" / "Obsidian.AppImage"
 
-# Dynamic ports/paths for parallel CI runs (defaults match legacy hardcoded values)
-VAULT_PREFIX = os.environ.get("E2E_VAULT_PREFIX", "/tmp/e2e-vault")
-CONFIG_PREFIX = os.environ.get("E2E_CONFIG_PREFIX", "/tmp/e2e-obsidian-config")
-CDP_PORT_A = int(os.environ.get("E2E_CDP_PORT_A") or "9250")
-CDP_PORT_B = int(os.environ.get("E2E_CDP_PORT_B") or "9251")
-CDP_PORT_C = int(os.environ.get("E2E_CDP_PORT_C") or "9252")
-DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE") or "99")
-
-
 def _worker_index() -> int:
     """xdist worker number (0 for master / serial runs)."""
     worker = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
     return int(worker[2:]) if worker.startswith("gw") else 0
 
 
-# Per-worker offsets: each xdist worker gets its own Obsidian pool, ports, display,
-# and filesystem prefixes. Three CDP ports + three display numbers per worker.
 _WORKER = _worker_index()
-_CDP_STRIDE = 3
-_DISPLAY_STRIDE = 3
-CDP_PORT_A += _WORKER * _CDP_STRIDE
-CDP_PORT_B += _WORKER * _CDP_STRIDE
-CDP_PORT_C += _WORKER * _CDP_STRIDE
-DISPLAY_BASE -= _WORKER * _DISPLAY_STRIDE
+
+
+def _worker_port(name: str, legacy_default: str) -> int:
+    """Prefer per-worker env var (E2E_CDP_PORT_A_W1), fall back to base + stride.
+
+    CI allocates 6 free ports and exports them as E2E_CDP_PORT_{A,B,C}_W{0,1}
+    so no two workers collide even when dynamic allocation is non-contiguous.
+    Serial / local runs fall back to the base env var + worker*stride.
+    """
+    scoped = os.environ.get(f"{name}_W{_WORKER}")
+    if scoped:
+        return int(scoped)
+    base = int(os.environ.get(name) or legacy_default)
+    return base + _WORKER * 3
+
+
+# Dynamic ports/paths for parallel CI runs (defaults match legacy hardcoded values)
+VAULT_PREFIX = os.environ.get("E2E_VAULT_PREFIX", "/tmp/e2e-vault")
+CONFIG_PREFIX = os.environ.get("E2E_CONFIG_PREFIX", "/tmp/e2e-obsidian-config")
+CDP_PORT_A = _worker_port("E2E_CDP_PORT_A", "9250")
+CDP_PORT_B = _worker_port("E2E_CDP_PORT_B", "9251")
+CDP_PORT_C = _worker_port("E2E_CDP_PORT_C", "9252")
+DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE") or "99") - _WORKER * 3
 if _WORKER > 0:
     VAULT_PREFIX = f"{VAULT_PREFIX}-w{_WORKER}"
     CONFIG_PREFIX = f"{CONFIG_PREFIX}-w{_WORKER}"
