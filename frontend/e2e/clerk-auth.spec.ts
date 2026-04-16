@@ -42,14 +42,16 @@ test.describe('Clerk auth provider', () => {
 
   test('redirects unauthenticated users to sign-in with Clerk UI', async ({ page }) => {
     await page.goto('/app/')
-    await expect(page).toHaveURL(/\/sign-in/)
+    // Clerk SDK needs time to initialize before auth state is known
+    await expect(page).toHaveURL(/\/sign-in/, { timeout: 15_000 })
     await expect(page.locator(SIGN_IN)).toBeVisible({ timeout: 15_000 })
     await expect(page.locator('h1.cl-headerTitle')).toContainText('Sign in')
   })
 
   test('renders Clerk SignUp component', async ({ page }) => {
     await page.goto('/app/sign-up/')
-    await expect(page.locator(SIGN_UP)).toBeVisible({ timeout: 15_000 })
+    // Clerk SDK loads async — may take longer on cold CI
+    await expect(page.locator(SIGN_UP)).toBeVisible({ timeout: 20_000 })
   })
 
   test('sign in via Clerk → dashboard', async ({ page }) => {
