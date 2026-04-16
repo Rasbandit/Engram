@@ -35,20 +35,16 @@ defmodule EngramWeb.Plugs.RateLimit do
     end
   end
 
-  # Compile-time branch: test builds use :rate_limit_override from config/test.exs.
-  # Non-test builds (dev/prod) use :rate_limit_auth_override ONLY when CI=true.
-  # Production deploys never set CI=true, so this is unreachable in prod.
+  # Compile-time branch: test builds check :rate_limit_override (config/test.exs).
+  # Non-test builds check :rate_limit_auth_override (runtime.exs, set via env var
+  # in CI Docker containers). Fly.io prod deploys don't set this env var.
   if @is_test_build do
     defp effective_limit(default) do
       Application.get_env(:engram, :rate_limit_override) || default
     end
   else
     defp effective_limit(default) do
-      if System.get_env("CI") == "true" do
-        Application.get_env(:engram, :rate_limit_auth_override) || default
-      else
-        default
-      end
+      Application.get_env(:engram, :rate_limit_auth_override) || default
     end
   end
 

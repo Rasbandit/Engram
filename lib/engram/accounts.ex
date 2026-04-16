@@ -51,12 +51,14 @@ defmodule Engram.Accounts do
             %User{}
             |> Ecto.Changeset.change(%{external_id: external_id, email: email})
             |> Ecto.Changeset.unique_constraint(:email, name: :users_email_lower_index)
+            |> Ecto.Changeset.unique_constraint(:external_id, name: :users_clerk_id_index)
             |> Repo.insert(skip_tenant_check: true)
             |> case do
               {:ok, user} ->
                 {:ok, user}
 
-              {:error, %Ecto.Changeset{errors: [email: _]}} when retries > 0 ->
+              {:error, %Ecto.Changeset{errors: [{field, _}]}}
+              when field in [:email, :external_id] and retries > 0 ->
                 # Concurrent request won the insert — retry finds the winner
                 find_or_create_by_external_id(external_id, %{email: email}, retries - 1)
 
