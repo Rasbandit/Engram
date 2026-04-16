@@ -49,7 +49,7 @@ COPY priv priv
 COPY config/runtime.exs config/
 RUN --mount=type=cache,target=/app/deps,id=mix-deps \
     --mount=type=cache,target=/app/_build,id=mix-build \
-    mix compile
+    mix compile --force
 
 # Build release — copy frontend assets in, then assemble.
 # Uses separate _build cache for compile above, then copies out

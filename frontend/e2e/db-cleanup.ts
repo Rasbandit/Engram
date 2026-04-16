@@ -9,7 +9,11 @@ export async function cleanupTestUsers(phase: 'setup' | 'teardown'): Promise<voi
     return
   }
 
-  const client = new pg.Client({ connectionString: dbUrl })
+  const client = new pg.Client({
+    connectionString: dbUrl,
+    connectionTimeoutMillis: 5_000,
+    statement_timeout: 10_000,
+  })
 
   try {
     await client.connect()
@@ -27,8 +31,13 @@ export async function cleanupTestUsers(phase: 'setup' | 'teardown'): Promise<voi
       console.log(`[${phase}] No test users to clean up`)
     }
   } catch (err) {
-    console.warn(`[${phase}] DB cleanup failed (non-fatal): ${err instanceof Error ? err.message : err}`)
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('foreign key constraint')) {
+      console.error(`[${phase}] DB cleanup failed — FK constraints on test users: ${msg}`)
+    } else {
+      console.warn(`[${phase}] DB cleanup failed (non-fatal): ${msg}`)
+    }
   } finally {
-    await client.end()
+    await client.end().catch(() => {})
   }
 }

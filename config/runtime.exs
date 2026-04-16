@@ -134,8 +134,12 @@ if auth_provider == :clerk do
     raise "CLERK_ISSUER is required when AUTH_PROVIDER=clerk"
   config :engram, :clerk_issuer, String.trim(clerk_issuer)
 
-  clerk_pub_key = System.get_env("CLERK_PUBLISHABLE_KEY") ||
-    raise "CLERK_PUBLISHABLE_KEY is required when AUTH_PROVIDER=clerk"
+  clerk_pub_key =
+    case System.get_env("CLERK_PUBLISHABLE_KEY") do
+      nil -> raise "CLERK_PUBLISHABLE_KEY is required when AUTH_PROVIDER=clerk"
+      "" -> raise "CLERK_PUBLISHABLE_KEY is set but empty when AUTH_PROVIDER=clerk"
+      key -> key
+    end
   config :engram, :clerk_publishable_key, clerk_pub_key
 end
 

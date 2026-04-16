@@ -3,15 +3,27 @@ export interface EngramConfig {
   clerkPublishableKey: string
 }
 
+const VALID_PROVIDERS = ['local', 'clerk'] as const
+
 function loadConfig(): EngramConfig {
-  const injected = (window as unknown as { __ENGRAM_CONFIG__?: Partial<EngramConfig> })
+  const injected = (window as unknown as { __ENGRAM_CONFIG__?: Record<string, unknown> })
     .__ENGRAM_CONFIG__
 
-  if (injected?.authProvider) {
-    return injected as EngramConfig
+  if (injected && VALID_PROVIDERS.includes(injected.authProvider as typeof VALID_PROVIDERS[number])) {
+    return {
+      authProvider: injected.authProvider as 'local' | 'clerk',
+      clerkPublishableKey: (injected.clerkPublishableKey as string) ?? '',
+    }
   }
 
-  // Fallback: Vite dev server (not served by Phoenix)
+  // Vite dev server fallback — not served by Phoenix
+  if (import.meta.env.PROD && !injected) {
+    console.error(
+      '[engram] window.__ENGRAM_CONFIG__ not found. ' +
+      'Server may have failed to inject runtime config. Falling back to local auth.',
+    )
+  }
+
   return {
     authProvider: (import.meta.env.VITE_AUTH_PROVIDER as 'local' | 'clerk') ?? 'local',
     clerkPublishableKey: import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? '',
