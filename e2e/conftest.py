@@ -236,26 +236,29 @@ def vault_c(obsidian_c):
 def session_cleanup(request, clerk_client):
     """Cleanup runs after the entire session, regardless of pass/fail.
 
-    Uses request.getfixturevalue to avoid hard-failing when Clerk
-    fixtures were skipped (e.g., AUTH_PROVIDER=local runs).
+    Captures Clerk user IDs during setup (before fixtures are torn down)
+    so cleanup can run safely during teardown.
     """
-    yield
-    # Clerk user cleanup (only if Clerk fixtures were actually resolved)
+    # Capture user IDs now, while fixtures are still alive
+    clerk_user_ids = []
     if clerk_client:
-        clerk_user_ids = []
         for fixture_name in ("sync_user", "isolation_user"):
             try:
                 user_tuple = request.getfixturevalue(fixture_name)
                 if user_tuple and user_tuple[1]:
                     clerk_user_ids.append(user_tuple[1])
-            except pytest.FixtureLookupError:
+            except (pytest.FixtureLookupError, pytest.skip.Exception):
                 pass
-        if clerk_user_ids:
-            try:
-                cleanup_clerk_users(clerk_client, clerk_user_ids)
-            except Exception as e:
-                logging.getLogger(__name__).error("Clerk cleanup failed: %s", e)
-    # DB cleanup: delete all e2e-* users + their data (both email domains)
+
+    yield
+
+    # Clerk user cleanup
+    if clerk_client and clerk_user_ids:
+        try:
+            cleanup_clerk_users(clerk_client, clerk_user_ids)
+        except Exception as e:
+            logging.getLogger(__name__).error("Clerk cleanup failed: %s", e)
+    # DB cleanup: delete all e2e-* users + their data
     for pattern in ["e2e-%@example.com", "e2e-%@test.local", "e2e-%@test.com"]:
         try:
             cleanup_test_data(pattern)

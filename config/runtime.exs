@@ -116,6 +116,11 @@ auth_provider = case System.get_env("AUTH_PROVIDER", "local") do
 end
 config :engram, :auth_provider, auth_provider
 
+# Optional rate limit override for CI (e.g., RATE_LIMIT_AUTH_OVERRIDE=1000)
+if override = System.get_env("RATE_LIMIT_AUTH_OVERRIDE") do
+  config :engram, :rate_limit_auth_override, String.to_integer(override)
+end
+
 # Clerk auth (only required when AUTH_PROVIDER=clerk)
 # Note: use local variable, not Application.get_env — runtime.exs config
 # is accumulated and not yet applied, so get_env reads stale config.

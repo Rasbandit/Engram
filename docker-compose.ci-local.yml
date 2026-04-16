@@ -8,3 +8,5 @@ services:
       # Clerk vars not needed in local mode
       CLERK_JWKS_URL: ""
       CLERK_ISSUER: ""
+      # CI tests register many users rapidly from same IP
+      RATE_LIMIT_AUTH_OVERRIDE: "1000"
