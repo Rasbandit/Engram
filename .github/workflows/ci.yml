@@ -40,80 +40,6 @@ jobs:
           fi
           echo "Version bumped: $MAIN_VERSION → $BRANCH_VERSION"
 
-  unit-tests:
-    runs-on: [self-hosted, engram]
-
-    env:
-      PG_CONTAINER: engram-unit-test-${{ github.run_id }}
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          clean: false  # Preserve _build/ and deps/ for incremental compilation
-
-      - name: Start ephemeral postgres
-        id: pg
-        run: |
-          # Clean up any leftover container from a previous cancelled run
-          docker rm -f "$PG_CONTAINER" 2>/dev/null || true
-
-          if [ -n "${LOCAL_REGISTRY:-}" ]; then
-            PG_IMAGE="${LOCAL_REGISTRY}/postgres:16-alpine"
-            docker pull "$PG_IMAGE" 2>/dev/null || PG_IMAGE="postgres:16-alpine"
-          else
-            PG_IMAGE="postgres:16-alpine"
-          fi
-
-          # Use -p 0:5432 for a random available host port (parallel-safe)
-          docker run -d --name "$PG_CONTAINER" \
-            -e POSTGRES_USER=engram \
-            -e POSTGRES_PASSWORD=engram \
-            -e POSTGRES_DB=engram_test \
-            -p 0:5432 \
-            --health-cmd "pg_isready -U engram" \
-            --health-interval 3s \
-            --health-timeout 3s \
-            --health-retries 10 \
-            "$PG_IMAGE"
-
-          PG_PORT=$(docker port "$PG_CONTAINER" 5432/tcp | head -1 | cut -d: -f2)
-          echo "pg_port=$PG_PORT" >> "$GITHUB_OUTPUT"
-          echo "Postgres on port $PG_PORT (container: $PG_CONTAINER)"
-
-      - name: Fetch Elixir deps (skip if unchanged)
-        run: |
-          if [ -d deps ] && [ -f deps/.mix_lock_hash ] && [ "$(md5sum mix.lock | cut -d' ' -f1)" = "$(cat deps/.mix_lock_hash)" ]; then
-            echo "mix.lock unchanged — skipping deps.get"
-          else
-            mix deps.get --only test
-            md5sum mix.lock | cut -d' ' -f1 > deps/.mix_lock_hash
-          fi
-
-      - name: Run Elixir unit tests
-        env:
-          DATABASE_URL: postgresql://engram:engram@localhost:${{ steps.pg.outputs.pg_port }}/engram_test
-        run: |
-          for i in $(seq 1 30); do
-            if docker exec "$PG_CONTAINER" pg_isready -U engram > /dev/null 2>&1; then
-              echo "Test DB ready"
-              break
-            fi
-            sleep 1
-          done
-          MIX_ENV=test mix ecto.create
-          MIX_ENV=test mix ecto.migrate
-          # Ensure Tailwind binary is valid (cache prune can corrupt native deps)
-          mix tailwind.install 2>/dev/null || true
-          mix test
-
-      - name: Stop ephemeral postgres
-        if: always()
-        run: docker rm -fv "$PG_CONTAINER" 2>/dev/null || true
-
-      - name: Clean temp files
-        if: always()
-        run: find /tmp -maxdepth 1 -name '.ff*.node' -mmin +60 -delete 2>/dev/null || true
-
   e2e-clerk:
     runs-on: [self-hosted, engram]
 
@@ -516,6 +442,80 @@ jobs:
           # Clean up ci-artifacts and stale Bun native cache files
           rm -rf ci-artifacts/
           find /tmp -maxdepth 1 -name '.ff*.node' -mmin +60 -delete 2>/dev/null || true
+
+  unit-tests:
+    runs-on: [self-hosted, engram]
+
+    env:
+      PG_CONTAINER: engram-unit-test-${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          clean: false  # Preserve _build/ and deps/ for incremental compilation
+
+      - name: Start ephemeral postgres
+        id: pg
+        run: |
+          # Clean up any leftover container from a previous cancelled run
+          docker rm -f "$PG_CONTAINER" 2>/dev/null || true
+
+          if [ -n "${LOCAL_REGISTRY:-}" ]; then
+            PG_IMAGE="${LOCAL_REGISTRY}/postgres:16-alpine"
+            docker pull "$PG_IMAGE" 2>/dev/null || PG_IMAGE="postgres:16-alpine"
+          else
+            PG_IMAGE="postgres:16-alpine"
+          fi
+
+          # Use -p 0:5432 for a random available host port (parallel-safe)
+          docker run -d --name "$PG_CONTAINER" \
+            -e POSTGRES_USER=engram \
+            -e POSTGRES_PASSWORD=engram \
+            -e POSTGRES_DB=engram_test \
+            -p 0:5432 \
+            --health-cmd "pg_isready -U engram" \
+            --health-interval 3s \
+            --health-timeout 3s \
+            --health-retries 10 \
+            "$PG_IMAGE"
+
+          PG_PORT=$(docker port "$PG_CONTAINER" 5432/tcp | head -1 | cut -d: -f2)
+          echo "pg_port=$PG_PORT" >> "$GITHUB_OUTPUT"
+          echo "Postgres on port $PG_PORT (container: $PG_CONTAINER)"
+
+      - name: Fetch Elixir deps (skip if unchanged)
+        run: |
+          if [ -d deps ] && [ -f deps/.mix_lock_hash ] && [ "$(md5sum mix.lock | cut -d' ' -f1)" = "$(cat deps/.mix_lock_hash)" ]; then
+            echo "mix.lock unchanged — skipping deps.get"
+          else
+            mix deps.get --only test
+            md5sum mix.lock | cut -d' ' -f1 > deps/.mix_lock_hash
+          fi
+
+      - name: Run Elixir unit tests
+        env:
+          DATABASE_URL: postgresql://engram:engram@localhost:${{ steps.pg.outputs.pg_port }}/engram_test
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec "$PG_CONTAINER" pg_isready -U engram > /dev/null 2>&1; then
+              echo "Test DB ready"
+              break
+            fi
+            sleep 1
+          done
+          MIX_ENV=test mix ecto.create
+          MIX_ENV=test mix ecto.migrate
+          # Ensure Tailwind binary is valid (cache prune can corrupt native deps)
+          mix tailwind.install 2>/dev/null || true
+          mix test
+
+      - name: Stop ephemeral postgres
+        if: always()
+        run: docker rm -fv "$PG_CONTAINER" 2>/dev/null || true
+
+      - name: Clean temp files
+        if: always()
+        run: find /tmp -maxdepth 1 -name '.ff*.node' -mmin +60 -delete 2>/dev/null || true
 
   e2e-local:
     runs-on: [self-hosted, engram]
