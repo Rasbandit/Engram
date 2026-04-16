@@ -102,15 +102,16 @@ class TestRegistration:
 
 
 class TestLogin:
-    @pytest.fixture(autouse=True)
-    def _registered_user(self):
-        self.email = unique_email("login")
+    @pytest.fixture(scope="class", autouse=True)
+    def _registered_user(self, request):
+        email = unique_email("login")
         resp = requests.post(
             f"{API_URL}/auth/register",
-            json={"email": self.email, "password": PASSWORD},
+            json={"email": email, "password": PASSWORD},
             timeout=10,
         )
         assert resp.status_code == 201
+        request.cls.email = email
 
     def test_valid_credentials(self):
         """Login with correct password returns access token + refresh cookie."""
