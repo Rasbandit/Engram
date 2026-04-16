@@ -197,7 +197,7 @@ jobs:
         env:
           CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
           CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
-          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
           CI_ENGRAM_PORT: ${{ steps.ports.outputs.engram_port }}
           CI_PG_PORT: ${{ steps.ports.outputs.pg_port }}
           QDRANT_COLLECTION: ${{ env.QDRANT_COLLECTION }}

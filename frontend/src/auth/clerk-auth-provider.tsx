@@ -2,8 +2,9 @@ import { ClerkProvider, useAuth, useClerk } from '@clerk/clerk-react'
 import { useCallback, useEffect, useMemo } from 'react'
 import { AuthContext, type AuthAdapter } from './auth-context'
 import { setTokenGetter } from '../api/client'
+import { config } from '../config'
 
-const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
+const clerkPubKey = config.clerkPublishableKey
 
 function ClerkAdapterInner({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn, getToken } = useAuth()
@@ -33,7 +34,7 @@ function ClerkAdapterInner({ children }: { children: React.ReactNode }) {
 
 export default function ClerkAuthProvider({ children }: { children: React.ReactNode }) {
   if (!clerkPubKey) {
-    throw new Error('VITE_CLERK_PUBLISHABLE_KEY is required when AUTH_PROVIDER=clerk')
+    throw new Error('CLERK_PUBLISHABLE_KEY is required when AUTH_PROVIDER=clerk')
   }
 
   return (

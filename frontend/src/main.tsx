@@ -4,9 +4,10 @@ import { RouterProvider } from 'react-router'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { router } from './router'
 import { queryClient } from './api/query-client'
+import { config } from './config'
 import './main.css'
 
-const isClerk = import.meta.env.VITE_AUTH_PROVIDER === 'clerk'
+const isClerk = config.authProvider === 'clerk'
 
 const AuthProvider = isClerk
   ? lazy(() => import('./auth/clerk-auth-provider'))

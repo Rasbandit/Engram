@@ -14,10 +14,6 @@ WORKDIR /frontend
 COPY frontend/package.json frontend/bun.lock ./
 RUN bun install --frozen-lockfile
 COPY frontend/ ./
-ARG VITE_AUTH_PROVIDER="local"
-ARG VITE_CLERK_PUBLISHABLE_KEY=""
-ENV VITE_AUTH_PROVIDER=$VITE_AUTH_PROVIDER
-ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
 RUN bun run build
 
 # ─── Elixir build ────────────────────────────────────────────────────────

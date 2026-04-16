@@ -133,6 +133,10 @@ if auth_provider == :clerk do
   clerk_issuer = System.get_env("CLERK_ISSUER") ||
     raise "CLERK_ISSUER is required when AUTH_PROVIDER=clerk"
   config :engram, :clerk_issuer, String.trim(clerk_issuer)
+
+  clerk_pub_key = System.get_env("CLERK_PUBLISHABLE_KEY") ||
+    raise "CLERK_PUBLISHABLE_KEY is required when AUTH_PROVIDER=clerk"
+  config :engram, :clerk_publishable_key, clerk_pub_key
 end
 
 # Stripe billing
