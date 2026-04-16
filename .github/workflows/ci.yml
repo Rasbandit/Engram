@@ -102,6 +102,8 @@ jobs:
           done
           MIX_ENV=test mix ecto.create
           MIX_ENV=test mix ecto.migrate
+          # Ensure Tailwind binary is valid (cache prune can corrupt native deps)
+          mix tailwind.install 2>/dev/null || true
           mix test
 
       - name: Stop ephemeral postgres
