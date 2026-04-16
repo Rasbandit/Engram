@@ -88,9 +88,17 @@ def ts():
 
 @pytest.fixture(scope="session")
 def auth_provider():
-    """Unified auth provider based on AUTH_PROVIDER env var."""
+    """Unified auth provider based on AUTH_PROVIDER env var.
+
+    The nuclear `cleanup_all_e2e_users()` sweep only runs on worker 0.
+    Under xdist, a non-zero worker racing this against worker 0 would
+    delete the other worker's freshly provisioned users. Orphan cleanup
+    across runs still happens via the standalone
+    `e2e/scripts/cleanup_clerk_users.py` tool.
+    """
     provider = get_auth_provider(API_URL)
-    provider.cleanup_all_e2e_users()
+    if _WORKER == 0:
+        provider.cleanup_all_e2e_users()
     return provider
 
 
@@ -145,6 +153,17 @@ def sync_client_id(ts):
 
 
 @pytest.fixture(scope="session")
+def iso_client_id(ts):
+    """Stable client_id for the isolation user's single vault.
+
+    Giving Obsidian C a deterministic client_id lets api_iso idempotently
+    upsert the same vault via /vaults/register without tripping the
+    max_vaults limit (which would fire if we created two distinct vaults).
+    """
+    return f"e2e-iso-pair-{ts}"
+
+
+@pytest.fixture(scope="session")
 def obsidian_a(sync_user, sync_client_id):
 
     inst = ObsidianInstance(
@@ -186,7 +205,7 @@ def obsidian_b(sync_user, sync_client_id):
 
 
 @pytest.fixture(scope="session")
-def obsidian_c(isolation_user):
+def obsidian_c(isolation_user, iso_client_id):
     """Different user — proves multi-tenant isolation."""
 
     inst = ObsidianInstance(
@@ -198,6 +217,7 @@ def obsidian_c(isolation_user):
         api_key=isolation_user[2],
         plugin_src=PLUGIN_SRC,
         obsidian_bin=OBSIDIAN_BIN,
+        client_id=iso_client_id,
         config_dir=Path(f"{CONFIG_PREFIX}-c"),
     )
     inst.start()
@@ -229,15 +249,35 @@ def cdp_c(obsidian_c):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
-def api_sync(sync_user):
-    """API client for sync user. Uses API key (provider-agnostic)."""
-    return ApiClient(API_URL, sync_user[2])
+def api_sync(sync_user, sync_client_id):
+    """API client for sync user. Uses API key (provider-agnostic).
+
+    Upserts a vault via /vaults/register (idempotent by client_id) so
+    tests that hit vault-scoped endpoints don't 404 on workers whose
+    bucket never boots Obsidian A/B. Sharing sync_client_id with those
+    instances means the plugin's own register later is a no-op.
+    """
+    api = ApiClient(API_URL, sync_user[2])
+    try:
+        api.register_vault(f"e2e-sync-vault-w{_WORKER}", sync_client_id)
+    except Exception:
+        pass
+    return api
 
 
 @pytest.fixture(scope="session")
-def api_iso(isolation_user):
-    """API client for isolation user. Uses API key (provider-agnostic)."""
-    return ApiClient(API_URL, isolation_user[2])
+def api_iso(isolation_user, iso_client_id):
+    """API client for isolation user. Uses API key (provider-agnostic).
+
+    Pre-registers the same client_id Obsidian C will use so max_vaults=1
+    doesn't trip when both code paths touch the same vault.
+    """
+    api = ApiClient(API_URL, isolation_user[2])
+    try:
+        api.register_vault(f"e2e-iso-vault-w{_WORKER}", iso_client_id)
+    except Exception:
+        pass
+    return api
 
 
 # ---------------------------------------------------------------------------
@@ -284,8 +324,12 @@ def session_cleanup(request, auth_provider):
     # Provider-specific cleanup (e.g., delete Clerk users)
     for uid in provider_user_ids:
         auth_provider.cleanup_user(uid)
-    # DB cleanup: delete all e2e-* users + their data
-    for pattern in ["e2e-%@example.com", "e2e-%@test.local", "e2e-%@test.com"]:
+    # DB cleanup: scoped to THIS worker's users via the w{N} ts suffix
+    # so a worker finishing early doesn't delete another worker's users
+    # mid-run. Emails look like e2e-sync-20260416...w{N}@example.com, so
+    # `%w{N}@example.com` matches only this worker's rows.
+    for domain in ("example.com", "test.local", "test.com"):
+        pattern = f"e2e-%w{_WORKER}@{domain}"
         try:
             cleanup_test_data(pattern)
         except Exception as e:

@@ -49,7 +49,8 @@ async def test_offline_multi_file_flush(vault_a, cdp_a, api_sync):
     finally:
         # MUST restore even if assertions fail — prevents cascade to later tests
         await cdp_a.restore_online()
-        await cdp_a.wait_for_queue_drain(timeout=15)
+        # 30s accommodates backend load when xdist runs two workers in parallel.
+        await cdp_a.wait_for_queue_drain(timeout=30)
 
     # All 3 notes should be on server
     for path in paths:
