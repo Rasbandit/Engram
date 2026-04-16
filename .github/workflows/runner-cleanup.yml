@@ -42,8 +42,21 @@ jobs:
             --filter "reference=engram-ci-*-engram:latest" \
             | xargs -r docker rmi 2>/dev/null || true
 
-          # 7. Prune build cache older than 7 days
-          docker builder prune --filter until=168h -f 2>/dev/null || true
+          # 7. Prune build cache — keep max 2GB, nuke the rest
+          # --mount=type=cache entries stay "active" indefinitely, so age-based
+          # filters don't work. Use --all to reclaim everything, then rebuild
+          # cache naturally on next CI run.
+          docker builder prune --all --keep-storage=2gb -f 2>/dev/null || true
 
+          # 8. Clean Bun .node cache files (8.8MB each, ~400/week, never auto-cleaned)
+          find /tmp -maxdepth 1 -name '.ff*.node' -delete 2>/dev/null || true
+
+          # 9. Clean other stale /tmp files (tmpfs has user quota, fills up fast)
+          find /tmp -maxdepth 1 -user "$(whoami)" -mtime +1 \
+            ! -name 'claude-*' \
+            ! -name 'bunx-*' \
+            -exec rm -rf {} + 2>/dev/null || true
           echo "=== After ==="
           docker system df
+          echo "=== /tmp ==="
+          du -sh /tmp/ 2>/dev/null || true

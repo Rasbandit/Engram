@@ -3,8 +3,10 @@
 Queue entries are persisted to data.json. After a hard restart, the plugin
 should restore the queue and flush it during the startup sync.
 
-WARNING: This test kills and restarts Obsidian instance A. It should run
-last in the test suite (alphabetical ordering ensures this).
+WARNING: This test kills and restarts Obsidian instance A. Under xdist
+--dist=loadfile it runs last within its worker (intra-file order is
+preserved), which is all we need — the restart only affects this
+worker's A instance.
 """
 
 import asyncio
@@ -56,7 +58,7 @@ async def test_restart_preserves_queue(vault_a, cdp_a, api_sync, obsidian_a):
 
     # 4. Kill Obsidian A (hard stop — simulates crash)
     obsidian_a.stop()
-    await asyncio.sleep(1)
+    await asyncio.sleep(0.3)
 
     # 5. Restart Obsidian A (restart=True preserves vault + data.json with queue)
     await obsidian_a.async_start(restart=True)

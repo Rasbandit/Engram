@@ -42,6 +42,8 @@ test.describe('Clerk auth provider', () => {
 
   test('redirects unauthenticated users to sign-in with Clerk UI', async ({ page }) => {
     await page.goto('/app/')
+    // Wait for auth provider to finish loading before checking redirect
+    await page.getByText('Loading...').waitFor({ state: 'hidden', timeout: 15_000 })
     await expect(page).toHaveURL(/\/sign-in/)
     await expect(page.locator(SIGN_IN)).toBeVisible({ timeout: 15_000 })
     await expect(page.locator('h1.cl-headerTitle')).toContainText('Sign in')
@@ -49,6 +51,8 @@ test.describe('Clerk auth provider', () => {
 
   test('renders Clerk SignUp component', async ({ page }) => {
     await page.goto('/app/sign-up/')
+    // Wait for Clerk container to attach, then for SDK to render it visible
+    await page.locator(SIGN_UP).waitFor({ state: 'attached', timeout: 15_000 })
     await expect(page.locator(SIGN_UP)).toBeVisible({ timeout: 15_000 })
   })
 

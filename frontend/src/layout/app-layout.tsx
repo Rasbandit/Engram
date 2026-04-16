@@ -1,7 +1,8 @@
 import { lazy, Suspense, useState } from 'react'
 import { Link, Outlet } from 'react-router'
+import { config } from '../config'
 
-const isClerk = import.meta.env.VITE_AUTH_PROVIDER === 'clerk'
+const isClerk = config.authProvider === 'clerk'
 const ClerkUserButton = isClerk
   ? lazy(() => import('@clerk/clerk-react').then((mod) => ({ default: mod.UserButton })))
   : null

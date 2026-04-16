@@ -2,15 +2,8 @@ defmodule EngramWeb.SpaControllerTest do
   use EngramWeb.ConnCase
 
   setup do
-    # Ensure a minimal index.html exists for SPA tests (CI has no frontend build)
-    path = Application.app_dir(:engram, "priv/static/app")
-    File.mkdir_p!(path)
-    index = Path.join(path, "index.html")
-
-    unless File.exists?(index) do
-      File.write!(index, ~s(<!DOCTYPE html><html><body><div id="root"></div></body></html>))
-    end
-
+    # Invalidate cached split so each test gets a fresh file read
+    :persistent_term.erase({EngramWeb.SpaController, :split})
     :ok
   end
 
@@ -39,6 +32,12 @@ defmodule EngramWeb.SpaControllerTest do
     conn = get(conn, "/share/abc123/folder/note")
     assert conn.status == 200
     assert response(conn, 200) =~ "<!DOCTYPE html>"
+  end
+
+  test "GET /app injects runtime config script", %{conn: conn} do
+    body = conn |> get("/app") |> response(200)
+    assert body =~ "window.__ENGRAM_CONFIG__="
+    assert body =~ ~s("authProvider":)
   end
 
   test "API routes are NOT caught by SPA fallback", %{conn: conn} do

@@ -37,13 +37,62 @@ API_URL = os.environ.get("ENGRAM_API_URL") or "http://localhost:8100/api"
 PLUGIN_SRC = Path(os.environ.get("ENGRAM_PLUGIN_SRC", Path(__file__).parent.parent / "plugin"))
 OBSIDIAN_BIN = Path.home() / "Applications" / "Obsidian.AppImage"
 
+def _worker_index() -> int:
+    """xdist worker number (0 for master / serial runs)."""
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+    return int(worker[2:]) if worker.startswith("gw") else 0
+
+
+_WORKER = _worker_index()
+
+# --------------------------------------------------------------------------
+# Worker-stride constants (single source of truth)
+#
+# Each worker runs INSTANCES_PER_WORKER Obsidian instances (A, B, C).
+# Each instance needs its own CDP port and Xvfb display.
+# To keep workers non-overlapping, we stride ports/displays by the number
+# of instances per worker. Keeping _PORT_STRIDE == _DISPLAY_STRIDE ==
+# INSTANCES_PER_WORKER means bumping instance count updates both in one place.
+# --------------------------------------------------------------------------
+INSTANCES_PER_WORKER = 3
+_PORT_STRIDE = INSTANCES_PER_WORKER
+_DISPLAY_STRIDE = INSTANCES_PER_WORKER
+
+
+def _worker_port(name: str, legacy_default: str) -> int:
+    """Prefer per-worker env var (E2E_CDP_PORT_A_W1), fall back to base + stride.
+
+    CI allocates 6 free ports and exports them as E2E_CDP_PORT_{A,B,C}_W{0,1}
+    so no two workers collide even when dynamic allocation is non-contiguous.
+    Serial / local runs fall back to the base env var + worker*stride.
+    """
+    scoped = os.environ.get(f"{name}_W{_WORKER}")
+    if scoped:
+        return int(scoped)
+    base = int(os.environ.get(name) or legacy_default)
+    return base + _WORKER * _PORT_STRIDE
+
+
 # Dynamic ports/paths for parallel CI runs (defaults match legacy hardcoded values)
 VAULT_PREFIX = os.environ.get("E2E_VAULT_PREFIX", "/tmp/e2e-vault")
 CONFIG_PREFIX = os.environ.get("E2E_CONFIG_PREFIX", "/tmp/e2e-obsidian-config")
-CDP_PORT_A = int(os.environ.get("E2E_CDP_PORT_A") or "9250")
-CDP_PORT_B = int(os.environ.get("E2E_CDP_PORT_B") or "9251")
-CDP_PORT_C = int(os.environ.get("E2E_CDP_PORT_C") or "9252")
-DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE") or "99")
+CDP_PORT_A = _worker_port("E2E_CDP_PORT_A", "9250")
+CDP_PORT_B = _worker_port("E2E_CDP_PORT_B", "9251")
+CDP_PORT_C = _worker_port("E2E_CDP_PORT_C", "9252")
+DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE") or "99") - _WORKER * _DISPLAY_STRIDE
+
+# Lowest display this worker will use (B=base-1, C=base-2 → base - (INSTANCES_PER_WORKER - 1)).
+# Must stay ≥ 1 (Xvfb display :0 is reserved for the host X server if any).
+_min_display = DISPLAY_BASE - (INSTANCES_PER_WORKER - 1)
+assert _min_display >= 1, (
+    f"DISPLAY_BASE={DISPLAY_BASE} too low for worker {_WORKER}: "
+    f"would use display :{_min_display}. "
+    f"Raise E2E_DISPLAY_BASE in CI (currently the floor is worker*_DISPLAY_STRIDE + INSTANCES_PER_WORKER)."
+)
+
+if _WORKER > 0:
+    VAULT_PREFIX = f"{VAULT_PREFIX}-w{_WORKER}"
+    CONFIG_PREFIX = f"{CONFIG_PREFIX}-w{_WORKER}"
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +101,8 @@ DISPLAY_BASE = int(os.environ.get("E2E_DISPLAY_BASE") or "99")
 
 @pytest.fixture(scope="session")
 def ts():
-    return datetime.now().strftime("%Y%m%d%H%M%S%f")
+    """Per-worker unique timestamp so two workers never pick the same email."""
+    return f"{datetime.now().strftime('%Y%m%d%H%M%S%f')}w{_WORKER}"
 
 
 # ---------------------------------------------------------------------------
@@ -61,9 +111,17 @@ def ts():
 
 @pytest.fixture(scope="session")
 def auth_provider():
-    """Unified auth provider based on AUTH_PROVIDER env var."""
+    """Unified auth provider based on AUTH_PROVIDER env var.
+
+    The nuclear `cleanup_all_e2e_users()` sweep only runs on worker 0.
+    Under xdist, a non-zero worker racing this against worker 0 would
+    delete the other worker's freshly provisioned users. Orphan cleanup
+    across runs still happens via the standalone
+    `e2e/scripts/cleanup_clerk_users.py` tool.
+    """
     provider = get_auth_provider(API_URL)
-    provider.cleanup_all_e2e_users()
+    if _WORKER == 0:
+        provider.cleanup_all_e2e_users()
     return provider
 
 
@@ -118,6 +176,17 @@ def sync_client_id(ts):
 
 
 @pytest.fixture(scope="session")
+def iso_client_id(ts):
+    """Stable client_id for the isolation user's single vault.
+
+    Giving Obsidian C a deterministic client_id lets api_iso idempotently
+    upsert the same vault via /vaults/register without tripping the
+    max_vaults limit (which would fire if we created two distinct vaults).
+    """
+    return f"e2e-iso-pair-{ts}"
+
+
+@pytest.fixture(scope="session")
 def obsidian_a(sync_user, sync_client_id):
 
     inst = ObsidianInstance(
@@ -159,7 +228,7 @@ def obsidian_b(sync_user, sync_client_id):
 
 
 @pytest.fixture(scope="session")
-def obsidian_c(isolation_user):
+def obsidian_c(isolation_user, iso_client_id):
     """Different user — proves multi-tenant isolation."""
 
     inst = ObsidianInstance(
@@ -171,6 +240,7 @@ def obsidian_c(isolation_user):
         api_key=isolation_user[2],
         plugin_src=PLUGIN_SRC,
         obsidian_bin=OBSIDIAN_BIN,
+        client_id=iso_client_id,
         config_dir=Path(f"{CONFIG_PREFIX}-c"),
     )
     inst.start()
@@ -202,15 +272,35 @@ def cdp_c(obsidian_c):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
-def api_sync(sync_user):
-    """API client for sync user. Uses API key (provider-agnostic)."""
-    return ApiClient(API_URL, sync_user[2])
+def api_sync(sync_user, sync_client_id):
+    """API client for sync user. Uses API key (provider-agnostic).
+
+    Upserts a vault via /vaults/register (idempotent by client_id) so
+    tests that hit vault-scoped endpoints don't 404 on workers whose
+    bucket never boots Obsidian A/B. Sharing sync_client_id with those
+    instances means the plugin's own register later is a no-op.
+    """
+    api = ApiClient(API_URL, sync_user[2])
+    try:
+        api.register_vault(f"e2e-sync-vault-w{_WORKER}", sync_client_id)
+    except Exception:
+        pass
+    return api
 
 
 @pytest.fixture(scope="session")
-def api_iso(isolation_user):
-    """API client for isolation user. Uses API key (provider-agnostic)."""
-    return ApiClient(API_URL, isolation_user[2])
+def api_iso(isolation_user, iso_client_id):
+    """API client for isolation user. Uses API key (provider-agnostic).
+
+    Pre-registers the same client_id Obsidian C will use so max_vaults=1
+    doesn't trip when both code paths touch the same vault.
+    """
+    api = ApiClient(API_URL, isolation_user[2])
+    try:
+        api.register_vault(f"e2e-iso-vault-w{_WORKER}", iso_client_id)
+    except Exception:
+        pass
+    return api
 
 
 # ---------------------------------------------------------------------------
@@ -257,8 +347,12 @@ def session_cleanup(request, auth_provider):
     # Provider-specific cleanup (e.g., delete Clerk users)
     for uid in provider_user_ids:
         auth_provider.cleanup_user(uid)
-    # DB cleanup: delete all e2e-* users + their data
-    for pattern in ["e2e-%@example.com", "e2e-%@test.local", "e2e-%@test.com"]:
+    # DB cleanup: scoped to THIS worker's users via the w{N} ts suffix
+    # so a worker finishing early doesn't delete another worker's users
+    # mid-run. Emails look like e2e-sync-20260416...w{N}@example.com, so
+    # `%w{N}@example.com` matches only this worker's rows.
+    for domain in ("example.com", "test.local", "test.com"):
+        pattern = f"e2e-%w{_WORKER}@{domain}"
         try:
             cleanup_test_data(pattern)
         except Exception as e:

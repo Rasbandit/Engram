@@ -1,42 +1,16 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { execSync } from 'node:child_process'
+import { cleanupTestUsers } from './db-cleanup'
 
 const AUTH_STATE_PATH = path.join(__dirname, '.auth-state.json')
 const CLERK_API = 'https://api.clerk.com/v1'
 
 export default async function globalTeardown() {
   // 1. Clean up e2e test users from backend DB (both local + clerk tests)
-  await cleanupDatabaseUsers()
+  await cleanupTestUsers('teardown')
 
   // 2. Clean up Clerk test user via API
   await cleanupClerkUser()
-}
-
-async function cleanupDatabaseUsers() {
-  const dbUrl = process.env.DATABASE_URL
-  if (!dbUrl) {
-    console.log('DATABASE_URL not set — skipping DB cleanup')
-    return
-  }
-
-  try {
-    // Delete users created by browser E2E tests (pattern: e2e-local-* and e2e-browser-*)
-    const result = execSync(
-      `psql "${dbUrl}" -t -c "DELETE FROM users WHERE email LIKE 'e2e-local-%@test.com' OR email LIKE 'e2e-browser-%@test.com' RETURNING email;"`,
-      { encoding: 'utf-8', timeout: 10_000 },
-    ).trim()
-
-    if (result) {
-      const deleted = result.split('\n').map((l) => l.trim()).filter(Boolean)
-      console.log(`Cleaned up ${deleted.length} test user(s) from DB: ${deleted.join(', ')}`)
-    } else {
-      console.log('No test users to clean up in DB')
-    }
-  } catch (err) {
-    // Non-fatal — don't fail the suite over cleanup
-    console.warn(`DB cleanup failed (non-fatal): ${err instanceof Error ? err.message : err}`)
-  }
 }
 
 async function cleanupClerkUser() {

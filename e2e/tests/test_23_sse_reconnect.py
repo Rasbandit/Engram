@@ -18,10 +18,10 @@ async def test_channel_reconnect_catches_up(vault_a, vault_b, cdp_a, cdp_b, api_
     path = "E2E/ChannelReconnect.md"
 
     # Wait for channel to be connected on B (may take a moment after prior tests)
-    for _ in range(10):
+    for _ in range(20):
         if await cdp_b.check_stream_connected():
             break
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
     assert await cdp_b.check_stream_connected(), "B's channel should be connected"
 
     # Disconnect B's channel

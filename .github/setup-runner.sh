@@ -50,7 +50,7 @@ done
 
 # ── Python packages (pytest, playwright, requests) ───────────────────────
 echo "Installing Python packages..."
-pip3 install --upgrade 'playwright>=1.48' pytest pytest-rerunfailures requests websockets
+pip3 install --upgrade 'playwright>=1.48' pytest pytest-rerunfailures pytest-xdist requests websockets
 
 echo "Installing Playwright Chromium..."
 # Install browser only — skip --with-deps (requires apt, unavailable on Fedora).
@@ -87,23 +87,20 @@ fi
 #   ~/actions-runner-plugin     (plugin repo CI)
 #   ~/actions-runner-engram-2   (parallel job capacity)
 
-# ── Pre-extract Obsidian AppImage ────────────────────────────────────────
+# ── Obsidian AppImage (download + pre-extract latest) ────────────────────
 # Obsidian's --appimage-extract-and-run re-extracts squashfs on every launch
 # (~15-30s per boot × 3 instances = 45-90s per CI run). Pre-extracting once
-# eliminates this overhead entirely.
-OBSIDIAN_APPIMAGE="$HOME/Applications/Obsidian.AppImage"
-OBSIDIAN_EXTRACTED="$HOME/Applications/obsidian-extracted"
-if [ -f "$OBSIDIAN_APPIMAGE" ] && [ ! -d "$OBSIDIAN_EXTRACTED" ]; then
-  echo "Pre-extracting Obsidian AppImage (one-time)..."
-  cd "$HOME/Applications"
-  "$OBSIDIAN_APPIMAGE" --appimage-extract > /dev/null 2>&1
-  mv squashfs-root "$OBSIDIAN_EXTRACTED"
-  echo "  ✓ Extracted to $OBSIDIAN_EXTRACTED"
-  cd -
-elif [ -d "$OBSIDIAN_EXTRACTED" ]; then
-  echo "Obsidian already pre-extracted at $OBSIDIAN_EXTRACTED"
+# eliminates this overhead. Runs as the runner user (no sudo needed).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+UPDATE_SCRIPT="$SCRIPT_DIR/update-obsidian.sh"
+if [ -x "$UPDATE_SCRIPT" ]; then
+  if [ "$EUID" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+    sudo -u "$SUDO_USER" -H bash "$UPDATE_SCRIPT"
+  else
+    bash "$UPDATE_SCRIPT"
+  fi
 else
-  echo "WARNING: Obsidian AppImage not found at $OBSIDIAN_APPIMAGE"
+  echo "WARNING: $UPDATE_SCRIPT not found — skipping Obsidian update"
 fi
 
 # ── Verify ───────────────────────────────────────────────────────────────

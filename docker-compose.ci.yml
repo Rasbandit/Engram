@@ -21,7 +21,6 @@ services:
     build:
       context: .
       args:
-        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:-}
         NODE_IMAGE: ${LOCAL_REGISTRY:-docker.io}/node:20-slim
         BUILDER_IMAGE: ${LOCAL_REGISTRY:-docker.io}/hexpm/elixir:1.17.3-erlang-27.1.2-debian-bookworm-20241202-slim
         RUNNER_IMAGE: ${LOCAL_REGISTRY:-docker.io}/debian:bookworm-20241202-slim
@@ -41,12 +40,13 @@ services:
       AUTH_PROVIDER: clerk
       CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
       CLERK_ISSUER: ${CLERK_ISSUER:-}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4000/api/health || exit 1"]
-      start_period: 10s
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      start_period: 3s
+      interval: 3s
+      timeout: 3s
+      retries: 15
     depends_on:
       postgres:
         condition: service_healthy

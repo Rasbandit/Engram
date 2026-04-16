@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
+import { config } from '../config'
 
-const isClerk = import.meta.env.VITE_AUTH_PROVIDER === 'clerk'
+const isClerk = config.authProvider === 'clerk'
 
 const ClerkSignUpPage = isClerk
   ? lazy(() =>

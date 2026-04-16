@@ -1,26 +1,15 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { execSync } from 'node:child_process'
 import { clerkSetup } from '@clerk/testing/playwright'
+import { cleanupTestUsers } from './db-cleanup'
 
 const AUTH_STATE_PATH = path.join(__dirname, '.auth-state.json')
 const CLERK_API = 'https://api.clerk.com/v1'
 
 export default async function globalSetup() {
   // Clean up stale test users from previous runs (in case teardown didn't run)
-  const dbUrl = process.env.DATABASE_URL
-  if (dbUrl) {
-    try {
-      execSync(
-        `psql "${dbUrl}" -c "DELETE FROM users WHERE email LIKE 'e2e-local-%@test.com' OR email LIKE 'e2e-browser-%@test.com';"`,
-        { encoding: 'utf-8', timeout: 10_000 },
-      )
-      console.log('Cleaned up stale test users from previous runs')
-    } catch {
-      // Non-fatal
-    }
-  }
+  await cleanupTestUsers('setup')
 
   const secretKey = process.env.E2E_CLERK_SECRET_KEY
   if (!secretKey) {
