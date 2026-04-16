@@ -227,7 +227,9 @@ jobs:
               fi
             fi
 
-            for i in $(seq 1 60); do
+            # Quick verification — compose --wait already confirmed healthcheck,
+            # this just confirms the port mapping is reachable from the host
+            for i in $(seq 1 15); do
               if curl -sf "http://localhost:${CI_ENGRAM_PORT}/api/health" > /dev/null 2>&1; then
                 echo "CI stack healthy on port ${CI_ENGRAM_PORT}"
                 touch "${MARKER_PREFIX}-stack.marker"
