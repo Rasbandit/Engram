@@ -5,24 +5,34 @@ const TEST_EMAIL = `e2e-local-${ts}@test.com`
 const TEST_EMAIL_2 = `e2e-local-${ts}-2@test.com`
 const TEST_PASSWORD = 'E2eTestPass!99'
 
-// Capture browser console + network for debugging CI failures
+// Capture browser console + network + navigation for debugging CI failures
 test.beforeEach(async ({ page }) => {
   const messages: string[] = []
+  const t0 = Date.now()
+  const ts = () => `+${Date.now() - t0}ms`
   page.on('console', (msg) => {
     const text = msg.text()
     if (text.startsWith('[AUTH') || text.startsWith('[SIGN') || text.startsWith('[PAGE')) {
-      messages.push(`[console:${msg.type()}] ${text}`)
+      messages.push(`${ts()} [console:${msg.type()}] ${text}`)
     }
   })
   page.on('pageerror', (err) => {
-    messages.push(`[PAGE-ERROR] ${err.message}`)
+    messages.push(`${ts()} [PAGE-ERROR] ${err.message}`)
   })
-  // Log auth-related API requests/responses
   page.on('response', (response) => {
     const url = response.url()
     if (url.includes('/api/auth/')) {
-      messages.push(`[network] ${response.request().method()} ${url} → ${response.status()}`)
+      messages.push(`${ts()} [network] ${response.request().method()} ${url} → ${response.status()}`)
     }
+  })
+  // Detect ALL navigations (client-side + full reloads)
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) {
+      messages.push(`${ts()} [NAVIGATE] ${frame.url()}`)
+    }
+  })
+  page.on('load', () => {
+    messages.push(`${ts()} [FULL-PAGE-LOAD] ${page.url()}`)
   })
   ;(page as unknown as Record<string, unknown>).__authLogs = messages
 })
@@ -61,12 +71,16 @@ test.describe('Local auth provider', () => {
     await page.goto('/app/sign-in/')
     await page.getByLabel('Email').fill(TEST_EMAIL)
     await page.getByLabel('Password', { exact: true }).fill(TEST_PASSWORD)
-    console.log('[TEST:sign-out] clicking Sign in, current URL:', page.url())
     await page.getByRole('button', { name: 'Sign in' }).click()
-    // Wait a beat then dump state before assertion
-    await page.waitForTimeout(2_000)
+    // Poll URL every 500ms for 5s to capture the exact transition
+    for (let i = 0; i < 10; i++) {
+      await page.waitForTimeout(500)
+      const url = page.url()
+      console.log(`[TEST:sign-out] t+${(i + 1) * 500}ms URL: ${url}`)
+      if (/\/app\/?$/.test(url)) break
+    }
     const logs = (page as unknown as Record<string, unknown>).__authLogs as string[]
-    console.log('[TEST:sign-out] pre-assert URL:', page.url(), 'log count:', logs.length)
+    console.log(`[TEST:sign-out] final dump (${logs.length} entries):`)
     for (const m of logs) console.log(m)
     await expect(page).toHaveURL(/\/app\/?$/, { timeout: 10_000 })
 
@@ -80,12 +94,16 @@ test.describe('Local auth provider', () => {
     await page.goto('/app/sign-in/')
     await page.getByLabel('Email').fill(TEST_EMAIL)
     await page.getByLabel('Password', { exact: true }).fill(TEST_PASSWORD)
-    console.log('[TEST:sign-in] clicking Sign in, current URL:', page.url())
     await page.getByRole('button', { name: 'Sign in' }).click()
-    // Wait a beat then dump state before assertion
-    await page.waitForTimeout(2_000)
+    // Poll URL every 500ms for 5s to capture the exact transition
+    for (let i = 0; i < 10; i++) {
+      await page.waitForTimeout(500)
+      const url = page.url()
+      console.log(`[TEST:sign-in] t+${(i + 1) * 500}ms URL: ${url}`)
+      if (/\/app\/?$/.test(url)) break
+    }
     const logs = (page as unknown as Record<string, unknown>).__authLogs as string[]
-    console.log('[TEST:sign-in] pre-assert URL:', page.url(), 'log count:', logs.length)
+    console.log(`[TEST:sign-in] final dump (${logs.length} entries):`)
     for (const m of logs) console.log(m)
     await expect(page).toHaveURL(/\/app\/?$/, { timeout: 10_000 })
   })
