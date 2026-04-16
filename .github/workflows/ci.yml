@@ -206,9 +206,11 @@ jobs:
         run: |
           # --- CI stack build + start (background) ---
           (
-            # Prune Docker build cache — prevents /tmp tmpfs quota exhaustion
+            # Prevent /tmp tmpfs quota exhaustion (6-12GB shared by all runners)
             docker builder prune --all --keep-storage=2gb -f 2>/dev/null || true
-            # Clean stale /tmp files older than 2 days (tmpfs has 6GB user quota)
+            # Bun creates 8.8MB .node native cache files per CI run, never cleans them (~3.5GB/week)
+            find /tmp -maxdepth 1 -name '.ff*.node' -mmin +120 -delete 2>/dev/null || true
+            # Clean other stale temp files older than 2 days
             find /tmp -maxdepth 1 -user "$(whoami)" -mtime +2 -exec rm -rf {} + 2>/dev/null || true
 
             # Clean up stale CI collection on SlowRaid Qdrant before starting

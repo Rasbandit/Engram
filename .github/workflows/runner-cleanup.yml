@@ -48,7 +48,10 @@ jobs:
           # cache naturally on next CI run.
           docker builder prune --all --keep-storage=2gb -f 2>/dev/null || true
 
-          # 8. Clean stale /tmp files (tmpfs has user quota, fills up fast)
+          # 8. Clean Bun .node cache files (8.8MB each, ~400/week, never auto-cleaned)
+          find /tmp -maxdepth 1 -name '.ff*.node' -delete 2>/dev/null || true
+
+          # 9. Clean other stale /tmp files (tmpfs has user quota, fills up fast)
           find /tmp -maxdepth 1 -user "$(whoami)" -mtime +1 \
             ! -name 'claude-*' \
             ! -name 'bunx-*' \
