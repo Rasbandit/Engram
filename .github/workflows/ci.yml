@@ -397,6 +397,7 @@ jobs:
           ENGRAM_PLUGIN_SRC: ${{ github.workspace }}/plugin-src
           CI_POSTGRES_CONTAINER: ${{ env.CI_PROJECT }}-postgres-1
           E2E_CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
+          AUTH_PROVIDER: clerk
           E2E_VAULT_PREFIX: ${{ env.E2E_VAULT_PREFIX }}
           E2E_CONFIG_PREFIX: ${{ env.E2E_CONFIG_PREFIX }}
           E2E_CDP_PORT_A: ${{ steps.ports.outputs.cdp_port_a }}
