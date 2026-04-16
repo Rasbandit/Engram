@@ -83,6 +83,7 @@ export default defineConfig({
         PORT: String(CLERK_BACKEND_PORT),
         CLERK_JWKS_URL: process.env.CLERK_JWKS_URL ?? '',
         CLERK_ISSUER: process.env.CLERK_ISSUER ?? '',
+        CLERK_PUBLISHABLE_KEY: process.env.VITE_CLERK_PUBLISHABLE_KEY ?? '',
       },
     },
     {
