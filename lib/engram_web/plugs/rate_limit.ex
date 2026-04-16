@@ -35,14 +35,21 @@ defmodule EngramWeb.Plugs.RateLimit do
     end
   end
 
-  # Compile-time branch: only test builds can override rate limits.
-  # Production rate limits are never configurable via env vars.
+  # Compile-time branch: test builds use :rate_limit_override from config/test.exs.
+  # Non-test builds (dev/prod) use :rate_limit_auth_override ONLY when CI=true.
+  # Production deploys never set CI=true, so this is unreachable in prod.
   if @is_test_build do
     defp effective_limit(default) do
       Application.get_env(:engram, :rate_limit_override) || default
     end
   else
-    defp effective_limit(default), do: default
+    defp effective_limit(default) do
+      if System.get_env("CI") == "true" do
+        Application.get_env(:engram, :rate_limit_auth_override) || default
+      else
+        default
+      end
+    end
   end
 
   defp rate_limit_key(conn) do

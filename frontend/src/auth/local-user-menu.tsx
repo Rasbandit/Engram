@@ -17,7 +17,7 @@ export default function LocalUserMenu() {
   }, [])
 
   return (
-    <nav className="relative" ref={menuRef} aria-label="User menu">
+    <nav className="relative" ref={menuRef} aria-label="Account">
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-sm font-medium text-white"

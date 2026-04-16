@@ -93,7 +93,7 @@ defmodule Engram.Accounts do
              role: role
            }
            |> Ecto.Changeset.change()
-           |> Ecto.Changeset.unique_constraint(:email)
+           |> Ecto.Changeset.unique_constraint(:email, name: :users_email_lower_index)
            |> Repo.insert(skip_tenant_check: true) do
         {:ok, user} -> user
         {:error, changeset} -> Repo.rollback(changeset)
