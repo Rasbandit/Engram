@@ -51,7 +51,7 @@ test.describe('Local auth provider', () => {
     await expect(page).toHaveURL(/\/app\/?$/, { timeout: 10_000 })
 
     await page.getByLabel('User menu').click()
-    await page.getByRole('button', { name: 'Sign out' }).click()
+    await page.getByRole('menuitem', { name: 'Sign out' }).click()
 
     await expect(page).toHaveURL(/\/sign-in/)
   })
