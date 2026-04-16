@@ -73,10 +73,9 @@ def clerk_client():
 
 @pytest.fixture(scope="session")
 def sync_user(ts, clerk_client):
-    """Shared user for Obsidian A + B. Requires Clerk."""
-    assert clerk_client is not None, (
-        "E2E_CLERK_SECRET_KEY is required — legacy password auth has been removed"
-    )
+    """Shared user for Obsidian A + B. Requires Clerk; returns None without it."""
+    if clerk_client is None:
+        pytest.skip("Clerk not available (AUTH_PROVIDER != clerk)")
     email = f"e2e-sync-{ts}@example.com"
     # Clean up stale user with same email from previous failed runs
     clerk_client.cleanup_user(email)
@@ -89,10 +88,9 @@ def sync_user(ts, clerk_client):
 
 @pytest.fixture(scope="session")
 def isolation_user(ts, clerk_client):
-    """Separate user for Obsidian C. Requires Clerk."""
-    assert clerk_client is not None, (
-        "E2E_CLERK_SECRET_KEY is required — legacy password auth has been removed"
-    )
+    """Separate user for Obsidian C. Requires Clerk; returns None without it."""
+    if clerk_client is None:
+        pytest.skip("Clerk not available (AUTH_PROVIDER != clerk)")
     email = f"e2e-iso-{ts}@example.com"
     # Clean up stale user with same email from previous failed runs
     clerk_client.cleanup_user(email)
@@ -235,20 +233,30 @@ def vault_c(obsidian_c):
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session", autouse=True)
-def session_cleanup(sync_user, isolation_user, clerk_client):
-    """Cleanup runs after the entire session, regardless of pass/fail."""
+def session_cleanup(request, clerk_client):
+    """Cleanup runs after the entire session, regardless of pass/fail.
+
+    Uses request.getfixturevalue to avoid hard-failing when Clerk
+    fixtures were skipped (e.g., AUTH_PROVIDER=local runs).
+    """
     yield
-    # Clerk user cleanup (delete from Clerk before DB cleanup)
-    clerk_user_ids = [
-        uid for uid in [sync_user[1], isolation_user[1]] if uid is not None
-    ]
-    if clerk_client and clerk_user_ids:
-        try:
-            cleanup_clerk_users(clerk_client, clerk_user_ids)
-        except Exception as e:
-            logging.getLogger(__name__).error("Clerk cleanup failed: %s", e)
+    # Clerk user cleanup (only if Clerk fixtures were actually resolved)
+    if clerk_client:
+        clerk_user_ids = []
+        for fixture_name in ("sync_user", "isolation_user"):
+            try:
+                user_tuple = request.getfixturevalue(fixture_name)
+                if user_tuple and user_tuple[1]:
+                    clerk_user_ids.append(user_tuple[1])
+            except pytest.FixtureLookupError:
+                pass
+        if clerk_user_ids:
+            try:
+                cleanup_clerk_users(clerk_client, clerk_user_ids)
+            except Exception as e:
+                logging.getLogger(__name__).error("Clerk cleanup failed: %s", e)
     # DB cleanup: delete all e2e-* users + their data (both email domains)
-    for pattern in ["e2e-%@example.com", "e2e-%@test.local"]:
+    for pattern in ["e2e-%@example.com", "e2e-%@test.local", "e2e-%@test.com"]:
         try:
             cleanup_test_data(pattern)
         except Exception as e:
