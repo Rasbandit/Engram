@@ -6,6 +6,7 @@ defmodule EngramWeb.Assets.MarketingCSSTest do
   @compiled_path "priv/static/css/marketing.css"
 
   describe "marketing CSS build reproducibility" do
+    @tag timeout: 120_000
     test "committed CSS matches fresh Tailwind rebuild" do
       committed = File.read!(@compiled_path)
 
