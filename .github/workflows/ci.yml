@@ -685,7 +685,7 @@ jobs:
         working-directory: frontend
         run: |
           export PATH="$HOME/.bun/bin:$PATH"
-          bun install
+          bun install --frozen-lockfile --registry http://10.0.20.214:4873
           bunx playwright install chromium
 
       - name: Run Playwright tests
