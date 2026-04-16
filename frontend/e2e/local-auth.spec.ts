@@ -21,8 +21,9 @@ function testEmail(label: string) {
 test.describe('Local auth provider', () => {
   test('redirects unauthenticated users to sign-in', async ({ page }) => {
     await page.goto('/app/')
-    // Auth provider may take time to load (silent refresh attempt)
-    await expect(page).toHaveURL(/\/sign-in/, { timeout: 15_000 })
+    // Wait for auth provider to finish loading before checking redirect
+    await page.getByText('Loading...').waitFor({ state: 'hidden', timeout: 15_000 })
+    await expect(page).toHaveURL(/\/sign-in/)
     await expect(page.getByRole('heading', { name: 'Sign in to Engram' })).toBeVisible()
     await expect(page.locator('.cl-signIn')).toHaveCount(0)
   })
