@@ -42,8 +42,11 @@ jobs:
             --filter "reference=engram-ci-*-engram:latest" \
             | xargs -r docker rmi 2>/dev/null || true
 
-          # 7. Prune build cache older than 7 days
-          docker builder prune --filter until=168h -f 2>/dev/null || true
+          # 7. Prune build cache — keep max 2GB, nuke the rest
+          # --mount=type=cache entries stay "active" indefinitely, so age-based
+          # filters don't work. Use --all to reclaim everything, then rebuild
+          # cache naturally on next CI run.
+          docker builder prune --all --keep-storage=2gb -f 2>/dev/null || true
 
           echo "=== After ==="
           docker system df

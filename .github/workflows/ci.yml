@@ -204,6 +204,9 @@ jobs:
         run: |
           # --- CI stack build + start (background) ---
           (
+            # Prune Docker build cache if over 4GB — prevents disk quota exhaustion
+            docker builder prune --all --keep-storage=4gb -f 2>/dev/null || true
+
             # Clean up stale CI collection on SlowRaid Qdrant before starting
             curl -sf -X DELETE "http://10.0.20.201:6333/collections/${QDRANT_COLLECTION}" > /dev/null 2>&1 || true
 
