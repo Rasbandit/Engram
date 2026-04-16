@@ -478,6 +478,113 @@ jobs:
           # Clean up ci-artifacts from this run
           rm -rf ci-artifacts/
 
+  e2e-local-auth:
+    runs-on: [self-hosted, engram]
+
+    env:
+      CI_PROJECT: engram-ci-local-${{ github.run_id }}
+      QDRANT_COLLECTION: ci_local_${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          clean: false
+
+      - name: Allocate dynamic ports
+        id: ports
+        run: |
+          get_free_port() {
+            python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"
+          }
+          ENGRAM_PORT=$(get_free_port)
+          PG_PORT=$(get_free_port)
+          for var in ENGRAM_PORT PG_PORT; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Port allocation failed for $var"
+              exit 1
+            fi
+          done
+          echo "engram_port=$ENGRAM_PORT" >> "$GITHUB_OUTPUT"
+          echo "pg_port=$PG_PORT" >> "$GITHUB_OUTPUT"
+          echo "Ports: engram=$ENGRAM_PORT pg=$PG_PORT"
+
+      - name: Start CI stack (local auth)
+        env:
+          CI_ENGRAM_PORT: ${{ steps.ports.outputs.engram_port }}
+          CI_PG_PORT: ${{ steps.ports.outputs.pg_port }}
+          QDRANT_COLLECTION: ${{ env.QDRANT_COLLECTION }}
+        run: |
+          docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml \
+            -p "$CI_PROJECT" down -v --remove-orphans 2>/dev/null || true
+
+          # Clean up stale Qdrant collection
+          curl -sf -X DELETE "http://10.0.20.201:6333/collections/${QDRANT_COLLECTION}" > /dev/null 2>&1 || true
+
+          # Reuse cached image if available, otherwise build
+          IMG_HASH=$(find Dockerfile docker-compose.ci.yml mix.exs mix.lock config/ lib/ priv/ frontend/ \
+            -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1)
+          CACHED_TAG="engram-ci:${IMG_HASH}"
+
+          if docker image inspect "$CACHED_TAG" > /dev/null 2>&1; then
+            echo "Image $CACHED_TAG exists — skipping build"
+            docker tag "$CACHED_TAG" ${CI_PROJECT}-engram:latest
+            docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml \
+              -p "$CI_PROJECT" up -d --no-build --wait
+          else
+            docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml \
+              -p "$CI_PROJECT" up -d --build --wait
+            BUILT_IMG=$(docker images --format '{{.ID}}' --filter "reference=${CI_PROJECT}-engram" | head -1)
+            if [ -n "$BUILT_IMG" ]; then
+              docker tag "$BUILT_IMG" "$CACHED_TAG"
+            fi
+          fi
+
+          # Wait for health
+          for i in $(seq 1 60); do
+            if curl -sf "http://localhost:${CI_ENGRAM_PORT}/api/health" > /dev/null 2>&1; then
+              echo "Local auth stack healthy on port ${CI_ENGRAM_PORT}"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Local auth stack failed to start"
+          docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml \
+            -p "$CI_PROJECT" logs
+          exit 1
+
+      - name: Run local auth API tests
+        working-directory: e2e
+        env:
+          ENGRAM_API_URL: http://localhost:${{ steps.ports.outputs.engram_port }}/api
+          AUTH_PROVIDER: local
+          QDRANT_URL: http://10.0.20.201:6333
+          QDRANT_COLLECTION: ${{ env.QDRANT_COLLECTION }}
+          OLLAMA_URL: http://10.0.20.214:11434
+        run: python3 -m pytest tests/api_only/ -v --timeout=180
+
+      - name: Collect failure logs
+        if: failure()
+        run: |
+          mkdir -p ci-artifacts-local
+          docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml \
+            -p "$CI_PROJECT" logs > ci-artifacts-local/docker-compose.log 2>&1
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ci-local-auth-debug-${{ github.sha }}
+          path: ci-artifacts-local/
+          retention-days: 7
+
+      - name: Tear down
+        if: always()
+        run: |
+          curl -sf -X DELETE "http://10.0.20.201:6333/collections/${QDRANT_COLLECTION}" > /dev/null 2>&1 || true
+          docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml \
+            -p "$CI_PROJECT" down -v --remove-orphans 2>/dev/null || true
+          rm -rf ci-artifacts-local/
+
   browser-e2e:
     runs-on: [self-hosted, engram]
 
@@ -597,7 +704,7 @@ jobs:
 
   ci:
     if: always()
-    needs: [version-check, unit-tests, e2e, browser-e2e]
+    needs: [version-check, unit-tests, e2e, e2e-local-auth, browser-e2e]
     runs-on: ubuntu-latest
     steps:
       - name: Check required jobs
@@ -612,8 +719,9 @@ jobs:
             echo "::error::version-check failed — bump mix.exs version before merging"
             exit 1
           fi
-          if [ "$UT" != "success" ] || [ "$E2E" != "success" ] || [ "$BE2E" != "success" ]; then
-            echo "Required jobs failed: unit-tests=$UT, e2e=$E2E, browser-e2e=$BE2E"
+          ELA="${{ needs.e2e-local-auth.result }}"
+          if [ "$UT" != "success" ] || [ "$E2E" != "success" ] || [ "$ELA" != "success" ] || [ "$BE2E" != "success" ]; then
+            echo "Required jobs failed: unit-tests=$UT, e2e=$E2E, e2e-local-auth=$ELA, browser-e2e=$BE2E"
             exit 1
           fi
 

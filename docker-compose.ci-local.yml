@@ -1,0 +1,10 @@
+# CI overlay: local auth provider for API-only tests.
+# Usage: docker compose -f docker-compose.ci.yml -f docker-compose.ci-local.yml -p engram-ci-local up -d --wait
+
+services:
+  engram:
+    environment:
+      AUTH_PROVIDER: local
+      # Clerk vars not needed in local mode
+      CLERK_JWKS_URL: ""
+      CLERK_ISSUER: ""
