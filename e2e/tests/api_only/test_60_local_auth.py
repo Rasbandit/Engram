@@ -194,7 +194,7 @@ class TestRefresh:
             timeout=10,
         )
         assert me_resp.status_code == 200
-        assert me_resp.json()["email"] == self.email
+        assert me_resp.json()["user"]["email"] == self.email
 
     def test_old_refresh_token_rejected_after_rotation(self):
         """After rotation, the old refresh token should be rejected."""
@@ -283,7 +283,7 @@ class TestAccessTokenAuth:
             timeout=10,
         )
         assert resp.status_code == 200
-        assert resp.json()["email"] == self.email
+        assert resp.json()["user"]["email"] == self.email
 
     def test_create_api_key(self):
         """Can create an API key using local JWT auth, then use it."""
@@ -306,7 +306,7 @@ class TestAccessTokenAuth:
             timeout=10,
         )
         assert me_resp.status_code == 200
-        assert me_resp.json()["email"] == self.email
+        assert me_resp.json()["user"]["email"] == self.email
 
     def test_invalid_token_rejected(self):
         """Garbage token returns 401."""
@@ -361,6 +361,6 @@ class TestMultiUserIsolation:
             timeout=10,
         ).json()
 
-        assert me_a["email"] == email_a
-        assert me_b["email"] == email_b
-        assert me_a["id"] != me_b["id"], "Users should have different IDs"
+        assert me_a["user"]["email"] == email_a
+        assert me_b["user"]["email"] == email_b
+        assert me_a["user"]["id"] != me_b["user"]["id"], "Users should have different IDs"
