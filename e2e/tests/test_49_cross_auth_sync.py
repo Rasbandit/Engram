@@ -179,8 +179,9 @@ async def test_rapid_api_edits_content_not_stale(vault_b, cdp_b, api_sync):
     # Wait for final version to land
     wait_for_content(vault_b, path, "Iteration 7", timeout=RT_TIMEOUT)
 
-    # Wait extra to ensure no stale version overwrites the final one
-    await asyncio.sleep(3)
+    # Wait extra to ensure no stale version overwrites the final one.
+    # 1.5s is 3x the plugin's 500ms debounce — enough for any in-flight writes to settle.
+    await asyncio.sleep(1.5)
 
     final = read_note(vault_b, path)
     assert "Iteration 7" in final, (

@@ -71,7 +71,7 @@ async def test_push_409_handled(vault_a, cdp_a, api_sync):
                 return 'touched';
             }})()
         """, await_promise=True)
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.3)
         api_sync.wait_for_note_content(path, "edited by A", timeout=10)
         api_sync.wait_for_note_content(path, "edited by server", timeout=10)
     else:

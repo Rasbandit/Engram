@@ -55,8 +55,8 @@ async def setup_conflict(
     write_note(vault_b, path, f"# Conflict Test\n{b_edit}")
 
     # 6. Verify pause is working — B's edit must NOT overwrite A's on server.
-    #    Wait long enough for a push to have fired if handlers weren't paused.
-    time.sleep(2)
+    #    Plugin debounce is 300ms; 1s = 3x margin for push to have fired if unpaused.
+    time.sleep(1)
     server_note = api_sync.get_note(path)
     assert server_note is not None, "Server note disappeared during conflict setup"
     assert b_edit not in server_note.get("content", ""), (

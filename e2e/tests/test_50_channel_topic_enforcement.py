@@ -31,12 +31,12 @@ async def test_stream_connects_with_vault_topic(cdp_a, cdp_b):
     sync:{user_id} topic) and the backend accepts it.
     """
     # Wait for both to connect (may need a moment after prior tests)
-    for _ in range(10):
+    for _ in range(20):
         a_ok = await cdp_a.check_stream_connected()
         b_ok = await cdp_b.check_stream_connected()
         if a_ok and b_ok:
             break
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
 
     assert await cdp_a.check_stream_connected(), "A's channel should be connected"
     assert await cdp_b.check_stream_connected(), "B's channel should be connected"
@@ -49,15 +49,15 @@ async def test_stream_reports_disconnected_after_drop(cdp_b):
     Verifies the status tracking is accurate (not stale).
     """
     # Ensure connected first
-    for _ in range(10):
+    for _ in range(20):
         if await cdp_b.check_stream_connected():
             break
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
     assert await cdp_b.check_stream_connected()
 
     # Disconnect
     await cdp_b.disconnect_stream()
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.3)
 
     assert not await cdp_b.check_stream_connected(), (
         "isLiveConnected should be false after disconnect"
@@ -65,10 +65,10 @@ async def test_stream_reports_disconnected_after_drop(cdp_b):
 
     # Reconnect for subsequent tests and wait for it to complete
     await cdp_b.reconnect_stream()
-    for _ in range(10):
+    for _ in range(20):
         if await cdp_b.check_stream_connected():
             break
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
 
 
 @pytest.mark.asyncio
@@ -78,15 +78,15 @@ async def test_reconnect_rejoins_correct_topic(vault_a, vault_b, cdp_a, cdp_b, a
     This catches regressions where reconnect might try the old topic format.
     """
     # Ensure B is connected
-    for _ in range(10):
+    for _ in range(20):
         if await cdp_b.check_stream_connected():
             break
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
     assert await cdp_b.check_stream_connected()
 
     # Disconnect B
     await cdp_b.disconnect_stream()
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.3)
 
     # Reconnect B
     await cdp_b.reconnect_stream()
@@ -115,12 +115,12 @@ async def test_live_sync_still_works_after_all_tests(
     Guards against test pollution — if earlier tests leaked state or broke
     auth, this catches it.
     """
-    for _ in range(10):
+    for _ in range(20):
         a_ok = await cdp_a.check_stream_connected()
         b_ok = await cdp_b.check_stream_connected()
         if a_ok and b_ok:
             break
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
 
     assert await cdp_a.check_stream_connected(), "A's channel broken after prior tests"
     assert await cdp_b.check_stream_connected(), "B's channel broken after prior tests"

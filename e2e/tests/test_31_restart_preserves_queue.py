@@ -56,7 +56,7 @@ async def test_restart_preserves_queue(vault_a, cdp_a, api_sync, obsidian_a):
 
     # 4. Kill Obsidian A (hard stop — simulates crash)
     obsidian_a.stop()
-    await asyncio.sleep(1)
+    await asyncio.sleep(0.3)
 
     # 5. Restart Obsidian A (restart=True preserves vault + data.json with queue)
     await obsidian_a.async_start(restart=True)
