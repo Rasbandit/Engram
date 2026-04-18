@@ -61,14 +61,14 @@ def _enable_vault_encryption(vault_id: int) -> None:
 class TestEncryptedVaultRoundTrip:
     """Write and read a note from an encrypted vault via HTTP."""
 
-    def test_encrypted_vault_round_trip(self, api_sync, sync_client_id):
+    def test_encrypted_vault_round_trip(self, api_sync):
         """Plaintext written to an encrypted vault is returned as plaintext on read."""
-        # 1. Find the vault pre-registered in the api_sync fixture by client_id
-        #    (avoids hitting free-tier limit which allows 1 vault per user).
+        # 1. Use the vault api_sync already registered (free tier = 1 vault/user).
+        #    The /vaults list endpoint returns {id, name, slug, ...} — no client_id —
+        #    so we take the first (and only) entry rather than matching by client_id.
         vaults = api_sync.list_vaults()
-        vault = next((v for v in vaults if v.get("client_id") == sync_client_id), None)
-        assert vault is not None, f"No vault found with client_id={sync_client_id}. Vaults: {vaults}"
-        vault_id = vault["id"]
+        assert vaults, f"api_sync should have pre-registered a vault; got {vaults}"
+        vault_id = vaults[0]["id"]
 
         # 2. Enable encryption at the DB level (toggle endpoint is a future phase)
         _enable_vault_encryption(vault_id)
