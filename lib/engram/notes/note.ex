@@ -13,6 +13,12 @@ defmodule Engram.Notes.Note do
     field :embed_hash, :string
     field :mtime, :float
     field :deleted_at, :utc_datetime_usec
+    field :content_ciphertext, :binary
+    field :content_nonce, :binary
+    field :title_ciphertext, :binary
+    field :title_nonce, :binary
+    field :tags_ciphertext, :binary
+    field :tags_nonce, :binary
 
     belongs_to :user, Engram.Accounts.User
     belongs_to :vault, Engram.Vaults.Vault
