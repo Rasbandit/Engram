@@ -4,6 +4,8 @@ defmodule Engram.Notes do
   All operations are tenant-scoped via Repo.with_tenant/2.
   """
 
+  require Logger
+
   import Ecto.Query
 
   alias Engram.Repo
@@ -74,6 +76,7 @@ defmodule Engram.Notes do
             Oban.insert(EmbedNote.new_debounced(note.id))
           end
 
+          note = decrypt_for_broadcast(note, user)
           broadcast_change(user.id, vault.id, "upsert", note.path, note)
           {:ok, note}
 
@@ -158,8 +161,9 @@ defmodule Engram.Notes do
       {:ok, {:ok, note}} ->
         Oban.insert(EmbedNote.new_debounced(note.id, old_path: old_path))
         broadcast_change(user.id, vault.id, "delete", old_path)
-        broadcast_change(user.id, vault.id, "upsert", note.path, note)
-        {:ok, decrypt_if_needed(note, user)}
+        decrypted = decrypt_for_broadcast(note, user)
+        broadcast_change(user.id, vault.id, "upsert", note.path, decrypted)
+        {:ok, decrypted}
 
       {:ok, :not_found} ->
         {:error, :not_found}
@@ -488,6 +492,22 @@ defmodule Engram.Notes do
 
   defp decrypt_if_needed(notes, user) when is_list(notes) do
     Enum.map(notes, &decrypt_if_needed(&1, user))
+  end
+
+  # Like decrypt_if_needed but logs a warning on decrypt failure before returning
+  # the original struct. Used before broadcast so operators know content is empty.
+  defp decrypt_for_broadcast(%Note{} = note, user) do
+    case Engram.Crypto.maybe_decrypt_note_fields(note, user) do
+      {:ok, decrypted} ->
+        decrypted
+
+      {:error, reason} ->
+        Logger.warning(
+          "broadcast decrypt failed: user_id=#{user.id} note_id=#{note.id} reason=#{inspect(reason)}"
+        )
+
+        note
+    end
   end
 
   defp validate_path(nil),

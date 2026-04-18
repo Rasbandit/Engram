@@ -48,6 +48,43 @@ defmodule Engram.Notes.EncryptionTest do
       refute raw.content_ciphertext == "dear diary, I feel seen"
     end
 
+    test "upsert returns plaintext struct (not encrypted)" do
+      user = insert(:user)
+      {:ok, user} = Engram.Crypto.ensure_user_dek(user)
+      vault = insert(:vault, user: user, encrypted: true)
+
+      {:ok, note} =
+        Engram.Notes.upsert_note(user, vault, %{
+          "path" => "return/test.md",
+          "content" => "plain text returned",
+          "mtime" => 1_000.0,
+          "version" => 1
+        })
+
+      # The returned struct must contain plaintext, not ciphertext
+      assert note.content == "plain text returned"
+      refute note.title == nil
+    end
+
+    test "rename_note returns plaintext struct for encrypted vault" do
+      user = insert(:user)
+      {:ok, user} = Engram.Crypto.ensure_user_dek(user)
+      vault = insert(:vault, user: user, encrypted: true)
+
+      {:ok, _} =
+        Engram.Notes.upsert_note(user, vault, %{
+          "path" => "rename/before.md",
+          "content" => "# Before\n\nsome content here",
+          "mtime" => 1_000.0
+        })
+
+      {:ok, renamed} = Engram.Notes.rename_note(user, vault, "rename/before.md", "rename/after.md")
+
+      # Returned struct must be plaintext
+      assert renamed.path == "rename/after.md"
+      assert renamed.content == "# Before\n\nsome content here"
+    end
+
     test "unencrypted vault stores plaintext unchanged, ciphertext is nil" do
       user = insert(:user)
       vault = insert(:vault, user: user, encrypted: false)
