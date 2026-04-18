@@ -96,7 +96,7 @@ defmodule Engram.Crypto do
   """
   @spec maybe_decrypt_note_fields(Engram.Notes.Note.t(), User.t()) ::
           {:ok, Engram.Notes.Note.t()} | {:error, term()}
-  def maybe_decrypt_note_fields(%Engram.Notes.Note{content_nonce: nil} = note, _user),
+  def maybe_decrypt_note_fields(%Engram.Notes.Note{content_ciphertext: nil} = note, _user),
     do: {:ok, note}
 
   def maybe_decrypt_note_fields(%Engram.Notes.Note{} = note, %User{} = user) do

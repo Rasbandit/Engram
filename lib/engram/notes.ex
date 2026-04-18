@@ -140,7 +140,8 @@ defmodule Engram.Notes do
             :not_found
 
           note ->
-            new_title = Helpers.extract_title(note.content || "", new_path)
+            decrypted_note = decrypt_if_needed(note, user)
+            new_title = Helpers.extract_title(decrypted_note.content || "", new_path)
 
             {count, _} =
               from(n in Note, where: n.id == ^note.id)
@@ -423,7 +424,8 @@ defmodule Engram.Notes do
             end
 
           new_path = new_note_folder <> String.slice(note.path, String.length(note.folder)..-1//1)
-          new_title = Helpers.extract_title(note.content || "", new_path)
+          decrypted_note = decrypt_if_needed(note, user)
+          new_title = Helpers.extract_title(decrypted_note.content || "", new_path)
 
           {note.id, note.path, new_path, new_note_folder, new_title}
         end)
@@ -485,8 +487,15 @@ defmodule Engram.Notes do
 
   defp decrypt_if_needed(%Note{} = note, user) do
     case Engram.Crypto.maybe_decrypt_note_fields(note, user) do
-      {:ok, decrypted} -> decrypted
-      {:error, _reason} -> note
+      {:ok, decrypted} ->
+        decrypted
+
+      {:error, reason} ->
+        Logger.error(
+          "decrypt_failed user_id=#{user.id} note_id=#{note.id} reason=#{inspect(reason)}"
+        )
+
+        note
     end
   end
 

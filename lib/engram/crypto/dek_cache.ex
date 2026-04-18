@@ -59,6 +59,13 @@ defmodule Engram.Crypto.DekCache do
 
   @impl true
   def init(:ok) do
+    # :public is required because get/put/invalidate are called directly by
+    # caller processes (Notes, Oban workers) without routing through this
+    # GenServer — avoids serialization bottleneck on hot path. Trade-off:
+    # any BEAM process can read wrapped DEKs from the table. Acceptable
+    # because plaintext DEKs never persist to disk and are cleared on
+    # node restart. If tightening to :protected, move get/put/invalidate
+    # into GenServer.call/cast.
     :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
     schedule_sweep()
     {:ok, %{}}

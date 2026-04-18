@@ -13,8 +13,15 @@ defmodule Engram.Crypto.Config do
   def validate! do
     provider = Application.get_env(:engram, :key_provider)
 
-    unless provider in @valid_providers do
-      raise "unknown key_provider #{inspect(provider)}; valid options: #{inspect(@valid_providers)}"
+    cond do
+      is_nil(provider) ->
+        raise "key_provider is not configured — set :engram, :key_provider in config"
+
+      provider not in @valid_providers ->
+        raise "unknown key_provider #{inspect(provider)}; valid options: #{inspect(@valid_providers)}"
+
+      true ->
+        :ok
     end
 
     if provider == Engram.Crypto.KeyProvider.Local do

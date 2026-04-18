@@ -42,4 +42,9 @@ defmodule Engram.Crypto.ConfigTest do
     Application.put_env(:engram, :key_provider, NotAModule)
     assert_raise RuntimeError, ~r/unknown/i, fn -> Config.validate!() end
   end
+
+  test "crashes with clear message when key_provider is not configured" do
+    Application.put_env(:engram, :key_provider, nil)
+    assert_raise RuntimeError, ~r/not configured/, fn -> Config.validate!() end
+  end
 end
