@@ -5,6 +5,8 @@ defmodule Engram.Crypto do
   Lazy DEK provisioning: users get a DEK only when encryption is first needed.
   """
 
+  require Logger
+
   alias Engram.Accounts
   alias Engram.Accounts.User
   alias Engram.Crypto.{DekCache, Envelope, KeyProvider.Resolver}
@@ -67,7 +69,6 @@ defmodule Engram.Crypto do
     do: {:ok, attrs}
 
   def maybe_encrypt_note_fields(attrs, %User{} = user, %Engram.Vaults.Vault{encrypted: true}) do
-    require Logger
     Logger.debug("maybe_encrypt_note_fields auto-provision path for user_id=#{user.id}")
 
     with {:ok, user} <- ensure_user_dek(user),
@@ -145,8 +146,6 @@ defmodule Engram.Crypto do
     end
   end
 
-  require Logger
-
   @doc """
   Decrypts a list of Qdrant search candidates in-place based on each
   candidate's vault's `encrypted` flag (looked up in `vaults_by_id`).
@@ -168,7 +167,7 @@ defmodule Engram.Crypto do
       {:ok, dek_or_nil} ->
         decrypted =
           candidates
-          |> Enum.flat_map(&decrypt_one(&1, user, vaults_by_id, dek_or_nil))
+          |> Enum.flat_map(&decrypt_one(&1, vaults_by_id, dek_or_nil))
 
         if decrypted == [] and candidates != [] do
           {:error, :decrypt_failed}
@@ -208,7 +207,7 @@ defmodule Engram.Crypto do
   end
 
   # Returns [decrypted_candidate] on success, [] on drop.
-  defp decrypt_one(candidate, _user, vaults_by_id, dek) do
+  defp decrypt_one(candidate, vaults_by_id, dek) do
     vault_id_key = to_string(candidate.vault_id)
 
     case Map.get(vaults_by_id, vault_id_key) do
