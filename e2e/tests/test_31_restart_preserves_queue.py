@@ -32,14 +32,24 @@ async def test_restart_preserves_queue(vault_a, cdp_a, api_sync, obsidian_a):
     time.sleep(0.3)
     write_note(vault_a, path2, "# Restart Queue 2\nAlso survives restart")
 
-    # Wait for push attempts to fail and queue
-    deadline = time.monotonic() + 10
+    # Wait for EACH path to appear in the queue. Same pattern as test_29:
+    # under xdist load, a count-based 10s poll can miss the last write.
+    paths_set = {path1, path2}
+    deadline = time.monotonic() + 30
+    queued_paths: set[str] = set()
+
     while time.monotonic() < deadline:
-        queue_size = await cdp_a.get_queue_size()
-        if queue_size >= 2:
+        entries = await cdp_a.get_queue_entries()
+        queued_paths = {e["path"] for e in entries}
+        if paths_set.issubset(queued_paths):
             break
         await asyncio.sleep(0.5)
-    assert queue_size >= 2, f"Expected at least 2 queued, got {queue_size}"
+
+    missing = paths_set - queued_paths
+    assert not missing, (
+        f"Expected both paths queued within 30s. Missing: {sorted(missing)}. "
+        f"Queued entries: {await cdp_a.get_queue_entries()}"
+    )
 
     # 3. Force persist queue to data.json (bypass debounce)
     await cdp_a.evaluate("""
