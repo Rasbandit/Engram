@@ -13,6 +13,12 @@ defmodule Engram.Notes.Note do
     field :embed_hash, :string
     field :mtime, :float
     field :deleted_at, :utc_datetime_usec
+    field :content_ciphertext, :binary
+    field :content_nonce, :binary
+    field :title_ciphertext, :binary
+    field :title_nonce, :binary
+    field :tags_ciphertext, :binary
+    field :tags_nonce, :binary
 
     belongs_to :user, Engram.Accounts.User
     belongs_to :vault, Engram.Vaults.Vault
@@ -20,6 +26,12 @@ defmodule Engram.Notes.Note do
 
     timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
   end
+
+  @encryption_fields [
+    :content_ciphertext, :content_nonce,
+    :title_ciphertext, :title_nonce,
+    :tags_ciphertext, :tags_nonce
+  ]
 
   def changeset(note, attrs) do
     note
@@ -35,7 +47,7 @@ defmodule Engram.Notes.Note do
       :user_id,
       :vault_id,
       :deleted_at
-    ], empty_values: [])
+    ] ++ @encryption_fields, empty_values: [])
     |> validate_required([:path, :user_id, :vault_id])
     |> default_content()
     |> unique_constraint([:user_id, :vault_id, :path], name: :notes_user_vault_path_active_index)

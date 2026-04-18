@@ -85,3 +85,9 @@ config :engram, :stripe_pro_price_id, "price_pro_test"
 
 # Default to local auth provider in tests
 config :engram, :auth_provider, :local
+
+# Stable test master key — 32 bytes of 0xAB, base64-encoded
+config :engram,
+  key_provider: Engram.Crypto.KeyProvider.Local,
+  encryption_master_key:
+    Base.encode64(:binary.copy(<<0xAB>>, 32))

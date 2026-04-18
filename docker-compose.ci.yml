@@ -41,6 +41,9 @@ services:
       CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
       CLERK_ISSUER: ${CLERK_ISSUER:-}
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
+      KEY_PROVIDER: ${KEY_PROVIDER:-local}
+      ENCRYPTION_MASTER_KEY: ${ENCRYPTION_MASTER_KEY:-vZ+e130Hffn5T1ljBb3FH1rFIKc42kTK86jmUEusLio=}
+      ENCRYPTION_MASTER_KEY_PREVIOUS: ${ENCRYPTION_MASTER_KEY_PREVIOUS:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4000/api/health || exit 1"]
       start_period: 3s

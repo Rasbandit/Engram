@@ -7,6 +7,8 @@ defmodule Engram.Application do
 
   @impl true
   def start(_type, _args) do
+    Engram.Crypto.Config.validate!()
+
     children =
       [
         EngramWeb.Telemetry,
@@ -14,6 +16,7 @@ defmodule Engram.Application do
         {DNSCluster, query: Application.get_env(:engram, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Engram.PubSub},
         EngramWeb.Presence,
+        Engram.Crypto.DekCache,
         {Oban, Application.fetch_env!(:engram, Oban)},
         clerk_strategy_child(),
         EngramWeb.Endpoint

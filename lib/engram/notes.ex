@@ -4,6 +4,8 @@ defmodule Engram.Notes do
   All operations are tenant-scoped via Repo.with_tenant/2.
   """
 
+  require Logger
+
   import Ecto.Query
 
   alias Engram.Repo
@@ -21,29 +23,27 @@ defmodule Engram.Notes do
     mtime = attrs["mtime"] || attrs[:mtime]
     client_version = attrs["version"] || attrs[:version]
 
-    with {:ok, path} <- validate_path(path) do
-      sanitized_path = PathSanitizer.sanitize(path)
-      title = Helpers.extract_title(content, sanitized_path)
-      folder = Helpers.extract_folder(sanitized_path)
-      tags = Helpers.extract_tags(content)
-      hash = content_hash(content)
-
-      now = DateTime.utc_now()
-
-      note_attrs = %{
-        path: sanitized_path,
-        content: content,
-        title: title,
-        folder: folder,
-        tags: tags,
-        content_hash: hash,
-        mtime: mtime,
-        user_id: user.id,
-        vault_id: vault.id,
-        created_at: now,
-        updated_at: now
-      }
-
+    with {:ok, path} <- validate_path(path),
+         sanitized_path = PathSanitizer.sanitize(path),
+         title = Helpers.extract_title(content, sanitized_path),
+         folder = Helpers.extract_folder(sanitized_path),
+         tags = Helpers.extract_tags(content),
+         hash = content_hash(content),
+         now = DateTime.utc_now(),
+         note_attrs = %{
+           path: sanitized_path,
+           content: content,
+           title: title,
+           folder: folder,
+           tags: tags,
+           content_hash: hash,
+           mtime: mtime,
+           user_id: user.id,
+           vault_id: vault.id,
+           created_at: now,
+           updated_at: now
+         },
+         {:ok, note_attrs} <- Engram.Crypto.maybe_encrypt_note_fields(note_attrs, user, vault) do
       changeset = Note.changeset(%Note{}, note_attrs)
 
       result =
@@ -76,6 +76,7 @@ defmodule Engram.Notes do
             Oban.insert(EmbedNote.new_debounced(note.id))
           end
 
+          note = decrypt_for_broadcast(note, user)
           broadcast_change(user.id, vault.id, "upsert", note.path, note)
           {:ok, note}
 
@@ -109,7 +110,7 @@ defmodule Engram.Notes do
 
     case result do
       {:ok, nil} -> {:error, :not_found}
-      {:ok, note} -> {:ok, note}
+      {:ok, note} -> {:ok, decrypt_if_needed(note, user)}
       _ -> {:error, :not_found}
     end
   end
@@ -139,7 +140,8 @@ defmodule Engram.Notes do
             :not_found
 
           note ->
-            new_title = Helpers.extract_title(note.content || "", new_path)
+            decrypted_note = decrypt_if_needed(note, user)
+            new_title = Helpers.extract_title(decrypted_note.content || "", new_path)
 
             {count, _} =
               from(n in Note, where: n.id == ^note.id)
@@ -160,8 +162,9 @@ defmodule Engram.Notes do
       {:ok, {:ok, note}} ->
         Oban.insert(EmbedNote.new_debounced(note.id, old_path: old_path))
         broadcast_change(user.id, vault.id, "delete", old_path)
-        broadcast_change(user.id, vault.id, "upsert", note.path, note)
-        {:ok, note}
+        decrypted = decrypt_for_broadcast(note, user)
+        broadcast_change(user.id, vault.id, "upsert", note.path, decrypted)
+        {:ok, decrypted}
 
       {:ok, :not_found} ->
         {:error, :not_found}
@@ -226,6 +229,8 @@ defmodule Engram.Notes do
 
     changes =
       Enum.map(notes, fn note ->
+        note = decrypt_if_needed(note, user)
+
         %{
           path: note.path,
           title: note.title,
@@ -375,7 +380,7 @@ defmodule Engram.Notes do
         Repo.all(query)
       end)
 
-    {:ok, notes}
+    {:ok, decrypt_if_needed(notes, user)}
   end
 
   @doc """
@@ -419,7 +424,8 @@ defmodule Engram.Notes do
             end
 
           new_path = new_note_folder <> String.slice(note.path, String.length(note.folder)..-1//1)
-          new_title = Helpers.extract_title(note.content || "", new_path)
+          decrypted_note = decrypt_if_needed(note, user)
+          new_title = Helpers.extract_title(decrypted_note.content || "", new_path)
 
           {note.id, note.path, new_path, new_note_folder, new_title}
         end)
@@ -476,6 +482,42 @@ defmodule Engram.Notes do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  defp decrypt_if_needed(nil, _user), do: nil
+
+  defp decrypt_if_needed(%Note{} = note, user) do
+    case Engram.Crypto.maybe_decrypt_note_fields(note, user) do
+      {:ok, decrypted} ->
+        decrypted
+
+      {:error, reason} ->
+        Logger.error(
+          "decrypt_failed user_id=#{user.id} note_id=#{note.id} reason=#{inspect(reason)}"
+        )
+
+        note
+    end
+  end
+
+  defp decrypt_if_needed(notes, user) when is_list(notes) do
+    Enum.map(notes, &decrypt_if_needed(&1, user))
+  end
+
+  # Like decrypt_if_needed but logs a warning on decrypt failure before returning
+  # the original struct. Used before broadcast so operators know content is empty.
+  defp decrypt_for_broadcast(%Note{} = note, user) do
+    case Engram.Crypto.maybe_decrypt_note_fields(note, user) do
+      {:ok, decrypted} ->
+        decrypted
+
+      {:error, reason} ->
+        Logger.warning(
+          "broadcast decrypt failed: user_id=#{user.id} note_id=#{note.id} reason=#{inspect(reason)}"
+        )
+
+        note
+    end
+  end
 
   defp validate_path(nil),
     do:

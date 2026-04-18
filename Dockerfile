@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
 # Multi-stage build: compile release in builder, run in minimal image
+# cache-bust: 2026-04-18-encryption-auto-provision
 ARG ELIXIR_VERSION=1.17.3
 ARG OTP_VERSION=27.1.2
 ARG DEBIAN_VERSION=bookworm-20241202-slim
@@ -47,16 +48,15 @@ RUN --mount=type=cache,target=/app/deps,id=mix-deps \
 COPY lib lib
 COPY priv priv
 COPY config/runtime.exs config/
-RUN --mount=type=cache,target=/app/deps,id=mix-deps \
-    --mount=type=cache,target=/app/_build,id=mix-build \
-    mix compile --force
-
-# Build release — copy frontend assets in, then assemble.
-# Uses separate _build cache for compile above, then copies out
-# to avoid stale release binaries from cached _build.
 COPY --from=frontend /priv/static/app priv/static/app
+# Compile and release in one RUN, no _build cache mount. Splitting the
+# two steps with a shared _build cache produced stale beams in CI —
+# `mix compile --force` ran but `mix release` in the next RUN still
+# saw old beam files. Single-step build is correct; the extra minute
+# of compile time is worth the guarantee that the release matches the
+# current source.
 RUN --mount=type=cache,target=/app/deps,id=mix-deps \
-    --mount=type=cache,target=/app/_build,id=mix-build \
+    mix compile --force && \
     mix release && \
     cp -r /app/_build/prod/rel/engram /app/_release
 

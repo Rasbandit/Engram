@@ -9,6 +9,11 @@ defmodule Engram.Vaults.Vault do
     field :client_id, :string
     field :is_default, :boolean, default: false
     field :deleted_at, :utc_datetime
+    field :encrypted, :boolean, default: false
+    field :encrypted_at, :utc_datetime_usec
+    field :encryption_status, :string, default: "none"
+    field :decrypt_requested_at, :utc_datetime_usec
+    field :last_toggle_at, :utc_datetime_usec
 
     belongs_to :user, Engram.Accounts.User
     # has_many :notes and :attachments added in Task 6 once vault_id FK is added to those tables
