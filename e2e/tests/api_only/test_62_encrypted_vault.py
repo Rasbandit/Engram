@@ -61,17 +61,14 @@ def _enable_vault_encryption(vault_id: int) -> None:
 class TestEncryptedVaultRoundTrip:
     """Write and read a note from an encrypted vault via HTTP."""
 
-    def test_encrypted_vault_round_trip(self, api_sync):
+    def test_encrypted_vault_round_trip(self, api_sync, sync_client_id):
         """Plaintext written to an encrypted vault is returned as plaintext on read."""
-        unique = f"enc-{int(time.time())}"
-        vault_name = f"e2e-encrypted-{unique}"
-        client_id = f"e2e-enc-{unique}"
-
-        # 1. Register a vault (starts unencrypted — changeset doesn't cast `encrypted`)
-        vault_data, status = api_sync.register_vault(vault_name, client_id)
-        assert status in (200, 201), f"register_vault failed: {status} {vault_data}"
-        vault_id = vault_data.get("id")
-        assert vault_id is not None, f"No vault id in response: {vault_data}"
+        # 1. Find the vault pre-registered in the api_sync fixture by client_id
+        #    (avoids hitting free-tier limit which allows 1 vault per user).
+        vaults = api_sync.list_vaults()
+        vault = next((v for v in vaults if v.get("client_id") == sync_client_id), None)
+        assert vault is not None, f"No vault found with client_id={sync_client_id}. Vaults: {vaults}"
+        vault_id = vault["id"]
 
         # 2. Enable encryption at the DB level (toggle endpoint is a future phase)
         _enable_vault_encryption(vault_id)
@@ -82,17 +79,26 @@ class TestEncryptedVaultRoundTrip:
         plaintext = "secret diary entry — only plaintext should come back"
         note_path = "journal/today.md"
 
-        # 4. Upsert note
-        resp = vault_client.session.post(
-            f"{API_URL}/notes",
-            json={"path": note_path, "content": plaintext, "mtime": time.time()},
-            timeout=10,
-        )
-        assert resp.ok, f"upsert_note failed: {resp.status_code} {resp.text[:300]}"
+        try:
+            # 4. Upsert note
+            resp = vault_client.session.post(
+                f"{API_URL}/notes",
+                json={"path": note_path, "content": plaintext, "mtime": time.time()},
+                timeout=10,
+            )
+            assert resp.ok, f"upsert_note failed: {resp.status_code} {resp.text[:300]}"
 
-        # 5. Read back — must return decrypted plaintext
-        note = vault_client.get_note(note_path)
-        assert note is not None, f"Note not found after upsert: {note_path}"
-        assert note["content"] == plaintext, (
-            f"Expected plaintext content, got: {note['content'][:100]!r}"
-        )
+            # 5. Read back — must return decrypted plaintext
+            note = vault_client.get_note(note_path)
+            assert note is not None, f"Note not found after upsert: {note_path}"
+            assert note["content"] == plaintext, (
+                f"Expected plaintext content, got: {note['content'][:100]!r}"
+            )
+        finally:
+            # Teardown: disable encryption so subsequent tests using this vault aren't affected
+            sql = f"UPDATE vaults SET encrypted = false WHERE id = {int(vault_id)};\n"
+            cmd = [
+                "docker", "exec", "-i", CI_POSTGRES_CONTAINER,
+                "psql", "-U", "engram", "-d", "engram",
+            ]
+            subprocess.run(cmd, input=sql, capture_output=True, text=True, timeout=15)
