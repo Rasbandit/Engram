@@ -16,6 +16,7 @@ defmodule Engram.Application do
         {DNSCluster, query: Application.get_env(:engram, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Engram.PubSub},
         EngramWeb.Presence,
+        Engram.Crypto.DekCache,
         {Oban, Application.fetch_env!(:engram, Oban)},
         clerk_strategy_child(),
         EngramWeb.Endpoint
