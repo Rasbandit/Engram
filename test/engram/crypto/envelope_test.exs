@@ -33,4 +33,13 @@ defmodule Engram.Crypto.EnvelopeTest do
     {ct, nonce} = Envelope.encrypt("", @dek)
     assert {:ok, ""} = Envelope.decrypt(ct, nonce, @dek)
   end
+
+  test "rejects malformed (wrong-length) nonce" do
+    {ct, _nonce} = Envelope.encrypt("secret", @dek)
+    short_nonce = :crypto.strong_rand_bytes(8)
+    assert :error = Envelope.decrypt(ct, short_nonce, @dek)
+
+    long_nonce = :crypto.strong_rand_bytes(16)
+    assert :error = Envelope.decrypt(ct, long_nonce, @dek)
+  end
 end

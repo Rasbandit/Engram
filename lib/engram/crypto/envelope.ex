@@ -30,4 +30,6 @@ defmodule Engram.Crypto.Envelope do
       end
     end
   end
+
+  def decrypt(_ct_with_tag, _nonce, <<_::256>>), do: :error
 end
