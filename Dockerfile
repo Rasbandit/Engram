@@ -48,8 +48,12 @@ RUN --mount=type=cache,target=/app/deps,id=mix-deps \
 COPY lib lib
 COPY priv priv
 COPY config/runtime.exs config/
+# Purge app beams before compile. --force regenerates touched files but
+# does NOT remove stale beams when lib/ files are deleted or moved;
+# this ensures the cache-mounted _build has exactly the current source.
 RUN --mount=type=cache,target=/app/deps,id=mix-deps \
     --mount=type=cache,target=/app/_build,id=mix-build \
+    rm -rf /app/_build/prod/lib/engram && \
     mix compile --force
 
 # Build release — copy frontend assets in, then assemble.
