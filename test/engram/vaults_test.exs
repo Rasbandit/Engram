@@ -390,4 +390,50 @@ defmodule Engram.VaultsTest do
       assert :forbidden = Vaults.check_api_key_access(api_key, vault)
     end
   end
+
+  describe "list_for_ids/2" do
+    test "returns map keyed by stringified vault id" do
+      user = insert(:user)
+      v1 = insert(:vault, user: user)
+      v2 = insert(:vault, user: user)
+
+      result = Engram.Vaults.list_for_ids(user, [to_string(v1.id), to_string(v2.id)])
+
+      assert Map.keys(result) |> Enum.sort() ==
+               Enum.sort([to_string(v1.id), to_string(v2.id)])
+      assert result[to_string(v1.id)].id == v1.id
+    end
+
+    test "filters out other users' vaults" do
+      user_a = insert(:user)
+      user_b = insert(:user)
+      v_a = insert(:vault, user: user_a)
+      v_b = insert(:vault, user: user_b)
+
+      # user_a requests both IDs — only their own vault returned
+      result = Engram.Vaults.list_for_ids(user_a, [to_string(v_a.id), to_string(v_b.id)])
+
+      assert Map.keys(result) == [to_string(v_a.id)]
+    end
+
+    test "deduplicates and tolerates non-integer strings" do
+      user = insert(:user)
+      vault = insert(:vault, user: user)
+
+      result =
+        Engram.Vaults.list_for_ids(user, [
+          to_string(vault.id),
+          to_string(vault.id),
+          "not-a-number",
+          ""
+        ])
+
+      assert result == %{to_string(vault.id) => result[to_string(vault.id)]}
+    end
+
+    test "empty list returns empty map" do
+      user = insert(:user)
+      assert Engram.Vaults.list_for_ids(user, []) == %{}
+    end
+  end
 end

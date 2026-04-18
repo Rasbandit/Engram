@@ -115,6 +115,38 @@ defmodule Engram.Vaults do
     vaults
   end
 
+  @doc """
+  Loads vaults owned by `user` whose IDs appear in `vault_ids`.
+
+  `vault_ids` is a list of strings (as they arrive from Qdrant payload JSON).
+  Non-integer entries are silently filtered (they cannot match an integer PK).
+  Returns a map keyed by stringified vault id: `%{"5" => %Vault{}}`.
+
+  Enforces tenant scoping explicitly via a `user_id == ^user_id` clause
+  (belt-and-suspenders alongside RLS).
+  """
+  @spec list_for_ids(Engram.Accounts.User.t(), [String.t()]) :: %{String.t() => Vault.t()}
+  def list_for_ids(%Engram.Accounts.User{id: user_id}, vault_ids) when is_list(vault_ids) do
+    ids =
+      vault_ids
+      |> Enum.uniq()
+      |> Enum.flat_map(fn s ->
+        case Integer.parse(to_string(s)) do
+          {n, ""} -> [n]
+          _ -> []
+        end
+      end)
+
+    if ids == [] do
+      %{}
+    else
+      Vault
+      |> where([v], v.user_id == ^user_id and v.id in ^ids)
+      |> Repo.all(skip_tenant_check: true)
+      |> Map.new(fn v -> {to_string(v.id), v} end)
+    end
+  end
+
   # ── Get ─────────────────────────────────────────────────────────────────────
 
   @doc """
