@@ -129,14 +129,38 @@ defmodule Engram.Workers.EmbedNoteTest do
         {:ok, Enum.map(texts, fn _ -> List.duplicate(0.1, 3) end)}
       end)
 
-      stub_qdrant(bypass)
+      test_pid = self()
+
+      Bypass.expect(bypass, fn conn ->
+        if String.contains?(conn.request_path, "/points") and conn.method == "PUT" do
+          {:ok, body, conn} = Plug.Conn.read_body(conn)
+          send(test_pid, {:upsert_body, Jason.decode!(body)})
+          Plug.Conn.send_resp(conn, 200, ~s({"result": true}))
+        else
+          Plug.Conn.send_resp(conn, 200, ~s({"result": true}))
+        end
+      end)
 
       assert :ok = perform_job(EmbedNote, %{note_id: note.id})
+
+      # Confirms the worker loaded the (encrypted) vault and passed it into the
+      # indexing pipeline: payloads must carry nonces and ciphertext, not plaintext.
+      assert_received {:upsert_body, body}
+      points = body["points"]
+      assert length(points) > 0
+
+      Enum.each(points, fn p ->
+        payload = p["payload"]
+        assert Map.has_key?(payload, "text_nonce")
+        assert Map.has_key?(payload, "title_nonce")
+        refute payload["text"] =~ "Classified"
+      end)
 
       # embed_hash should be stamped, confirming the job ran to completion
       updated = Repo.get!(Note, note.id, skip_tenant_check: true)
       assert updated.embed_hash == updated.content_hash
     end
+
   end
 
   describe "job scheduling" do

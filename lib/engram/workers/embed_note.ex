@@ -53,27 +53,34 @@ defmodule Engram.Workers.EmbedNote do
       note ->
         user = Accounts.get_user!(note.user_id)
 
-        case Crypto.maybe_decrypt_note_fields(note, user) do
-          {:ok, decrypted_note} ->
-            # If renamed, clean up old path's Qdrant points before re-indexing
-            if old_path do
-              Indexing.delete_points_by_path(decrypted_note, old_path)
-            end
+        # Load vault up front so we can drive both the decrypt path (future) and
+        # the index call. skip_tenant_check: trusted internal worker.
+        # Missing vault means the note is orphaned — nothing to index, discard.
+        case Repo.get(Vault, note.vault_id, skip_tenant_check: true) do
+          nil ->
+            {:discard, "vault #{note.vault_id} not found for note #{note.id}"}
 
-            vault = Repo.get(Vault, decrypted_note.vault_id, skip_tenant_check: true)
+          %Vault{} = vault ->
+            case Crypto.maybe_decrypt_note_fields(note, user) do
+              {:ok, decrypted_note} ->
+                # If renamed, clean up old path's Qdrant points before re-indexing
+                if old_path do
+                  Indexing.delete_points_by_path(decrypted_note, old_path)
+                end
 
-            case Indexing.index_note(decrypted_note, vault) do
-              {:ok, _count} ->
-                stamp_embed_hash(note)
-                :ok
+                case Indexing.index_note(decrypted_note, vault) do
+                  {:ok, _count} ->
+                    stamp_embed_hash(note)
+                    :ok
+
+                  {:error, reason} ->
+                    {:error, reason}
+                end
 
               {:error, reason} ->
+                Logger.error("EmbedNote decrypt failed: user_id=#{note.user_id} note_id=#{note.id} reason=#{inspect(reason)}")
                 {:error, reason}
             end
-
-          {:error, reason} ->
-            Logger.error("EmbedNote decrypt failed: user_id=#{note.user_id} note_id=#{note.id} reason=#{inspect(reason)}")
-            {:error, reason}
         end
     end
   end
