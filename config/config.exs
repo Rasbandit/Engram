@@ -82,6 +82,11 @@ config :tailwind,
     cd: Path.expand("..", __DIR__)
   ]
 
+# Key provider defaults (overridden by runtime.exs via env vars)
+config :engram,
+  key_provider: Engram.Crypto.KeyProvider.Local,
+  dek_cache_ttl_ms: 3_600_000
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

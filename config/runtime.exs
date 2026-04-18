@@ -157,6 +157,22 @@ if config_env() != :test do
   config :engram, :stripe_pro_price_id, System.get_env("STRIPE_PRO_PRICE_ID")
 end
 
+# Key provider — skip in :test so test.exs stable key is not overwritten by a nil env read.
+# Dev and prod (including Docker CI containers) read from KEY_PROVIDER / ENCRYPTION_MASTER_KEY.
+if config_env() != :test do
+  key_provider_module =
+    case System.get_env("KEY_PROVIDER", "local") do
+      "local" -> Engram.Crypto.KeyProvider.Local
+      other -> raise "Unknown KEY_PROVIDER=#{other}; supported: local"
+    end
+
+  config :engram,
+    key_provider: key_provider_module,
+    encryption_master_key: System.get_env("ENCRYPTION_MASTER_KEY"),
+    encryption_master_key_previous: System.get_env("ENCRYPTION_MASTER_KEY_PREVIOUS"),
+    dek_cache_ttl_ms: String.to_integer(System.get_env("DEK_CACHE_TTL_MS", "3600000"))
+end
+
 # Endpoint URL — used by EngramWeb.Endpoint.url() for device flow verification links,
 # email URLs, etc. Works in dev and prod. Defaults to localhost in dev.
 if phx_host = System.get_env("PHX_HOST") do
