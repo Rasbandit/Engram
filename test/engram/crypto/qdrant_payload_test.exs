@@ -252,5 +252,70 @@ defmodule Engram.Crypto.QdrantPayloadTest do
         :telemetry.detach(handler_id)
       end
     end
+
+    test "drops candidate with text_nonce but no vault_id (shape mismatch)", %{user: user} do
+      # Legacy candidate missing vault_id but carrying ciphertext — impossible via
+      # the normal index path (Phase 4 always writes vault_id), but defensive.
+      broken = %{
+        score: 0.5,
+        qdrant_id: "qid-broken",
+        source_path: "x.md",
+        tags: [],
+        text: "dGVzdA==",
+        title: "dA==",
+        heading_path: "aA==",
+        text_nonce: "bm9uY2Vfbm9uY2VfMTI=",
+        title_nonce: "bm9uY2Vfbm9uY2VfMTI=",
+        heading_path_nonce: "bm9uY2Vfbm9uY2VfMTI="
+      }
+
+      handler_id = {__MODULE__, :missing_vault_id_handler, System.unique_integer()}
+      test_pid = self()
+
+      :telemetry.attach(
+        handler_id,
+        [:engram, :search, :payload_shape_mismatch],
+        fn _e, m, meta, _ -> send(test_pid, {:shape_mismatch, m, meta}) end,
+        nil
+      )
+
+      try do
+        assert {:error, :decrypt_failed} =
+                 Crypto.maybe_decrypt_qdrant_candidates([broken], user, %{})
+
+        assert_received {:shape_mismatch, %{count: 1}, %{qdrant_id: "qid-broken"}}
+      after
+        :telemetry.detach(handler_id)
+      end
+    end
+
+    test "returns :decrypt_failed and logs when encrypted candidate + user has no DEK" do
+      # User without ensure_user_dek — encrypted_dek stays nil → get_dek returns {:error, :no_dek}
+      user = insert(:user)
+      vault = %Vault{id: 5, encrypted: true}
+
+      candidate = %{
+        score: 0.9,
+        qdrant_id: "qid-x",
+        vault_id: "5",
+        source_path: "a.md",
+        tags: [],
+        text: "dGVzdA==",
+        title: "dA==",
+        heading_path: "aA==",
+        text_nonce: "bm9uY2Vfbm9uY2VfMTI=",
+        title_nonce: "bm9uY2Vfbm9uY2VfMTI=",
+        heading_path_nonce: "bm9uY2Vfbm9uY2VfMTI="
+      }
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, :decrypt_failed} =
+                   Crypto.maybe_decrypt_qdrant_candidates([candidate], user, %{"5" => vault})
+        end)
+
+      assert log =~ "failed to load DEK"
+      assert log =~ "user_id=#{user.id}"
+    end
   end
 end

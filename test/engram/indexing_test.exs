@@ -188,6 +188,73 @@ defmodule Engram.IndexingTest do
         assert is_binary(p["payload"]["text"])
       end)
     end
+
+    test "emits encrypt_failed telemetry when DEK missing on encrypted vault", %{bypass: bypass} do
+      # User has NO DEK provisioned — encrypted vault → maybe_encrypt_qdrant_payload
+      # returns {:error, :no_dek} → reduce_while halts → telemetry fires.
+      user = insert(:user)
+      vault = insert(:vault, user: user, encrypted: true)
+
+      {:ok, note} =
+        Engram.Notes.upsert_note(user, vault, %{
+          "path" => "no-dek/note.md",
+          "content" => "body",
+          "mtime" => 1_000.0
+        })
+
+      # Reload user — upsert_note auto-provisioned the DEK via
+      # maybe_encrypt_note_fields, but our local user struct is stale.
+      user = Engram.Repo.get!(Engram.Accounts.User, user.id, skip_tenant_check: true)
+
+      # Decrypt note while DEK still exists (simulates worker's decrypt step).
+      {:ok, plaintext_note} = Engram.Crypto.maybe_decrypt_note_fields(note, user)
+
+      # Now clear the DEK so that Indexing's re-encrypt attempt fails.
+      # upsert_note auto-provisioned via maybe_encrypt_note_fields; simulate the
+      # "DEK missing at index time" scenario that emits telemetry.
+      import Ecto.Query
+      Engram.Repo.update_all(
+        from(u in Engram.Accounts.User, where: u.id == ^user.id),
+        [set: [encrypted_dek: nil]],
+        skip_tenant_check: true
+      )
+
+      Engram.Crypto.DekCache.invalidate(user.id)
+      user_cleared = Engram.Repo.get!(Engram.Accounts.User, user.id, skip_tenant_check: true)
+      _ = user_cleared
+
+      Engram.MockEmbedder
+      |> expect(:embed_texts, fn texts ->
+        {:ok, Enum.map(texts, fn _ -> [0.1, 0.2, 0.3] end)}
+      end)
+
+      Bypass.expect(bypass, fn conn ->
+        Plug.Conn.send_resp(conn, 200, ~s({"result": true}))
+      end)
+
+      handler_id = {__MODULE__, :encrypt_failed_handler, System.unique_integer()}
+      test_pid = self()
+
+      :telemetry.attach(
+        handler_id,
+        [:engram, :indexing, :encrypt_failed],
+        fn _event, measurements, meta, _ ->
+          send(test_pid, {:encrypt_failed_fired, measurements, meta})
+        end,
+        nil
+      )
+
+      try do
+        assert {:error, :no_dek} = Indexing.index_note(plaintext_note, vault)
+
+        assert_received {:encrypt_failed_fired, %{count: 1}, meta}
+        assert meta.user_id == user.id
+        assert meta.vault_id == vault.id
+        assert meta.note_id == plaintext_note.id
+      after
+        :telemetry.detach(handler_id)
+      end
+    end
   end
 
   # ---------------------------------------------------------------------------
