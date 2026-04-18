@@ -7,6 +7,9 @@ defmodule Engram.Accounts.User do
     field :password_hash, :string
     field :role, :string, default: "member"
     field :display_name, :string
+    field :encrypted_dek, :binary
+    field :dek_version, :integer, default: 1
+    field :key_provider, :string, default: "local"
 
     belongs_to :plan, Engram.Billing.Plan
     has_many :notes, Engram.Notes.Note
