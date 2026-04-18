@@ -106,6 +106,9 @@ defmodule Engram.Crypto do
          {:ok, tags_bin} <- Envelope.decrypt(note.tags_ciphertext, note.tags_nonce, dek) do
       tags = :erlang.binary_to_term(tags_bin, [:safe])
       {:ok, %{note | content: content, title: title, tags: tags}}
+    else
+      :error -> {:error, :decrypt_failed}
+      {:error, _} = err -> err
     end
   end
 end
