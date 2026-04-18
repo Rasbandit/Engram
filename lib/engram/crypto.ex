@@ -123,6 +123,14 @@ defmodule Engram.Crypto do
   `heading_path_nonce` keys; all six crypto fields are base64-encoded
   binaries. Other keys (user_id, vault_id, source_path, folder, tags,
   chunk_index) are untouched. Unencrypted vault → passthrough.
+
+  Unlike `maybe_encrypt_note_fields/3`, this function does NOT call
+  `ensure_user_dek/1`. Reason: Qdrant indexing only runs after a note has
+  been written through `Notes.upsert_note/3`, which provisions the DEK on
+  the first encrypted write. A missing DEK here signals a config bug
+  (e.g., a vault manually flipped to `encrypted: true` without using the
+  Phase 6 `EncryptVault` toggle worker) — fail-loud via Oban retry +
+  telemetry is preferable to silently lazy-provisioning.
   """
   @spec maybe_encrypt_qdrant_payload(map(), User.t(), Engram.Vaults.Vault.t()) ::
           {:ok, map()} | {:error, term()}

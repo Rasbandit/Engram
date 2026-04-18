@@ -62,9 +62,8 @@ defmodule Engram.SearchIntegrationTest do
     end)
   end
 
-  test "unencrypted vault round-trip: plaintext end to end", %{user: user, collection: col} do
+  test "unencrypted vault round-trip: plaintext end to end", %{user: user} do
     plain_vault = insert(:vault, user: user, encrypted: false)
-    _ = col
 
     note =
       insert(:note,

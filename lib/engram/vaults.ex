@@ -122,9 +122,10 @@ defmodule Engram.Vaults do
   Non-integer entries are silently filtered (they cannot match an integer PK).
   Returns a map keyed by stringified vault id: `%{"5" => %Vault{}}`.
 
-  Enforces tenant scoping explicitly via a `user_id == ^user_id` clause
-  (belt-and-suspenders alongside RLS). Excludes soft-deleted vaults, matching
-  `list_vaults/1` and `get_vault/2` conventions.
+  Tenant scoping is enforced via an explicit `user_id == ^user_id` clause.
+  RLS is bypassed (`skip_tenant_check: true`) for performance — the explicit
+  clause is the sole guarantee, so it MUST NOT be removed. Excludes
+  soft-deleted vaults, matching `list_vaults/1` and `get_vault/2` conventions.
   """
   @spec list_for_ids(Engram.Accounts.User.t(), [String.t()]) :: %{String.t() => Vault.t()}
   def list_for_ids(%Engram.Accounts.User{id: user_id}, vault_ids) when is_list(vault_ids) do
