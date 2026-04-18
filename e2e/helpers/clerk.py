@@ -42,8 +42,15 @@ class ClerkClient:
         return users[0]["id"]
 
     def create_user(self, email: str, password: str) -> str:
-        """Create a Clerk user via Backend API. Returns user_id."""
-        # Derive a username from the email (Clerk instance may require it)
+        """Create a Clerk user via Backend API. Returns user_id.
+
+        Idempotent: if Clerk reports the email as already taken (422
+        form_identifier_exists), returns the existing user's ID rather
+        than raising. Handles the common case where a prior fixture
+        created the user but a downstream step (API key creation,
+        network hiccup) failed mid-setup, causing pytest-rerunfailures
+        to re-invoke provision_user with the same email.
+        """
         username = email.split("@")[0]
         resp = self.session.post(
             f"{self.base_url}/users",
@@ -55,12 +62,31 @@ class ClerkClient:
             },
             timeout=10,
         )
+        if resp.status_code == 422 and self._is_identifier_taken(resp):
+            existing_id = self.find_user_by_email(email)
+            if existing_id:
+                logger.warning(
+                    "Clerk user %s already exists for %s — reusing", existing_id, email
+                )
+                return existing_id
+            logger.error(
+                "Clerk says %s is taken but lookup found nothing: %s",
+                email, resp.text,
+            )
         if not resp.ok:
-            logger.error("Clerk create_user failed: %s %s", resp.status_code, resp.text)
+            logger.error("Clerk create_user failed for %s: %s %s", email, resp.status_code, resp.text)
         resp.raise_for_status()
         user_id = resp.json()["id"]
         logger.info("Created Clerk user %s (%s)", user_id, email)
         return user_id
+
+    @staticmethod
+    def _is_identifier_taken(resp: requests.Response) -> bool:
+        try:
+            errors = resp.json().get("errors", [])
+        except ValueError:
+            return False
+        return any(e.get("code") == "form_identifier_exists" for e in errors)
 
     def create_session_token(self, user_id: str) -> str:
         """Create a session for a user and return a short-lived JWT.
