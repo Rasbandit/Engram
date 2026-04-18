@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
 # Multi-stage build: compile release in builder, run in minimal image
+# cache-bust: 2026-04-18-encryption-auto-provision
 ARG ELIXIR_VERSION=1.17.3
 ARG OTP_VERSION=27.1.2
 ARG DEBIAN_VERSION=bookworm-20241202-slim

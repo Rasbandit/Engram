@@ -67,6 +67,9 @@ defmodule Engram.Crypto do
     do: {:ok, attrs}
 
   def maybe_encrypt_note_fields(attrs, %User{} = user, %Engram.Vaults.Vault{encrypted: true}) do
+    require Logger
+    Logger.debug("maybe_encrypt_note_fields auto-provision path for user_id=#{user.id}")
+
     with {:ok, user} <- ensure_user_dek(user),
          {:ok, dek} <- get_dek(user) do
       content = Map.get(attrs, :content) || Map.get(attrs, "content") || ""
