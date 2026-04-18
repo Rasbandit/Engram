@@ -23,10 +23,15 @@ defmodule EngramWeb.NotesController do
           |> put_status(409)
           |> json(%{conflict: true, server_note: note_json(server_note)})
 
-        {:error, changeset} ->
+        {:error, %Ecto.Changeset{} = changeset} ->
           conn
           |> put_status(422)
           |> json(%{errors: format_errors(changeset)})
+
+        {:error, reason} ->
+          require Logger
+          Logger.error("upsert_note returned unexpected error: #{inspect(reason)}")
+          conn |> put_status(500) |> json(%{error: "internal", reason: inspect(reason)})
       end
     end
   end
