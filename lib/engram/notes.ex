@@ -107,7 +107,7 @@ defmodule Engram.Notes do
 
     case result do
       {:ok, nil} -> {:error, :not_found}
-      {:ok, note} -> {:ok, note}
+      {:ok, note} -> {:ok, decrypt_if_needed(note, user)}
       _ -> {:error, :not_found}
     end
   end
@@ -159,7 +159,7 @@ defmodule Engram.Notes do
         Oban.insert(EmbedNote.new_debounced(note.id, old_path: old_path))
         broadcast_change(user.id, vault.id, "delete", old_path)
         broadcast_change(user.id, vault.id, "upsert", note.path, note)
-        {:ok, note}
+        {:ok, decrypt_if_needed(note, user)}
 
       {:ok, :not_found} ->
         {:error, :not_found}
@@ -224,6 +224,8 @@ defmodule Engram.Notes do
 
     changes =
       Enum.map(notes, fn note ->
+        note = decrypt_if_needed(note, user)
+
         %{
           path: note.path,
           title: note.title,
@@ -373,7 +375,7 @@ defmodule Engram.Notes do
         Repo.all(query)
       end)
 
-    {:ok, notes}
+    {:ok, decrypt_if_needed(notes, user)}
   end
 
   @doc """
@@ -474,6 +476,19 @@ defmodule Engram.Notes do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  defp decrypt_if_needed(nil, _user), do: nil
+
+  defp decrypt_if_needed(%Note{} = note, user) do
+    case Engram.Crypto.maybe_decrypt_note_fields(note, user) do
+      {:ok, decrypted} -> decrypted
+      {:error, _reason} -> note
+    end
+  end
+
+  defp decrypt_if_needed(notes, user) when is_list(notes) do
+    Enum.map(notes, &decrypt_if_needed(&1, user))
+  end
 
   defp validate_path(nil),
     do:
