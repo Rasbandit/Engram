@@ -1,6 +1,12 @@
 ExUnit.start(assert_receive_timeout: 2_000)
 Ecto.Adapters.SQL.Sandbox.mode(Engram.Repo, :manual)
 
+# Exclude :qdrant_integration tests unless QDRANT_INTEGRATION=1 is set.
+# These tests require a running Qdrant instance at localhost:6333 (CI stack).
+if System.get_env("QDRANT_INTEGRATION") != "1" do
+  ExUnit.configure(exclude: [:qdrant_integration])
+end
+
 # Ensure SPA index.html has </head> for config injection.
 # CI has no frontend build → write a minimal stub.
 # Real build (detected by `id="root"`) missing </head> = error, not overwrite:

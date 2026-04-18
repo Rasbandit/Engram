@@ -199,15 +199,24 @@ defmodule Engram.Vector.Qdrant do
 
         results =
           Enum.map(points, fn p ->
+            payload = p["payload"] || %{}
+
             %{
               score: p["score"],
-              text: get_in(p, ["payload", "text"]),
-              title: get_in(p, ["payload", "title"]),
-              heading_path: get_in(p, ["payload", "heading_path"]),
-              source_path: get_in(p, ["payload", "source_path"]),
-              tags: get_in(p, ["payload", "tags"]) || [],
-              qdrant_id: p["id"]
+              text: Map.get(payload, "text"),
+              title: Map.get(payload, "title"),
+              heading_path: Map.get(payload, "heading_path"),
+              source_path: Map.get(payload, "source_path"),
+              tags: Map.get(payload, "tags") || [],
+              vault_id: Map.get(payload, "vault_id"),
+              qdrant_id: p["id"],
+              # Nonce keys are only present on encrypted-vault chunks; nil otherwise.
+              text_nonce: Map.get(payload, "text_nonce"),
+              title_nonce: Map.get(payload, "title_nonce"),
+              heading_path_nonce: Map.get(payload, "heading_path_nonce")
             }
+            |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+            |> Map.new()
           end)
 
         {:ok, results}

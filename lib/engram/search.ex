@@ -70,9 +70,27 @@ defmodule Engram.Search do
         |> then(&if(tags, do: Keyword.put(&1, :tags, tags), else: &1))
         |> then(&if(folder, do: Keyword.put(&1, :folder, folder), else: &1))
 
-      with {:ok, candidates} <- Qdrant.search(collection(), vector, search_opts) do
-        reranker().rerank(query, candidates, limit)
+      with {:ok, candidates} <- Qdrant.search(collection(), vector, search_opts),
+           vaults_by_id = load_candidate_vaults(user, vault, candidates),
+           {:ok, decrypted} <-
+             Engram.Crypto.maybe_decrypt_qdrant_candidates(candidates, user, vaults_by_id) do
+        reranker().rerank(query, decrypted, limit)
       end
     end
+  end
+
+  # Single-vault search: return the passed-in vault directly — no extra DB query.
+  # Cross-vault search (vault=nil): batch-load only the vaults referenced by candidates.
+  defp load_candidate_vaults(_user, %Engram.Vaults.Vault{id: id} = v, _candidates),
+    do: %{to_string(id) => v}
+
+  defp load_candidate_vaults(user, nil, candidates) do
+    vault_ids =
+      candidates
+      |> Enum.map(&Map.get(&1, :vault_id))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    Engram.Vaults.list_for_ids(user, vault_ids)
   end
 end

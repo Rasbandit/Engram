@@ -250,7 +250,7 @@ defmodule Mix.Tasks.Parity.Validate do
             "mtime" => :os.system_time(:second) / 1
           })
 
-        {:ok, chunk_count} = Engram.Indexing.index_note(note)
+        {:ok, chunk_count} = Engram.Indexing.index_note(note, vault)
 
         if chunk_count == 0 do
           {:fail, "indexing produced 0 chunks"}

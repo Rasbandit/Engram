@@ -1,6 +1,7 @@
 defmodule Engram.SearchTest do
   use Engram.DataCase, async: false
 
+  import Bitwise, only: [bxor: 2]
   import Mox
 
   alias Engram.Search
@@ -267,6 +268,120 @@ defmodule Engram.SearchTest do
 
       result = Search.search(user, vault, "query")
       refute result == {:error, :feature_not_available}
+    end
+  end
+
+  describe "search/4 with encrypted vaults" do
+    setup do
+      Engram.Crypto.DekCache.invalidate_all()
+      user = insert(:user)
+      {:ok, user} = Engram.Crypto.ensure_user_dek(user)
+      enc_vault = insert(:vault, user: user, encrypted: true, encrypted_at: DateTime.utc_now())
+
+      {:ok, user: user, enc_vault: enc_vault}
+    end
+
+    test "decrypts encrypted-vault candidates before returning results", %{
+      bypass: bypass,
+      user: user,
+      enc_vault: vault
+    } do
+      {:ok, enc} =
+        Engram.Crypto.maybe_encrypt_qdrant_payload(
+          %{text: "alpha body", title: "Alpha", heading_path: "root"},
+          user,
+          vault
+        )
+
+      Engram.MockEmbedder
+      |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
+
+      qdrant_result = %{
+        "result" => [
+          %{
+            "id" => "qid-a",
+            "score" => 0.95,
+            "payload" => %{
+              "text" => enc.text,
+              "title" => enc.title,
+              "heading_path" => enc.heading_path,
+              "text_nonce" => enc.text_nonce,
+              "title_nonce" => enc.title_nonce,
+              "heading_path_nonce" => enc.heading_path_nonce,
+              "source_path" => "a.md",
+              "tags" => [],
+              "user_id" => to_string(user.id),
+              "vault_id" => to_string(vault.id)
+            }
+          }
+        ]
+      }
+
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(qdrant_result))
+      end)
+
+      assert {:ok, [result]} = Search.search(user, vault, "query")
+      assert result.text == "alpha body"
+      assert result.title == "Alpha"
+      assert result.heading_path == "root"
+      refute Map.has_key?(result, :text_nonce)
+    end
+
+    test "returns {:error, :decrypt_failed} when ALL encrypted candidates fail decrypt", %{
+      bypass: bypass,
+      user: user,
+      enc_vault: vault
+    } do
+      {:ok, enc} =
+        Engram.Crypto.maybe_encrypt_qdrant_payload(
+          %{text: "beta body", title: "Beta", heading_path: "root"},
+          user,
+          vault
+        )
+
+      # Tamper: flip one bit of the decoded ciphertext.
+      <<first, rest::binary>> = Base.decode64!(enc.text)
+      tampered_text = Base.encode64(<<bxor(first, 1), rest::binary>>)
+
+      Engram.MockEmbedder
+      |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
+
+      qdrant_result = %{
+        "result" => [
+          %{
+            "id" => "qid-b",
+            "score" => 0.9,
+            "payload" => %{
+              "text" => tampered_text,
+              "title" => enc.title,
+              "heading_path" => enc.heading_path,
+              "text_nonce" => enc.text_nonce,
+              "title_nonce" => enc.title_nonce,
+              "heading_path_nonce" => enc.heading_path_nonce,
+              "source_path" => "b.md",
+              "tags" => [],
+              "user_id" => to_string(user.id),
+              "vault_id" => to_string(vault.id)
+            }
+          }
+        ]
+      }
+
+      Bypass.expect_once(bypass, "POST", "/collections/engram_notes/points/query", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, Jason.encode!(qdrant_result))
+      end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, :decrypt_failed} = Search.search(user, vault, "query")
+        end)
+
+      assert log =~ "decrypt"
     end
   end
 end

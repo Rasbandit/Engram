@@ -5,6 +5,8 @@ defmodule Engram.Crypto do
   Lazy DEK provisioning: users get a DEK only when encryption is first needed.
   """
 
+  require Logger
+
   alias Engram.Accounts
   alias Engram.Accounts.User
   alias Engram.Crypto.{DekCache, Envelope, KeyProvider.Resolver}
@@ -67,7 +69,6 @@ defmodule Engram.Crypto do
     do: {:ok, attrs}
 
   def maybe_encrypt_note_fields(attrs, %User{} = user, %Engram.Vaults.Vault{encrypted: true}) do
-    require Logger
     Logger.debug("maybe_encrypt_note_fields auto-provision path for user_id=#{user.id}")
 
     with {:ok, user} <- ensure_user_dek(user),
@@ -115,4 +116,211 @@ defmodule Engram.Crypto do
       {:error, _} = err -> err
     end
   end
+
+  @doc """
+  If `vault.encrypted`, encrypts `text`, `title`, `heading_path` in the
+  payload map using the user's DEK. Adds `text_nonce`, `title_nonce`,
+  `heading_path_nonce` keys; all six crypto fields are base64-encoded
+  binaries. Other keys (user_id, vault_id, source_path, folder, tags,
+  chunk_index) are untouched. Unencrypted vault → passthrough.
+
+  Unlike `maybe_encrypt_note_fields/3`, this function does NOT call
+  `ensure_user_dek/1`. Reason: Qdrant indexing only runs after a note has
+  been written through `Notes.upsert_note/3`, which provisions the DEK on
+  the first encrypted write. A missing DEK here signals a config bug
+  (e.g., a vault manually flipped to `encrypted: true` without using the
+  Phase 6 `EncryptVault` toggle worker) — fail-loud via Oban retry +
+  telemetry is preferable to silently lazy-provisioning.
+  """
+  @spec maybe_encrypt_qdrant_payload(map(), User.t(), Engram.Vaults.Vault.t()) ::
+          {:ok, map()} | {:error, term()}
+  def maybe_encrypt_qdrant_payload(payload, _user, %Engram.Vaults.Vault{encrypted: false}),
+    do: {:ok, payload}
+
+  def maybe_encrypt_qdrant_payload(payload, %User{} = user, %Engram.Vaults.Vault{encrypted: true}) do
+    with {:ok, dek} <- get_dek(user) do
+      {text_ct, text_nonce} = Envelope.encrypt(Map.get(payload, :text) || "", dek)
+      {title_ct, title_nonce} = Envelope.encrypt(Map.get(payload, :title) || "", dek)
+      {hp_ct, hp_nonce} = Envelope.encrypt(Map.get(payload, :heading_path) || "", dek)
+
+      {:ok,
+       payload
+       |> Map.put(:text, Base.encode64(text_ct))
+       |> Map.put(:text_nonce, Base.encode64(text_nonce))
+       |> Map.put(:title, Base.encode64(title_ct))
+       |> Map.put(:title_nonce, Base.encode64(title_nonce))
+       |> Map.put(:heading_path, Base.encode64(hp_ct))
+       |> Map.put(:heading_path_nonce, Base.encode64(hp_nonce))}
+    end
+  end
+
+  @doc """
+  Decrypts a list of Qdrant search candidates in-place based on each
+  candidate's vault's `encrypted` flag (looked up in `vaults_by_id`).
+
+  - Per-candidate decrypt failure → `Logger.error` + telemetry
+    `[:engram, :search, :decrypt_failed]` + candidate dropped.
+  - Missing vault entry in `vaults_by_id` → telemetry
+    `[:engram, :search, :payload_shape_mismatch]` + candidate dropped.
+  - All candidates dropped → `{:error, :decrypt_failed}`.
+  - Empty input → `{:ok, []}`.
+  """
+  @spec maybe_decrypt_qdrant_candidates([map()], User.t(), %{String.t() => Engram.Vaults.Vault.t()}) ::
+          {:ok, [map()]} | {:error, :decrypt_failed}
+  def maybe_decrypt_qdrant_candidates([], _user, _vaults_by_id), do: {:ok, []}
+
+  def maybe_decrypt_qdrant_candidates(candidates, %User{} = user, vaults_by_id)
+      when is_list(candidates) and is_map(vaults_by_id) do
+    case get_dek_if_any_encrypted(user, candidates, vaults_by_id) do
+      {:ok, dek_or_nil} ->
+        decrypted =
+          candidates
+          |> Enum.flat_map(&decrypt_one(&1, vaults_by_id, dek_or_nil))
+
+        if decrypted == [] and candidates != [] do
+          {:error, :decrypt_failed}
+        else
+          {:ok, decrypted}
+        end
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  # Lazy DEK load — only fetch if at least one candidate is in an encrypted vault.
+  defp get_dek_if_any_encrypted(user, candidates, vaults_by_id) do
+    if Enum.any?(candidates, fn c -> encrypted_vault?(c, vaults_by_id) end) do
+      case get_dek(user) do
+        {:ok, dek} ->
+          {:ok, dek}
+
+        {:error, reason} ->
+          Logger.error(
+            "qdrant decrypt: failed to load DEK for user_id=#{user.id} reason=#{inspect(reason)}"
+          )
+
+          {:error, :decrypt_failed}
+      end
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp encrypted_vault?(candidate, vaults_by_id) do
+    case candidate_vault_id(candidate) do
+      nil ->
+        false
+
+      id ->
+        case Map.get(vaults_by_id, id) do
+          %Engram.Vaults.Vault{encrypted: true} -> true
+          _ -> false
+        end
+    end
+  end
+
+  defp candidate_vault_id(candidate) do
+    case Map.get(candidate, :vault_id) do
+      nil -> nil
+      v -> to_string(v)
+    end
+  end
+
+  # Returns [decrypted_candidate] on success, [] on drop.
+  defp decrypt_one(candidate, vaults_by_id, dek) do
+    vault_id_key = candidate_vault_id(candidate)
+
+    cond do
+      # No vault_id and no ciphertext — legacy / plaintext candidate, pass through.
+      is_nil(vault_id_key) and not Map.has_key?(candidate, :text_nonce) ->
+        [candidate]
+
+      # No vault_id but ciphertext present — shape mismatch, drop.
+      is_nil(vault_id_key) ->
+        emit_shape_mismatch(nil, candidate, "missing vault_id with text_nonce present")
+        []
+
+      true ->
+        lookup_and_decrypt(candidate, vault_id_key, vaults_by_id, dek)
+    end
+  end
+
+  defp emit_shape_mismatch(vault_id_key, candidate, reason) do
+    qdrant_id = Map.get(candidate, :qdrant_id)
+
+    :telemetry.execute(
+      [:engram, :search, :payload_shape_mismatch],
+      %{count: 1},
+      %{vault_id: vault_id_key, qdrant_id: qdrant_id}
+    )
+
+    Logger.error(
+      "qdrant decrypt shape mismatch: vault_id=#{inspect(vault_id_key)} qdrant_id=#{inspect(qdrant_id)} reason=#{reason}"
+    )
+  end
+
+  defp lookup_and_decrypt(candidate, vault_id_key, vaults_by_id, dek) do
+    case Map.get(vaults_by_id, vault_id_key) do
+      nil ->
+        emit_shape_mismatch(vault_id_key, candidate, "vault not in lookup map")
+        []
+
+      %Engram.Vaults.Vault{encrypted: false} ->
+        if Map.has_key?(candidate, :text_nonce) do
+          emit_shape_mismatch(vault_id_key, candidate, "vault marked unencrypted but payload has text_nonce")
+          []
+        else
+          [candidate]
+        end
+
+      %Engram.Vaults.Vault{encrypted: true} ->
+        do_decrypt_candidate(candidate, dek)
+    end
+  end
+
+  defp do_decrypt_candidate(candidate, dek) do
+    with {:ok, text_ct} <- safe_decode64(Map.get(candidate, :text)),
+         {:ok, text_nonce} <- safe_decode64(Map.get(candidate, :text_nonce)),
+         {:ok, title_ct} <- safe_decode64(Map.get(candidate, :title)),
+         {:ok, title_nonce} <- safe_decode64(Map.get(candidate, :title_nonce)),
+         {:ok, hp_ct} <- safe_decode64(Map.get(candidate, :heading_path)),
+         {:ok, hp_nonce} <- safe_decode64(Map.get(candidate, :heading_path_nonce)),
+         {:ok, text} <- Envelope.decrypt(text_ct, text_nonce, dek),
+         {:ok, title} <- Envelope.decrypt(title_ct, title_nonce, dek),
+         {:ok, heading_path} <- Envelope.decrypt(hp_ct, hp_nonce, dek) do
+      decrypted =
+        candidate
+        |> Map.put(:text, text)
+        |> Map.put(:title, title)
+        |> Map.put(:heading_path, heading_path)
+        |> Map.drop([:text_nonce, :title_nonce, :heading_path_nonce])
+
+      [decrypted]
+    else
+      reason ->
+        qdrant_id = Map.get(candidate, :qdrant_id)
+        vault_id = Map.get(candidate, :vault_id)
+
+        :telemetry.execute(
+          [:engram, :search, :decrypt_failed],
+          %{count: 1},
+          %{
+            qdrant_id: qdrant_id,
+            vault_id: to_string(vault_id),
+            reason: inspect(reason)
+          }
+        )
+
+        Logger.error(
+          "qdrant decrypt: failed for qdrant_id=#{inspect(qdrant_id)} vault_id=#{inspect(vault_id)} reason=#{inspect(reason)}"
+        )
+
+        []
+    end
+  end
+
+  defp safe_decode64(nil), do: :error
+  defp safe_decode64(s) when is_binary(s), do: Base.decode64(s)
+  defp safe_decode64(_), do: :error
 end
