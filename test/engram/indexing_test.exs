@@ -255,6 +255,70 @@ defmodule Engram.IndexingTest do
         :telemetry.detach(handler_id)
       end
     end
+
+    test "encryption failure preserves prior chunks (no partial-failure drift)", %{bypass: bypass} do
+      # Index once successfully, then re-index with a missing DEK. The old
+      # chunks must survive because encrypt-first aborts before any Postgres
+      # mutation.
+      user = insert(:user)
+      {:ok, user} = Engram.Crypto.ensure_user_dek(user)
+      vault = insert(:vault, user: user, encrypted: true)
+
+      {:ok, note} =
+        Engram.Notes.upsert_note(user, vault, %{
+          "path" => "atomic/note.md",
+          "content" => "# Title\n\nFirst body.",
+          "mtime" => 1_000.0
+        })
+
+      {:ok, plaintext_note} = Engram.Crypto.maybe_decrypt_note_fields(note, user)
+
+      Engram.MockEmbedder
+      |> expect(:embed_texts, 2, fn texts ->
+        {:ok, Enum.map(texts, fn _ -> [0.1, 0.2, 0.3] end)}
+      end)
+
+      Bypass.expect(bypass, fn conn ->
+        Plug.Conn.send_resp(conn, 200, ~s({"result": true}))
+      end)
+
+      assert {:ok, initial_count} = Indexing.index_note(plaintext_note, vault)
+      assert initial_count > 0
+
+      import Ecto.Query
+
+      original_ids =
+        Engram.Repo.all(
+          from(c in Engram.Notes.Chunk, where: c.note_id == ^plaintext_note.id, select: c.id),
+          skip_tenant_check: true
+        )
+        |> Enum.sort()
+
+      assert length(original_ids) == initial_count
+
+      # Clear the DEK so the next index_note/2 fails at encrypt.
+      Engram.Repo.update_all(
+        from(u in Engram.Accounts.User, where: u.id == ^user.id),
+        [set: [encrypted_dek: nil]],
+        skip_tenant_check: true
+      )
+
+      Engram.Crypto.DekCache.invalidate(user.id)
+
+      assert {:error, :no_dek} = Indexing.index_note(plaintext_note, vault)
+
+      # Old chunks must still be there — encrypt-first means no Postgres mutation
+      # happens when encryption fails.
+      surviving_ids =
+        Engram.Repo.all(
+          from(c in Engram.Notes.Chunk, where: c.note_id == ^plaintext_note.id, select: c.id),
+          skip_tenant_check: true
+        )
+        |> Enum.sort()
+
+      assert surviving_ids == original_ids,
+             "expected prior chunks to survive failed re-index; got #{inspect(surviving_ids)} vs #{inspect(original_ids)}"
+    end
   end
 
   # ---------------------------------------------------------------------------
