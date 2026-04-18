@@ -34,17 +34,24 @@ async def test_offline_multi_file_flush(vault_a, cdp_a, api_sync):
             write_note(vault_a, path, f"# Multi Flush {i}\nCreated while offline")
             time.sleep(0.3)
 
-        # Wait for push attempts to fail and queue
-        deadline = time.monotonic() + 10
+        # Wait for EACH path to appear in the queue. Under xdist with 2 workers,
+        # Obsidian's file-watch → push-attempt → queue cycle can exceed 10s for
+        # the last-written file; 30s matches the drain timeout below.
+        paths_set = set(paths)
+        deadline = time.monotonic() + 30
+        queued_paths: set[str] = set()
+
         while time.monotonic() < deadline:
-            if await cdp_a.get_queue_size() >= 3:
+            entries = await cdp_a.get_queue_entries()
+            queued_paths = {e["path"] for e in entries}
+            if paths_set.issubset(queued_paths):
                 break
             await asyncio.sleep(0.5)
 
-        queue_size = await cdp_a.get_queue_size()
-        assert queue_size >= 3, (
-            f"Expected at least 3 queued entries, got {queue_size}. "
-            f"Entries: {await cdp_a.get_queue_entries()}"
+        missing = paths_set - queued_paths
+        assert not missing, (
+            f"Expected all 3 paths queued within 30s. Missing: {sorted(missing)}. "
+            f"Queued entries: {await cdp_a.get_queue_entries()}"
         )
     finally:
         # MUST restore even if assertions fail — prevents cascade to later tests
