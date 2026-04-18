@@ -20,6 +20,12 @@ env:
   # When set, docker-compose.ci.yml pulls images from the local FastRaid registry.
   # When unset, falls back to Docker Hub.
 
+  # CI-only encryption master key. Ephemeral — CI databases are recreated per run,
+  # so the key does not protect persistent data. Production deploys must override
+  # with a secret via `fly secrets set ENCRYPTION_MASTER_KEY=...`.
+  KEY_PROVIDER: "local"
+  ENCRYPTION_MASTER_KEY: "vZ+e130Hffn5T1ljBb3FH1rFIKc42kTK86jmUEusLio="
+
 jobs:
   version-check:
     if: github.event_name == 'push' && github.ref != 'refs/heads/main'
