@@ -115,4 +115,33 @@ defmodule Engram.Crypto do
       {:error, _} = err -> err
     end
   end
+
+  @doc """
+  If `vault.encrypted`, encrypts `text`, `title`, `heading_path` in the
+  payload map using the user's DEK. Adds `text_nonce`, `title_nonce`,
+  `heading_path_nonce` keys; all six crypto fields are base64-encoded
+  binaries. Other keys (user_id, vault_id, source_path, folder, tags,
+  chunk_index) are untouched. Unencrypted vault → passthrough.
+  """
+  @spec maybe_encrypt_qdrant_payload(map(), User.t(), Engram.Vaults.Vault.t()) ::
+          {:ok, map()} | {:error, term()}
+  def maybe_encrypt_qdrant_payload(payload, _user, %Engram.Vaults.Vault{encrypted: false}),
+    do: {:ok, payload}
+
+  def maybe_encrypt_qdrant_payload(payload, %User{} = user, %Engram.Vaults.Vault{encrypted: true}) do
+    with {:ok, dek} <- get_dek(user) do
+      {text_ct, text_nonce} = Envelope.encrypt(Map.get(payload, :text) || "", dek)
+      {title_ct, title_nonce} = Envelope.encrypt(Map.get(payload, :title) || "", dek)
+      {hp_ct, hp_nonce} = Envelope.encrypt(Map.get(payload, :heading_path) || "", dek)
+
+      {:ok,
+       payload
+       |> Map.put(:text, Base.encode64(text_ct))
+       |> Map.put(:text_nonce, Base.encode64(text_nonce))
+       |> Map.put(:title, Base.encode64(title_ct))
+       |> Map.put(:title_nonce, Base.encode64(title_nonce))
+       |> Map.put(:heading_path, Base.encode64(hp_ct))
+       |> Map.put(:heading_path_nonce, Base.encode64(hp_nonce))}
+    end
+  end
 end
