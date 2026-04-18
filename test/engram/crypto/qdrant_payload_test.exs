@@ -1,6 +1,6 @@
 defmodule Engram.Crypto.QdrantPayloadTest do
   use Engram.DataCase, async: false
-  import Bitwise
+  import Bitwise, only: [bxor: 2]
   alias Engram.Crypto
   alias Engram.Crypto.DekCache
   alias Engram.Vaults.Vault
@@ -177,7 +177,7 @@ defmodule Engram.Crypto.QdrantPayloadTest do
     } do
       # Tamper: flip one bit of the base64-decoded ciphertext, re-encode
       <<first, rest::binary>> = Base.decode64!(enc.text)
-      tampered_ct = Base.encode64(<<Bitwise.bxor(first, 1), rest::binary>>)
+      tampered_ct = Base.encode64(<<bxor(first, 1), rest::binary>>)
       tampered = %{enc | text: tampered_ct}
 
       handler_id = {__MODULE__, :decrypt_failed_handler, System.unique_integer()}
@@ -215,7 +215,7 @@ defmodule Engram.Crypto.QdrantPayloadTest do
       vaults_by_id: vaults
     } do
       <<first, rest::binary>> = Base.decode64!(enc.text)
-      tampered_ct = Base.encode64(<<Bitwise.bxor(first, 1), rest::binary>>)
+      tampered_ct = Base.encode64(<<bxor(first, 1), rest::binary>>)
       tampered = %{enc | text: tampered_ct}
 
       assert {:error, :decrypt_failed} =
