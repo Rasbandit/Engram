@@ -21,8 +21,11 @@ defmodule Engram.Indexing do
   @doc """
   Full pipeline for a note: parse → embed → delete old chunks → upsert new chunks.
   Returns {:ok, chunk_count} or {:error, reason}.
+
+  Takes the note's vault so Qdrant payloads can be encrypted when
+  `vault.encrypted = true`.
   """
-  def index_note(note) do
+  def index_note(note, %Engram.Vaults.Vault{} = vault) do
     chunks = Markdown.parse(note.content || "", note.path)
 
     if chunks == [] do
@@ -33,7 +36,7 @@ defmodule Engram.Indexing do
 
       with :ok <- Qdrant.ensure_collection(collection(), dims),
            {:ok, vectors} <- embed_for_indexing(context_texts),
-           :ok <- replace_chunks(note, chunks, vectors) do
+           :ok <- replace_chunks(note, vault, chunks, vectors) do
         {:ok, length(chunks)}
       end
     end
@@ -69,7 +72,7 @@ defmodule Engram.Indexing do
     end
   end
 
-  defp replace_chunks(note, chunks, vectors) do
+  defp replace_chunks(note, vault, chunks, vectors) do
     # Delete from Qdrant first (external, idempotent) — if this fails, Postgres is untouched
     with :ok <- Qdrant.delete_by_note(collection(), to_string(note.user_id), to_string(note.vault_id), note.path) do
       # skip_tenant_check: trusted internal pipeline, already scoped by note_id/user_id
@@ -102,27 +105,48 @@ defmodule Engram.Indexing do
           skip_tenant_check: true
         )
 
-      qdrant_points =
-        Enum.zip(inserted, Enum.zip(chunks, vectors))
-        |> Enum.map(fn {row, {chunk, vector}} ->
-          %{
-            id: row.qdrant_point_id,
-            vector: vector,
-            payload: %{
-              user_id: to_string(note.user_id),
-              vault_id: to_string(note.vault_id),
-              source_path: note.path,
-              title: note.title,
-              folder: note.folder || "",
-              tags: note.tags || [],
-              heading_path: chunk.heading_path,
-              text: chunk.text,
-              chunk_index: row.position
-            }
+      user = Engram.Accounts.get_user!(note.user_id)
+
+      result =
+        inserted
+        |> Enum.zip(Enum.zip(chunks, vectors))
+        |> Enum.reduce_while({:ok, []}, fn {row, {chunk, vector}}, {:ok, acc} ->
+          base_payload = %{
+            user_id: to_string(note.user_id),
+            vault_id: to_string(note.vault_id),
+            source_path: note.path,
+            title: note.title,
+            folder: note.folder || "",
+            tags: note.tags || [],
+            heading_path: chunk.heading_path,
+            text: chunk.text,
+            chunk_index: row.position
           }
+
+          case Engram.Crypto.maybe_encrypt_qdrant_payload(base_payload, user, vault) do
+            {:ok, payload} ->
+              {:cont, {:ok, [%{id: row.qdrant_point_id, vector: vector, payload: payload} | acc]}}
+
+            {:error, reason} = err ->
+              :telemetry.execute(
+                [:engram, :indexing, :encrypt_failed],
+                %{count: 1},
+                %{
+                  user_id: note.user_id,
+                  vault_id: note.vault_id,
+                  note_id: note.id,
+                  reason: inspect(reason)
+                }
+              )
+
+              {:halt, err}
+          end
         end)
 
-      Qdrant.upsert_points(collection(), qdrant_points)
+      case result do
+        {:ok, qdrant_points} -> Qdrant.upsert_points(collection(), Enum.reverse(qdrant_points))
+        {:error, _} = err -> err
+      end
     end
   end
 end

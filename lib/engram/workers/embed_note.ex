@@ -31,6 +31,7 @@ defmodule Engram.Workers.EmbedNote do
   alias Engram.Indexing
   alias Engram.Notes.Note
   alias Engram.Repo
+  alias Engram.Vaults.Vault
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -59,7 +60,9 @@ defmodule Engram.Workers.EmbedNote do
               Indexing.delete_points_by_path(decrypted_note, old_path)
             end
 
-            case Indexing.index_note(decrypted_note) do
+            vault = Repo.get(Vault, decrypted_note.vault_id, skip_tenant_check: true)
+
+            case Indexing.index_note(decrypted_note, vault) do
               {:ok, _count} ->
                 stamp_embed_hash(note)
                 :ok
