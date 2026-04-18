@@ -1,5 +1,6 @@
 defmodule Engram.Crypto.QdrantPayloadTest do
   use Engram.DataCase, async: false
+  import Bitwise
   alias Engram.Crypto
   alias Engram.Crypto.DekCache
   alias Engram.Vaults.Vault
@@ -85,6 +86,171 @@ defmodule Engram.Crypto.QdrantPayloadTest do
       assert {:ok, out} = Crypto.maybe_encrypt_qdrant_payload(payload, user, vault)
       # Empty plaintext still produces 16-byte GCM tag → non-empty b64 ciphertext
       assert byte_size(Base.decode64!(out.text)) == 16
+    end
+  end
+
+  describe "maybe_decrypt_qdrant_candidates/3" do
+    setup %{user: user} do
+      {:ok, user} = Crypto.ensure_user_dek(user)
+      enc_vault = %Vault{id: 5, encrypted: true}
+      plain_vault = %Vault{id: 7, encrypted: false}
+
+      # Build one encrypted candidate
+      {:ok, enc_payload} =
+        Crypto.maybe_encrypt_qdrant_payload(
+          %{text: "secret", title: "T", heading_path: "intro"},
+          user,
+          enc_vault
+        )
+
+      enc_candidate = %{
+        score: 0.9,
+        qdrant_id: "qid-1",
+        vault_id: "5",
+        source_path: "a.md",
+        tags: [],
+        text: enc_payload.text,
+        title: enc_payload.title,
+        heading_path: enc_payload.heading_path,
+        text_nonce: enc_payload.text_nonce,
+        title_nonce: enc_payload.title_nonce,
+        heading_path_nonce: enc_payload.heading_path_nonce
+      }
+
+      plain_candidate = %{
+        score: 0.8,
+        qdrant_id: "qid-2",
+        vault_id: "7",
+        source_path: "b.md",
+        tags: [],
+        text: "plain",
+        title: "P",
+        heading_path: "root"
+      }
+
+      vaults_by_id = %{"5" => enc_vault, "7" => plain_vault}
+
+      {:ok,
+       user: user,
+       enc_candidate: enc_candidate,
+       plain_candidate: plain_candidate,
+       vaults_by_id: vaults_by_id}
+    end
+
+    test "round-trips encrypted candidates to plaintext", %{
+      user: user,
+      enc_candidate: enc,
+      vaults_by_id: vaults
+    } do
+      assert {:ok, [out]} = Crypto.maybe_decrypt_qdrant_candidates([enc], user, vaults)
+      assert out.text == "secret"
+      assert out.title == "T"
+      assert out.heading_path == "intro"
+      refute Map.has_key?(out, :text_nonce)
+    end
+
+    test "passes through unencrypted candidates byte-exact", %{
+      user: user,
+      plain_candidate: pc,
+      vaults_by_id: vaults
+    } do
+      assert {:ok, [out]} = Crypto.maybe_decrypt_qdrant_candidates([pc], user, vaults)
+      assert out == pc
+    end
+
+    test "handles mixed list", %{
+      user: user,
+      enc_candidate: enc,
+      plain_candidate: pc,
+      vaults_by_id: vaults
+    } do
+      assert {:ok, [a, b]} = Crypto.maybe_decrypt_qdrant_candidates([enc, pc], user, vaults)
+      assert a.text == "secret"
+      assert b.text == "plain"
+    end
+
+    test "drops tampered candidate, keeps others, emits telemetry + error log", %{
+      user: user,
+      enc_candidate: enc,
+      plain_candidate: pc,
+      vaults_by_id: vaults
+    } do
+      # Tamper: flip one bit of the base64-decoded ciphertext, re-encode
+      <<first, rest::binary>> = Base.decode64!(enc.text)
+      tampered_ct = Base.encode64(<<Bitwise.bxor(first, 1), rest::binary>>)
+      tampered = %{enc | text: tampered_ct}
+
+      handler_id = {__MODULE__, :decrypt_failed_handler, System.unique_integer()}
+      test_pid = self()
+
+      :telemetry.attach(
+        handler_id,
+        [:engram, :search, :decrypt_failed],
+        fn _event, measurements, meta, _ ->
+          send(test_pid, {:telemetry_fired, measurements, meta})
+        end,
+        nil
+      )
+
+      try do
+        log =
+          ExUnit.CaptureLog.capture_log(fn ->
+            assert {:ok, [out]} =
+                     Crypto.maybe_decrypt_qdrant_candidates([tampered, pc], user, vaults)
+
+            # Only the plaintext candidate survives
+            assert out.qdrant_id == "qid-2"
+          end)
+
+        assert log =~ "decrypt"
+        assert_received {:telemetry_fired, %{count: 1}, %{qdrant_id: "qid-1"}}
+      after
+        :telemetry.detach(handler_id)
+      end
+    end
+
+    test "returns :decrypt_failed when ALL candidates fail", %{
+      user: user,
+      enc_candidate: enc,
+      vaults_by_id: vaults
+    } do
+      <<first, rest::binary>> = Base.decode64!(enc.text)
+      tampered_ct = Base.encode64(<<Bitwise.bxor(first, 1), rest::binary>>)
+      tampered = %{enc | text: tampered_ct}
+
+      assert {:error, :decrypt_failed} =
+               Crypto.maybe_decrypt_qdrant_candidates([tampered], user, vaults)
+    end
+
+    test "empty input returns {:ok, []}", %{user: user, vaults_by_id: vaults} do
+      assert {:ok, []} = Crypto.maybe_decrypt_qdrant_candidates([], user, vaults)
+    end
+
+    test "drops candidate when vault_id-to-vault map is missing an entry", %{
+      user: user,
+      enc_candidate: enc
+    } do
+      # Vault 5 not in map → shape-mismatch guard
+      empty = %{}
+
+      handler_id = {__MODULE__, :shape_mismatch_handler, System.unique_integer()}
+      test_pid = self()
+
+      :telemetry.attach(
+        handler_id,
+        [:engram, :search, :payload_shape_mismatch],
+        fn _e, m, meta, _ -> send(test_pid, {:shape_mismatch, m, meta}) end,
+        nil
+      )
+
+      try do
+        assert {:error, :decrypt_failed} =
+                 Crypto.maybe_decrypt_qdrant_candidates([enc], user, empty)
+
+        assert_received {:shape_mismatch, _, _}
+      after
+        :telemetry.detach(handler_id)
+      end
     end
   end
 end
