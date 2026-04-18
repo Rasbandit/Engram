@@ -236,6 +236,22 @@ defmodule Engram.Accounts do
     :crypto.hash(:sha256, raw_token) |> Base.encode16(case: :lower)
   end
 
+  # ── Encryption ─────────────────────────────────────────────────
+
+  @doc """
+  Updates encryption-related fields on a user. Used by Engram.Crypto during
+  DEK provisioning. Separate from general user updates so the change surface
+  is narrow.
+  """
+  @spec update_user_encryption(Engram.Accounts.User.t(), map()) ::
+          {:ok, Engram.Accounts.User.t()} | {:error, Ecto.Changeset.t()}
+  def update_user_encryption(%User{} = user, attrs) do
+    user
+    |> Ecto.Changeset.cast(attrs, [:encrypted_dek, :dek_version, :key_provider])
+    |> Ecto.Changeset.validate_required([:encrypted_dek, :dek_version, :key_provider])
+    |> Repo.update(skip_tenant_check: true)
+  end
+
   # ── JWT ─────────────────────────────────────────────────────────
 
   def generate_jwt(user) do
