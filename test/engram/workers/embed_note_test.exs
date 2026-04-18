@@ -4,6 +4,8 @@ defmodule Engram.Workers.EmbedNoteTest do
 
   import Mox
 
+  alias Engram.Crypto
+  alias Engram.Crypto.DekCache
   alias Engram.Notes
   alias Engram.Notes.Note
   alias Engram.Workers.EmbedNote
@@ -101,6 +103,39 @@ defmodule Engram.Workers.EmbedNoteTest do
     test "discards job when note is soft-deleted", %{user: user} do
       note = insert(:note, user: user, deleted_at: DateTime.utc_now())
       assert {:discard, _} = perform_job(EmbedNote, %{note_id: note.id})
+    end
+
+    test "decrypts content before indexing for encrypted vault", %{bypass: bypass} do
+      DekCache.invalidate_all()
+
+      user = insert(:user)
+      {:ok, user} = Crypto.ensure_user_dek(user)
+      vault = insert(:vault, user: user, encrypted: true)
+
+      # upsert_note encrypts content on the way in
+      {:ok, note} =
+        Notes.upsert_note(user, vault, %{
+          "path" => "secure/secret.md",
+          "content" => "# Secret\n\nClassified content.",
+          "mtime" => 1_000.0
+        })
+
+      # Embedder should receive non-empty texts (plaintext chunks, not "")
+      Engram.MockEmbedder
+      |> expect(:embed_texts, fn texts ->
+        # texts come from Markdown.parse on the decrypted content — must be non-empty
+        assert texts != []
+        assert Enum.all?(texts, fn t -> is_binary(t) and t != "" end)
+        {:ok, Enum.map(texts, fn _ -> List.duplicate(0.1, 3) end)}
+      end)
+
+      stub_qdrant(bypass)
+
+      assert :ok = perform_job(EmbedNote, %{note_id: note.id})
+
+      # embed_hash should be stamped, confirming the job ran to completion
+      updated = Repo.get!(Note, note.id, skip_tenant_check: true)
+      assert updated.embed_hash == updated.content_hash
     end
   end
 

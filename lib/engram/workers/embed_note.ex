@@ -26,6 +26,8 @@ defmodule Engram.Workers.EmbedNote do
 
   import Ecto.Query
 
+  alias Engram.Accounts
+  alias Engram.Crypto
   alias Engram.Indexing
   alias Engram.Notes.Note
   alias Engram.Repo
@@ -48,17 +50,26 @@ defmodule Engram.Workers.EmbedNote do
         :ok
 
       note ->
-        # If renamed, clean up old path's Qdrant points before re-indexing
-        if old_path do
-          Indexing.delete_points_by_path(note, old_path)
-        end
+        user = Accounts.get_user!(note.user_id)
 
-        case Indexing.index_note(note) do
-          {:ok, _count} ->
-            stamp_embed_hash(note)
-            :ok
+        case Crypto.maybe_decrypt_note_fields(note, user) do
+          {:ok, decrypted_note} ->
+            # If renamed, clean up old path's Qdrant points before re-indexing
+            if old_path do
+              Indexing.delete_points_by_path(decrypted_note, old_path)
+            end
+
+            case Indexing.index_note(decrypted_note) do
+              {:ok, _count} ->
+                stamp_embed_hash(note)
+                :ok
+
+              {:error, reason} ->
+                {:error, reason}
+            end
 
           {:error, reason} ->
+            Logger.error("EmbedNote decrypt failed: user_id=#{note.user_id} note_id=#{note.id} reason=#{inspect(reason)}")
             {:error, reason}
         end
     end
