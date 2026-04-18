@@ -34,4 +34,70 @@ defmodule Engram.CryptoTest do
   test "get_dek returns error if no DEK provisioned", %{user: user} do
     assert {:error, :no_dek} = Crypto.get_dek(user)
   end
+
+  describe "maybe_encrypt_note_fields/3" do
+    test "passes through when vault is not encrypted", %{user: user} do
+      {:ok, user} = Crypto.ensure_user_dek(user)
+      vault = %Engram.Vaults.Vault{encrypted: false}
+
+      attrs = %{content: "hi", title: "t", tags: ["a", "b"]}
+      {:ok, out} = Crypto.maybe_encrypt_note_fields(attrs, user, vault)
+
+      assert out.content == "hi"
+      refute Map.has_key?(out, :content_ciphertext)
+    end
+
+    test "encrypts when vault is encrypted", %{user: user} do
+      {:ok, user} = Crypto.ensure_user_dek(user)
+      vault = %Engram.Vaults.Vault{encrypted: true}
+
+      attrs = %{content: "secret", title: "Journal", tags: ["mood"]}
+      {:ok, out} = Crypto.maybe_encrypt_note_fields(attrs, user, vault)
+
+      assert out.content == nil
+      assert out.title == nil
+      assert out.tags == nil
+      assert is_binary(out.content_ciphertext)
+      assert byte_size(out.content_nonce) == 12
+      assert is_binary(out.tags_ciphertext)
+    end
+  end
+
+  describe "maybe_decrypt_note_fields/2" do
+    test "passes through unencrypted note", %{user: user} do
+      {:ok, user} = Crypto.ensure_user_dek(user)
+      note = %Engram.Notes.Note{content: "plain", title: "t", tags: ["a"]}
+      {:ok, out} = Crypto.maybe_decrypt_note_fields(note, user)
+      assert out.content == "plain"
+    end
+
+    test "decrypts when ciphertext columns are present", %{user: user} do
+      {:ok, user} = Crypto.ensure_user_dek(user)
+      vault = %Engram.Vaults.Vault{encrypted: true}
+
+      {:ok, encrypted} =
+        Crypto.maybe_encrypt_note_fields(
+          %{content: "secret", title: "T", tags: ["x"]},
+          user,
+          vault
+        )
+
+      note = %Engram.Notes.Note{
+        content: nil,
+        title: nil,
+        tags: nil,
+        content_ciphertext: encrypted.content_ciphertext,
+        content_nonce: encrypted.content_nonce,
+        title_ciphertext: encrypted.title_ciphertext,
+        title_nonce: encrypted.title_nonce,
+        tags_ciphertext: encrypted.tags_ciphertext,
+        tags_nonce: encrypted.tags_nonce
+      }
+
+      {:ok, out} = Crypto.maybe_decrypt_note_fields(note, user)
+      assert out.content == "secret"
+      assert out.title == "T"
+      assert out.tags == ["x"]
+    end
+  end
 end

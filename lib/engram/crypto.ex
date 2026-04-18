@@ -7,7 +7,7 @@ defmodule Engram.Crypto do
 
   alias Engram.Accounts
   alias Engram.Accounts.User
-  alias Engram.Crypto.{DekCache, KeyProvider.Resolver}
+  alias Engram.Crypto.{DekCache, Envelope, KeyProvider.Resolver}
 
   @doc """
   Ensures the user has a wrapped DEK stored. Idempotent — returns the user
@@ -54,6 +54,58 @@ defmodule Engram.Crypto do
           {:error, _} = err ->
             err
         end
+    end
+  end
+
+  @doc """
+  If `vault.encrypted`, encrypts `content`, `title`, `tags`; sets plaintext
+  fields to nil; adds `_ciphertext` + `_nonce` fields. Otherwise passes through.
+  """
+  @spec maybe_encrypt_note_fields(map(), User.t(), Engram.Vaults.Vault.t()) ::
+          {:ok, map()} | {:error, term()}
+  def maybe_encrypt_note_fields(attrs, _user, %Engram.Vaults.Vault{encrypted: false}),
+    do: {:ok, attrs}
+
+  def maybe_encrypt_note_fields(attrs, %User{} = user, %Engram.Vaults.Vault{encrypted: true}) do
+    with {:ok, dek} <- get_dek(user) do
+      content = Map.get(attrs, :content) || Map.get(attrs, "content") || ""
+      title = Map.get(attrs, :title) || Map.get(attrs, "title") || ""
+      tags = Map.get(attrs, :tags) || Map.get(attrs, "tags") || []
+
+      {content_ct, content_nonce} = Envelope.encrypt(content, dek)
+      {title_ct, title_nonce} = Envelope.encrypt(title, dek)
+      {tags_ct, tags_nonce} = Envelope.encrypt(:erlang.term_to_binary(tags), dek)
+
+      {:ok,
+       attrs
+       |> Map.put(:content, nil)
+       |> Map.put(:title, nil)
+       |> Map.put(:tags, nil)
+       |> Map.put(:content_ciphertext, content_ct)
+       |> Map.put(:content_nonce, content_nonce)
+       |> Map.put(:title_ciphertext, title_ct)
+       |> Map.put(:title_nonce, title_nonce)
+       |> Map.put(:tags_ciphertext, tags_ct)
+       |> Map.put(:tags_nonce, tags_nonce)}
+    end
+  end
+
+  @doc """
+  If note has ciphertext columns populated, decrypt them into `content`/`title`/`tags`.
+  Otherwise return the note unchanged.
+  """
+  @spec maybe_decrypt_note_fields(Engram.Notes.Note.t(), User.t()) ::
+          {:ok, Engram.Notes.Note.t()} | {:error, term()}
+  def maybe_decrypt_note_fields(%Engram.Notes.Note{content_nonce: nil} = note, _user),
+    do: {:ok, note}
+
+  def maybe_decrypt_note_fields(%Engram.Notes.Note{} = note, %User{} = user) do
+    with {:ok, dek} <- get_dek(user),
+         {:ok, content} <- Envelope.decrypt(note.content_ciphertext, note.content_nonce, dek),
+         {:ok, title} <- Envelope.decrypt(note.title_ciphertext, note.title_nonce, dek),
+         {:ok, tags_bin} <- Envelope.decrypt(note.tags_ciphertext, note.tags_nonce, dek) do
+      tags = :erlang.binary_to_term(tags_bin, [:safe])
+      {:ok, %{note | content: content, title: title, tags: tags}}
     end
   end
 end
