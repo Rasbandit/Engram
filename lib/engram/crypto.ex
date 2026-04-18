@@ -200,42 +200,67 @@ defmodule Engram.Crypto do
   end
 
   defp encrypted_vault?(candidate, vaults_by_id) do
-    case Map.get(vaults_by_id, to_string(candidate.vault_id)) do
-      %Engram.Vaults.Vault{encrypted: true} -> true
-      _ -> false
+    case candidate_vault_id(candidate) do
+      nil ->
+        false
+
+      id ->
+        case Map.get(vaults_by_id, id) do
+          %Engram.Vaults.Vault{encrypted: true} -> true
+          _ -> false
+        end
+    end
+  end
+
+  defp candidate_vault_id(candidate) do
+    case Map.get(candidate, :vault_id) do
+      nil -> nil
+      v -> to_string(v)
     end
   end
 
   # Returns [decrypted_candidate] on success, [] on drop.
   defp decrypt_one(candidate, vaults_by_id, dek) do
-    vault_id_key = to_string(candidate.vault_id)
+    vault_id_key = candidate_vault_id(candidate)
 
+    cond do
+      # No vault_id and no ciphertext — legacy / plaintext candidate, pass through.
+      is_nil(vault_id_key) and not Map.has_key?(candidate, :text_nonce) ->
+        [candidate]
+
+      # No vault_id but ciphertext present — shape mismatch, drop.
+      is_nil(vault_id_key) ->
+        emit_shape_mismatch(nil, candidate, "missing vault_id with text_nonce present")
+        []
+
+      true ->
+        lookup_and_decrypt(candidate, vault_id_key, vaults_by_id, dek)
+    end
+  end
+
+  defp emit_shape_mismatch(vault_id_key, candidate, reason) do
+    qdrant_id = Map.get(candidate, :qdrant_id)
+
+    :telemetry.execute(
+      [:engram, :search, :payload_shape_mismatch],
+      %{count: 1},
+      %{vault_id: vault_id_key, qdrant_id: qdrant_id}
+    )
+
+    Logger.error(
+      "qdrant decrypt shape mismatch: vault_id=#{inspect(vault_id_key)} qdrant_id=#{inspect(qdrant_id)} reason=#{reason}"
+    )
+  end
+
+  defp lookup_and_decrypt(candidate, vault_id_key, vaults_by_id, dek) do
     case Map.get(vaults_by_id, vault_id_key) do
       nil ->
-        :telemetry.execute(
-          [:engram, :search, :payload_shape_mismatch],
-          %{count: 1},
-          %{vault_id: vault_id_key, qdrant_id: candidate.qdrant_id}
-        )
-
-        Logger.error(
-          "qdrant decrypt: vault_id=#{vault_id_key} not in lookup map; qdrant_id=#{candidate.qdrant_id}"
-        )
-
+        emit_shape_mismatch(vault_id_key, candidate, "vault not in lookup map")
         []
 
       %Engram.Vaults.Vault{encrypted: false} ->
         if Map.has_key?(candidate, :text_nonce) do
-          :telemetry.execute(
-            [:engram, :search, :payload_shape_mismatch],
-            %{count: 1},
-            %{vault_id: vault_id_key, qdrant_id: candidate.qdrant_id}
-          )
-
-          Logger.error(
-            "qdrant decrypt: vault_id=#{vault_id_key} marked unencrypted but payload has text_nonce; qdrant_id=#{candidate.qdrant_id}"
-          )
-
+          emit_shape_mismatch(vault_id_key, candidate, "vault marked unencrypted but payload has text_nonce")
           []
         else
           [candidate]
@@ -247,12 +272,12 @@ defmodule Engram.Crypto do
   end
 
   defp do_decrypt_candidate(candidate, dek) do
-    with {:ok, text_ct} <- safe_decode64(candidate.text),
-         {:ok, text_nonce} <- safe_decode64(candidate.text_nonce),
-         {:ok, title_ct} <- safe_decode64(candidate.title),
-         {:ok, title_nonce} <- safe_decode64(candidate.title_nonce),
-         {:ok, hp_ct} <- safe_decode64(candidate.heading_path),
-         {:ok, hp_nonce} <- safe_decode64(candidate.heading_path_nonce),
+    with {:ok, text_ct} <- safe_decode64(Map.get(candidate, :text)),
+         {:ok, text_nonce} <- safe_decode64(Map.get(candidate, :text_nonce)),
+         {:ok, title_ct} <- safe_decode64(Map.get(candidate, :title)),
+         {:ok, title_nonce} <- safe_decode64(Map.get(candidate, :title_nonce)),
+         {:ok, hp_ct} <- safe_decode64(Map.get(candidate, :heading_path)),
+         {:ok, hp_nonce} <- safe_decode64(Map.get(candidate, :heading_path_nonce)),
          {:ok, text} <- Envelope.decrypt(text_ct, text_nonce, dek),
          {:ok, title} <- Envelope.decrypt(title_ct, title_nonce, dek),
          {:ok, heading_path} <- Envelope.decrypt(hp_ct, hp_nonce, dek) do
@@ -266,18 +291,21 @@ defmodule Engram.Crypto do
       [decrypted]
     else
       reason ->
+        qdrant_id = Map.get(candidate, :qdrant_id)
+        vault_id = Map.get(candidate, :vault_id)
+
         :telemetry.execute(
           [:engram, :search, :decrypt_failed],
           %{count: 1},
           %{
-            qdrant_id: candidate.qdrant_id,
-            vault_id: to_string(candidate.vault_id),
+            qdrant_id: qdrant_id,
+            vault_id: to_string(vault_id),
             reason: inspect(reason)
           }
         )
 
         Logger.error(
-          "qdrant decrypt: failed for qdrant_id=#{candidate.qdrant_id} vault_id=#{candidate.vault_id} reason=#{inspect(reason)}"
+          "qdrant decrypt: failed for qdrant_id=#{inspect(qdrant_id)} vault_id=#{inspect(vault_id)} reason=#{inspect(reason)}"
         )
 
         []
