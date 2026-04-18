@@ -123,7 +123,8 @@ defmodule Engram.Vaults do
   Returns a map keyed by stringified vault id: `%{"5" => %Vault{}}`.
 
   Enforces tenant scoping explicitly via a `user_id == ^user_id` clause
-  (belt-and-suspenders alongside RLS).
+  (belt-and-suspenders alongside RLS). Excludes soft-deleted vaults, matching
+  `list_vaults/1` and `get_vault/2` conventions.
   """
   @spec list_for_ids(Engram.Accounts.User.t(), [String.t()]) :: %{String.t() => Vault.t()}
   def list_for_ids(%Engram.Accounts.User{id: user_id}, vault_ids) when is_list(vault_ids) do
@@ -141,7 +142,7 @@ defmodule Engram.Vaults do
       %{}
     else
       Vault
-      |> where([v], v.user_id == ^user_id and v.id in ^ids)
+      |> where([v], v.user_id == ^user_id and v.id in ^ids and is_nil(v.deleted_at))
       |> Repo.all(skip_tenant_check: true)
       |> Map.new(fn v -> {to_string(v.id), v} end)
     end

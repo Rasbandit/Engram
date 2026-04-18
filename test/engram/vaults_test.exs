@@ -435,5 +435,16 @@ defmodule Engram.VaultsTest do
       user = insert(:user)
       assert Engram.Vaults.list_for_ids(user, []) == %{}
     end
+
+    test "excludes soft-deleted vaults" do
+      user = insert(:user)
+      deleted =
+        insert(:vault,
+          user: user,
+          deleted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        )
+
+      assert Engram.Vaults.list_for_ids(user, [to_string(deleted.id)]) == %{}
+    end
   end
 end
