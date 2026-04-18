@@ -21,29 +21,27 @@ defmodule Engram.Notes do
     mtime = attrs["mtime"] || attrs[:mtime]
     client_version = attrs["version"] || attrs[:version]
 
-    with {:ok, path} <- validate_path(path) do
-      sanitized_path = PathSanitizer.sanitize(path)
-      title = Helpers.extract_title(content, sanitized_path)
-      folder = Helpers.extract_folder(sanitized_path)
-      tags = Helpers.extract_tags(content)
-      hash = content_hash(content)
-
-      now = DateTime.utc_now()
-
-      note_attrs = %{
-        path: sanitized_path,
-        content: content,
-        title: title,
-        folder: folder,
-        tags: tags,
-        content_hash: hash,
-        mtime: mtime,
-        user_id: user.id,
-        vault_id: vault.id,
-        created_at: now,
-        updated_at: now
-      }
-
+    with {:ok, path} <- validate_path(path),
+         sanitized_path = PathSanitizer.sanitize(path),
+         title = Helpers.extract_title(content, sanitized_path),
+         folder = Helpers.extract_folder(sanitized_path),
+         tags = Helpers.extract_tags(content),
+         hash = content_hash(content),
+         now = DateTime.utc_now(),
+         note_attrs = %{
+           path: sanitized_path,
+           content: content,
+           title: title,
+           folder: folder,
+           tags: tags,
+           content_hash: hash,
+           mtime: mtime,
+           user_id: user.id,
+           vault_id: vault.id,
+           created_at: now,
+           updated_at: now
+         },
+         {:ok, note_attrs} <- Engram.Crypto.maybe_encrypt_note_fields(note_attrs, user, vault) do
       changeset = Note.changeset(%Note{}, note_attrs)
 
       result =
