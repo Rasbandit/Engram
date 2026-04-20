@@ -189,6 +189,7 @@ defmodule Engram.IndexingTest do
       end)
     end
 
+    @tag capture_log: true
     test "emits encrypt_failed telemetry when DEK missing on encrypted vault", %{bypass: bypass} do
       # User has NO DEK provisioned — encrypted vault → maybe_encrypt_qdrant_payload
       # returns {:error, :no_dek} → reduce_while halts → telemetry fires.

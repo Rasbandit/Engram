@@ -209,6 +209,7 @@ defmodule Engram.Crypto.QdrantPayloadTest do
       end
     end
 
+    @tag capture_log: true
     test "returns :decrypt_failed when ALL candidates fail", %{
       user: user,
       enc_candidate: enc,
@@ -226,6 +227,7 @@ defmodule Engram.Crypto.QdrantPayloadTest do
       assert {:ok, []} = Crypto.maybe_decrypt_qdrant_candidates([], user, vaults)
     end
 
+    @tag capture_log: true
     test "drops candidate when vault_id-to-vault map is missing an entry", %{
       user: user,
       enc_candidate: enc
@@ -253,6 +255,7 @@ defmodule Engram.Crypto.QdrantPayloadTest do
       end
     end
 
+    @tag capture_log: true
     test "drops candidate with text_nonce but no vault_id (shape mismatch)", %{user: user} do
       # Legacy candidate missing vault_id but carrying ciphertext — impossible via
       # the normal index path (Phase 4 always writes vault_id), but defensive.
