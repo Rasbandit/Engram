@@ -810,21 +810,26 @@ jobs:
           echo "Version ${VERSION} is new — proceeding"
 
       - name: Build and push image
+        # buildx --push bypasses the local containerd image store. Docker 29's
+        # containerd-snapshotter pusher emits OCI attestation manifests that
+        # GHCR rejects with 405 on /blobs/uploads/. --provenance=false +
+        # --sbom=false suppress those attestations; --platform pins to a single
+        # arch so no manifest list is produced either.
         run: |
           IMAGE="ghcr.io/${{ github.repository_owner }}/engram"
           IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
           VERSION="${{ steps.version.outputs.version }}"
           SHA="${{ github.sha }}"
 
-          docker build \
+          docker buildx build \
+            --provenance=false \
+            --sbom=false \
+            --platform=linux/amd64 \
             -t "${IMAGE}:latest" \
             -t "${IMAGE}:${VERSION}" \
             -t "${IMAGE}:${SHA::7}" \
+            --push \
             .
-
-          docker push "${IMAGE}:latest"
-          docker push "${IMAGE}:${VERSION}"
-          docker push "${IMAGE}:${SHA::7}"
           echo "Pushed ${IMAGE}:latest, ${IMAGE}:${VERSION}, and ${IMAGE}:${SHA::7}"
 
       - name: Deploy to FastRaid
