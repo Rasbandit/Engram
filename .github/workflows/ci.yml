@@ -65,6 +65,10 @@ jobs:
           docker compose -f docker-compose.ci.yml -p "$CI_PROJECT" down -v --remove-orphans 2>/dev/null || true
           pkill -9 -f "$E2E_CONFIG_PREFIX" 2>/dev/null || true
           rm -rf ${E2E_VAULT_PREFIX}-* ${E2E_CONFIG_PREFIX}-* ${MARKER_PREFIX}-*
+          # Cross-repo plugin checkouts leak sparse-checkout config into the
+          # backend workspace. With clean:false the filter persists and the
+          # next backend checkout ships without mix.exs. Disable on entry.
+          if [ -d .git ]; then git sparse-checkout disable 2>/dev/null || true; fi
 
       - uses: actions/checkout@v6
         with:
@@ -456,6 +460,10 @@ jobs:
       PG_CONTAINER: engram-unit-test-${{ github.run_id }}
 
     steps:
+      - name: Reset sparse-checkout leaked from cross-repo jobs
+        run: |
+          if [ -d .git ]; then git sparse-checkout disable 2>/dev/null || true; fi
+
       - uses: actions/checkout@v6
         with:
           clean: false  # Preserve _build/ and deps/ for incremental compilation
@@ -531,6 +539,10 @@ jobs:
       QDRANT_COLLECTION: ci_local_${{ github.run_id }}
 
     steps:
+      - name: Reset sparse-checkout leaked from cross-repo jobs
+        run: |
+          if [ -d .git ]; then git sparse-checkout disable 2>/dev/null || true; fi
+
       - uses: actions/checkout@v6
         with:
           clean: false
@@ -640,6 +652,10 @@ jobs:
       PG_CONTAINER: engram-e2e-browser-${{ github.run_id }}
 
     steps:
+      - name: Reset sparse-checkout leaked from cross-repo jobs
+        run: |
+          if [ -d .git ]; then git sparse-checkout disable 2>/dev/null || true; fi
+
       - uses: actions/checkout@v6
         with:
           clean: false
@@ -784,6 +800,10 @@ jobs:
       contents: read
 
     steps:
+      - name: Reset sparse-checkout leaked from cross-repo jobs
+        run: |
+          if [ -d .git ]; then git sparse-checkout disable 2>/dev/null || true; fi
+
       - uses: actions/checkout@v6
 
       - name: Login to GHCR
