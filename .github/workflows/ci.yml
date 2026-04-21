@@ -836,25 +836,27 @@ jobs:
       # docker-container driver runs buildkit in an isolated container with its
       # own push path, sidestepping the host daemon entirely.
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           driver: docker-container
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
           provenance: false
           sbom: false
           platforms: linux/amd64
+          cache-from: type=registry,ref=${{ steps.version.outputs.image }}:buildcache
+          cache-to: type=registry,ref=${{ steps.version.outputs.image }}:buildcache,mode=max
           tags: |
             ${{ steps.version.outputs.image }}:latest
             ${{ steps.version.outputs.image }}:${{ steps.version.outputs.version }}
