@@ -19,8 +19,52 @@ import time
 
 import pytest
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 API_URL = os.environ.get("ENGRAM_API_URL") or "http://localhost:8100/api"
+
+
+_RETRY = Retry(
+    total=3,
+    backoff_factor=0.2,
+    status_forcelist=(502, 503, 504),
+    allowed_methods=frozenset(["GET", "POST", "PUT", "DELETE"]),
+    raise_on_status=False,
+)
+
+
+class _RetryClient:
+    """Fresh ``requests.Session`` per call.
+
+    A shared Session persists cookies across calls, which breaks the refresh
+    tests: a rotated cookie from the session jar would override the
+    per-call ``cookies=`` kwarg. New Session per call = empty jar, so the
+    test's explicit cookies (or absence of them) reach the server verbatim.
+    Retry adapter still covers transient network/5xx without bleeding state.
+    """
+
+    def _session(self) -> requests.Session:
+        s = requests.Session()
+        adapter = HTTPAdapter(max_retries=_RETRY)
+        s.mount("http://", adapter)
+        s.mount("https://", adapter)
+        return s
+
+    def post(self, url, **kw):
+        return self._session().post(url, **kw)
+
+    def get(self, url, **kw):
+        return self._session().get(url, **kw)
+
+    def put(self, url, **kw):
+        return self._session().put(url, **kw)
+
+    def delete(self, url, **kw):
+        return self._session().delete(url, **kw)
+
+
+http = _RetryClient()
 
 
 def unique_email(label: str) -> str:
@@ -40,7 +84,7 @@ class TestRegistration:
     def test_first_user_is_admin(self):
         """First registered user gets admin role."""
         email = unique_email("admin")
-        resp = requests.post(
+        resp = http.post(
             f"{API_URL}/auth/register",
             json={"email": email, "password": PASSWORD},
             timeout=10,
@@ -55,7 +99,7 @@ class TestRegistration:
     def test_register_returns_refresh_cookie(self):
         """Registration sets an HTTP-only refresh_token cookie."""
         email = unique_email("cookie")
-        resp = requests.post(
+        resp = http.post(
             f"{API_URL}/auth/register",
             json={"email": email, "password": PASSWORD},
             timeout=10,
@@ -66,14 +110,14 @@ class TestRegistration:
     def test_duplicate_email_rejected(self):
         """Cannot register twice with the same email."""
         email = unique_email("dup")
-        resp1 = requests.post(
+        resp1 = http.post(
             f"{API_URL}/auth/register",
             json={"email": email, "password": PASSWORD},
             timeout=10,
         )
         assert resp1.status_code == 201
 
-        resp2 = requests.post(
+        resp2 = http.post(
             f"{API_URL}/auth/register",
             json={"email": email, "password": PASSWORD},
             timeout=10,
@@ -82,7 +126,7 @@ class TestRegistration:
 
     def test_missing_password_rejected(self):
         """Registration without password returns 422."""
-        resp = requests.post(
+        resp = http.post(
             f"{API_URL}/auth/register",
             json={"email": unique_email("nopass")},
             timeout=10,
@@ -99,7 +143,7 @@ class TestLogin:
     @pytest.fixture(scope="class", autouse=True)
     def _registered_user(self, request):
         email = unique_email("login")
-        resp = requests.post(
+        resp = http.post(
             f"{API_URL}/auth/register",
             json={"email": email, "password": PASSWORD},
             timeout=10,
@@ -109,7 +153,7 @@ class TestLogin:
 
     def test_valid_credentials(self):
         """Login with correct password returns access token + refresh cookie."""
-        resp = requests.post(
+        resp = http.post(
             f"{API_URL}/auth/login",
             json={"email": self.email, "password": PASSWORD},
             timeout=10,
@@ -122,7 +166,7 @@ class TestLogin:
 
     def test_wrong_password(self):
         """Login with wrong password returns 401."""
-        resp = requests.post(
+        resp = http.post(
             f"{API_URL}/auth/login",
             json={"email": self.email, "password": "WrongPassword!"},
             timeout=10,
@@ -131,7 +175,7 @@ class TestLogin:
 
     def test_nonexistent_user(self):
         """Login with unknown email returns 401."""
-        resp = requests.post(
+        resp = http.post(
             f"{API_URL}/auth/login",
             json={"email": "nobody-ever@test.com", "password": PASSWORD},
             timeout=10,
@@ -148,7 +192,7 @@ class TestRefresh:
     @pytest.fixture(autouse=True)
     def _registered_session(self):
         self.email = unique_email("refresh")
-        resp = requests.post(
+        resp = http.post(
             f"{API_URL}/auth/register",
             json={"email": self.email, "password": PASSWORD},
             timeout=10,
@@ -159,7 +203,7 @@ class TestRefresh:
 
     def test_refresh_returns_new_tokens(self):
         """POST /auth/refresh with valid cookie returns new access token + rotated cookie."""
-        resp = requests.post(
+        resp = http.post(
             f"{API_URL}/auth/refresh",
             cookies={"refresh_token": self.refresh_cookie},
             timeout=10,
@@ -175,14 +219,14 @@ class TestRefresh:
 
     def test_refresh_token_works_for_api(self):
         """Access token from refresh can authenticate API calls."""
-        resp = requests.post(
+        resp = http.post(
             f"{API_URL}/auth/refresh",
             cookies={"refresh_token": self.refresh_cookie},
             timeout=10,
         )
         new_token = resp.json()["access_token"]
 
-        me_resp = requests.get(
+        me_resp = http.get(
             f"{API_URL}/me",
             headers={"Authorization": f"Bearer {new_token}"},
             timeout=10,
@@ -193,7 +237,7 @@ class TestRefresh:
     def test_old_refresh_token_rejected_after_rotation(self):
         """After rotation, the old refresh token should be rejected."""
         # Use the token (rotates it)
-        resp1 = requests.post(
+        resp1 = http.post(
             f"{API_URL}/auth/refresh",
             cookies={"refresh_token": self.refresh_cookie},
             timeout=10,
@@ -201,7 +245,7 @@ class TestRefresh:
         assert resp1.status_code == 200
 
         # Reuse the old token — should fail (reuse detection)
-        resp2 = requests.post(
+        resp2 = http.post(
             f"{API_URL}/auth/refresh",
             cookies={"refresh_token": self.refresh_cookie},
             timeout=10,
@@ -212,7 +256,7 @@ class TestRefresh:
 
     def test_missing_cookie_rejected(self):
         """Refresh without cookie returns 401."""
-        resp = requests.post(f"{API_URL}/auth/refresh", timeout=10)
+        resp = http.post(f"{API_URL}/auth/refresh", timeout=10)
         assert resp.status_code == 401
 
 
@@ -227,7 +271,7 @@ class TestLogout:
         email = unique_email("logout")
 
         # Register
-        reg = requests.post(
+        reg = http.post(
             f"{API_URL}/auth/register",
             json={"email": email, "password": PASSWORD},
             timeout=10,
@@ -236,7 +280,7 @@ class TestLogout:
         cookie = reg.cookies["refresh_token"]
 
         # Logout
-        logout_resp = requests.post(
+        logout_resp = http.post(
             f"{API_URL}/auth/logout",
             cookies={"refresh_token": cookie},
             timeout=10,
@@ -244,7 +288,7 @@ class TestLogout:
         assert logout_resp.status_code == 204
 
         # Try to refresh — should fail
-        refresh_resp = requests.post(
+        refresh_resp = http.post(
             f"{API_URL}/auth/refresh",
             cookies={"refresh_token": cookie},
             timeout=10,

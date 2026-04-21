@@ -806,9 +806,6 @@ jobs:
 
       - uses: actions/checkout@v6
 
-      - name: Login to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
       - name: Extract and validate version
         id: version
         run: |
@@ -818,39 +815,50 @@ jobs:
             exit 1
           fi
 
+          IMAGE_LC="ghcr.io/${{ github.repository_owner }}/engram"
+          IMAGE_LC=$(echo "$IMAGE_LC" | tr '[:upper:]' '[:lower:]')
+
           # Check version was bumped from the previous deploy
-          IMAGE="ghcr.io/${{ github.repository_owner }}/engram"
-          IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
-          if docker manifest inspect "${IMAGE}:${VERSION}" > /dev/null 2>&1; then
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin > /dev/null
+          if docker manifest inspect "${IMAGE_LC}:${VERSION}" > /dev/null 2>&1; then
             echo "ERROR: Version ${VERSION} already exists in GHCR. Bump the version in mix.exs before merging." >&2
             exit 1
           fi
 
+          SHA_SHORT="${GITHUB_SHA::7}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE_LC" >> "$GITHUB_OUTPUT"
+          echo "sha_short=$SHA_SHORT" >> "$GITHUB_OUTPUT"
           echo "Version ${VERSION} is new — proceeding"
 
-      - name: Build and push image
-        # buildx --push bypasses the local containerd image store. Docker 29's
-        # containerd-snapshotter pusher emits OCI attestation manifests that
-        # GHCR rejects with 405 on /blobs/uploads/. --provenance=false +
-        # --sbom=false suppress those attestations; --platform pins to a single
-        # arch so no manifest list is produced either.
-        run: |
-          IMAGE="ghcr.io/${{ github.repository_owner }}/engram"
-          IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
-          VERSION="${{ steps.version.outputs.version }}"
-          SHA="${{ github.sha }}"
+      # Host daemon on the runner has Docker 29's containerd-snapshotter enabled,
+      # whose push client hits GHCR with `405 Not Allowed` on /blobs/uploads/.
+      # docker-container driver runs buildkit in an isolated container with its
+      # own push path, sidestepping the host daemon entirely.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
 
-          docker buildx build \
-            --provenance=false \
-            --sbom=false \
-            --platform=linux/amd64 \
-            -t "${IMAGE}:latest" \
-            -t "${IMAGE}:${VERSION}" \
-            -t "${IMAGE}:${SHA::7}" \
-            --push \
-            .
-          echo "Pushed ${IMAGE}:latest, ${IMAGE}:${VERSION}, and ${IMAGE}:${SHA::7}"
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          provenance: false
+          sbom: false
+          platforms: linux/amd64
+          tags: |
+            ${{ steps.version.outputs.image }}:latest
+            ${{ steps.version.outputs.image }}:${{ steps.version.outputs.version }}
+            ${{ steps.version.outputs.image }}:${{ steps.version.outputs.sha_short }}
 
       - name: Deploy to FastRaid
         env:
