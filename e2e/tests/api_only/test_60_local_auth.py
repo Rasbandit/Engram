@@ -25,30 +25,46 @@ from urllib3.util.retry import Retry
 API_URL = os.environ.get("ENGRAM_API_URL") or "http://localhost:8100/api"
 
 
-def _build_session() -> requests.Session:
-    """requests.Session with a retry adapter.
+_RETRY = Retry(
+    total=3,
+    backoff_factor=0.2,
+    status_forcelist=(502, 503, 504),
+    allowed_methods=frozenset(["GET", "POST", "PUT", "DELETE"]),
+    raise_on_status=False,
+)
 
-    TestRefresh fixtures and bodies make 1–2 HTTP calls each against a local
-    Phoenix endpoint. pytest-rerunfailures was catching sporadic transient
-    failures (connection reset, 502 during worker churn) as full test reruns,
-    polluting CI output. Retry at the HTTP layer instead so transient network
-    noise never escalates to a rerun.
+
+class _RetryClient:
+    """Fresh ``requests.Session`` per call.
+
+    A shared Session persists cookies across calls, which breaks the refresh
+    tests: a rotated cookie from the session jar would override the
+    per-call ``cookies=`` kwarg. New Session per call = empty jar, so the
+    test's explicit cookies (or absence of them) reach the server verbatim.
+    Retry adapter still covers transient network/5xx without bleeding state.
     """
-    retry = Retry(
-        total=3,
-        backoff_factor=0.2,
-        status_forcelist=(502, 503, 504),
-        allowed_methods=frozenset(["GET", "POST", "PUT", "DELETE"]),
-        raise_on_status=False,
-    )
-    s = requests.Session()
-    adapter = HTTPAdapter(max_retries=retry)
-    s.mount("http://", adapter)
-    s.mount("https://", adapter)
-    return s
+
+    def _session(self) -> requests.Session:
+        s = requests.Session()
+        adapter = HTTPAdapter(max_retries=_RETRY)
+        s.mount("http://", adapter)
+        s.mount("https://", adapter)
+        return s
+
+    def post(self, url, **kw):
+        return self._session().post(url, **kw)
+
+    def get(self, url, **kw):
+        return self._session().get(url, **kw)
+
+    def put(self, url, **kw):
+        return self._session().put(url, **kw)
+
+    def delete(self, url, **kw):
+        return self._session().delete(url, **kw)
 
 
-http = _build_session()
+http = _RetryClient()
 
 
 def unique_email(label: str) -> str:
