@@ -94,6 +94,46 @@ defmodule EngramWeb.VaultsController do
     end
   end
 
+  # ── encrypt / decrypt toggles ──────────────────────────────────────────────
+
+  def encrypt(conn, %{"id" => id}) do
+    toggle_action(conn, id, &Engram.Crypto.encrypt_vault/2)
+  end
+
+  def request_decrypt(conn, %{"id" => id}) do
+    toggle_action(conn, id, &Engram.Crypto.request_decrypt_vault/2)
+  end
+
+  def cancel_decrypt(conn, %{"id" => id}) do
+    toggle_action(conn, id, &Engram.Crypto.cancel_decrypt_vault/2)
+  end
+
+  def encryption_progress(conn, %{"id" => id}) do
+    user = conn.assigns.current_user
+
+    with {:ok, vault_id} <- parse_vault_id(id),
+         {:ok, vault} <- Vaults.get_vault(user, vault_id) do
+      %{processed: p, total: t} = Vaults.encryption_progress(vault)
+
+      started_at =
+        case vault.encryption_status do
+          "encrypting" -> vault.last_toggle_at
+          "decrypting" -> vault.decrypt_requested_at
+          _ -> nil
+        end
+
+      json(conn, %{
+        processed: p,
+        total: t,
+        status: vault.encryption_status,
+        started_at: started_at
+      })
+    else
+      {:error, :not_found} -> not_found(conn)
+      {:error, :invalid_id} -> not_found(conn)
+    end
+  end
+
   # ── register ───────────────────────────────────────────────────────────────
 
   def register(conn, params) do
@@ -134,7 +174,12 @@ defmodule EngramWeb.VaultsController do
       description: vault.description,
       slug: vault.slug,
       is_default: vault.is_default,
-      created_at: vault.created_at
+      created_at: vault.created_at,
+      encrypted: vault.encrypted,
+      encryption_status: vault.encryption_status,
+      encrypted_at: vault.encrypted_at,
+      decrypt_requested_at: vault.decrypt_requested_at,
+      last_toggle_at: vault.last_toggle_at
     }
   end
 
@@ -148,6 +193,55 @@ defmodule EngramWeb.VaultsController do
     case Integer.parse(id) do
       {n, ""} -> {:ok, n}
       _ -> :error
+    end
+  end
+
+  # with/1-friendly variant — returns {:error, :invalid_id} instead of bare :error
+  defp parse_vault_id(id) do
+    case parse_id(id) do
+      {:ok, n} -> {:ok, n}
+      :error -> {:error, :invalid_id}
+    end
+  end
+
+  defp toggle_action(conn, id, fun) do
+    user = conn.assigns.current_user
+
+    with {:ok, vault_id} <- parse_vault_id(id),
+         {:ok, vault} <- Vaults.get_vault(user, vault_id),
+         {:ok, updated} <- fun.(vault, user) do
+      conn |> put_status(202) |> json(%{vault: vault_json(updated)})
+    else
+      {:error, :not_found} ->
+        not_found(conn)
+
+      {:error, :invalid_id} ->
+        not_found(conn)
+
+      {:error, :cooldown} ->
+        retry_after = compute_retry_after(id, conn.assigns.current_user)
+
+        conn
+        |> put_status(429)
+        |> json(%{error: "cooldown_active", retry_after: retry_after})
+
+      {:error, :bad_status} ->
+        conn
+        |> put_status(409)
+        |> json(%{error: "invalid_status_transition"})
+
+      _ ->
+        send_resp(conn, 500, "")
+    end
+  end
+
+  defp compute_retry_after(id, user) do
+    with {:ok, vault_id} <- parse_vault_id(id),
+         {:ok, vault} <- Vaults.get_vault(user, vault_id),
+         %DateTime{} = toggled <- vault.last_toggle_at do
+      toggled |> DateTime.add(7, :day) |> DateTime.to_iso8601()
+    else
+      _ -> nil
     end
   end
 
