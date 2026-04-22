@@ -37,21 +37,20 @@ def _psql(sql: str, *, fetch: bool = False) -> str:
 def _fetch_note_row(vault_id: int, path: str) -> dict:
     """SELECT the encryption columns for a note. Returns dict or raises AssertionError
     if the note doesn't exist."""
-    safe_path = path.replace("'", "''")
     sql = (
-        f"SELECT content, title, content_ciphertext IS NOT NULL, content_nonce IS NOT NULL, "
+        f"\\set target_path '{path}'\n"
+        f"SELECT content IS NULL, title IS NULL, "
+        f"content_ciphertext IS NOT NULL, content_nonce IS NOT NULL, "
         f"title_ciphertext IS NOT NULL, title_nonce IS NOT NULL, tags_ciphertext IS NOT NULL "
-        f"FROM notes WHERE vault_id = {int(vault_id)} AND path = '{safe_path}';"
+        f"FROM notes WHERE vault_id = {int(vault_id)} AND path = :'target_path';"
     )
     out = _psql(sql, fetch=True)
     assert out, f"Note not found in DB: vault_id={vault_id} path={path!r}"
     line = out.splitlines()[0]
-    content, title, c_ct, c_n, t_ct, t_n, tag_ct = line.split("|")
+    c_null, t_null, c_ct, c_n, t_ct, t_n, tag_ct = line.split("|")
     return {
-        "content": content,
-        "content_is_null": content == "",
-        "title": title,
-        "title_is_null": title == "",
+        "content_is_null": c_null == "t",
+        "title_is_null": t_null == "t",
         "content_ciphertext_present": c_ct == "t",
         "content_nonce_present": c_n == "t",
         "title_ciphertext_present": t_ct == "t",
@@ -65,9 +64,9 @@ def assert_note_ciphertext_at_rest(vault_id: int, path: str) -> None:
     row = _fetch_note_row(vault_id, path)
     failures = []
     if not row["content_is_null"]:
-        failures.append(f"content is not NULL (got: {row['content'][:60]!r})")
+        failures.append("content is not NULL")
     if not row["title_is_null"]:
-        failures.append(f"title is not NULL (got: {row['title'][:60]!r})")
+        failures.append("title is not NULL")
     if not row["content_ciphertext_present"]:
         failures.append("content_ciphertext is NULL")
     if not row["content_nonce_present"]:
