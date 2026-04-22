@@ -1,104 +1,107 @@
-"""Test 62: Encrypted vault round-trip via HTTP API.
+"""Test 62: Encrypted vault round-trip via HTTP API with at-rest probes.
 
-Registers a vault, enables encryption directly in the DB (the vault
-changeset does not cast `encrypted` yet — the toggle UI is a future
-phase), writes a note, reads it back, asserts the API returns plaintext.
+Registers a vault, enables encryption via the real toggle endpoint
+(POST /api/vaults/:id/encrypt), writes a note through the HTTP API,
+reads it back as plaintext, and directly probes Postgres + Qdrant
+to prove the note is ciphertext at rest.
 
-This is the acceptance test for end-to-end encryption across a real HTTP
-boundary. It runs in the api_only CI job (no Obsidian, no Clerk needed).
+This is the acceptance test for end-to-end encryption across a real
+HTTP boundary. It runs in the api_only CI job (no Obsidian, no Clerk).
 
-Design note: we cannot set encrypted=true through the public API today
-because Vault.changeset/2 only casts a restricted field list. Until the
-encryption-toggle endpoint ships we patch the DB row directly via psql,
-mirroring the same docker-exec pattern used in cleanup.py.
+Teardown is non-trivial: cooldown + 24h decrypt delay are normally
+enforced, so the `reset_vault_encryption` fixture uses SQL time-travel
+(same docker-exec pattern) to bypass them and restore the vault to
+'none' status before the next test touches it.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import subprocess
 import time
 
 import pytest
-import requests
+
+from helpers.crypto_probe import (
+    assert_note_ciphertext_at_rest,
+    assert_qdrant_ciphertext,
+    backdate_decrypt_requested,
+    backdate_last_toggle,
+    wait_for_encryption_status,
+    wait_for_qdrant_indexed,
+)
 
 API_URL = os.environ.get("ENGRAM_API_URL") or "http://localhost:8100/api"
-CI_POSTGRES_CONTAINER = os.environ.get("CI_POSTGRES_CONTAINER", "engram-postgres-1")
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# DB helpers
-# ---------------------------------------------------------------------------
-
-
-def _enable_vault_encryption(vault_id: int) -> None:
-    """Flip vaults.encrypted = true for a specific vault ID via psql.
-
-    Uses the same docker-exec pattern as cleanup.py. Safe: vault_id is an
-    integer supplied by the test, never from user input.
-    """
-    sql = f"UPDATE vaults SET encrypted = true WHERE id = {int(vault_id)};\n"
-    cmd = [
-        "docker", "exec", "-i", CI_POSTGRES_CONTAINER,
-        "psql", "-U", "engram", "-d", "engram",
-    ]
-    result = subprocess.run(cmd, input=sql, capture_output=True, text=True, timeout=15)
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        if "No such container" in stderr:
-            pytest.skip(f"CI postgres container {CI_POSTGRES_CONTAINER!r} not found — skipping encrypted-vault E2E")
-        raise RuntimeError(f"psql update failed: {stderr}")
-
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
+@pytest.fixture
+def reset_vault_encryption(api_sync):
+    """Teardown — put the shared vault back to 'none' status via real decrypt flow,
+    bypassing cooldown and the 24h delay with SQL time-travel."""
+    yield
+    vaults = api_sync.list_vaults()
+    if not vaults:
+        return
+    vault_id = vaults[0]["id"]
+    resp = api_sync.session.get(
+        f"{API_URL}/vaults/{vault_id}/encryption_progress", timeout=5
+    )
+    if not resp.ok:
+        return
+    status = resp.json().get("status")
+    if status in ("encrypted", "encrypting"):
+        if status == "encrypting":
+            wait_for_encryption_status(api_sync, vault_id, "encrypted", timeout=60)
+        backdate_last_toggle(vault_id, days=8)
+        api_sync.session.post(f"{API_URL}/vaults/{vault_id}/decrypt", timeout=10)
+        backdate_decrypt_requested(vault_id, hours=25)
+        wait_for_encryption_status(api_sync, vault_id, "none", timeout=60)
 
 
 class TestEncryptedVaultRoundTrip:
-    """Write and read a note from an encrypted vault via HTTP."""
+    """Write and read a note from an encrypted vault via HTTP, with at-rest probes."""
 
-    def test_encrypted_vault_round_trip(self, api_sync):
-        """Plaintext written to an encrypted vault is returned as plaintext on read."""
-        # 1. Use the vault api_sync already registered (free tier = 1 vault/user).
-        #    The /vaults list endpoint returns {id, name, slug, ...} — no client_id —
-        #    so we take the first (and only) entry rather than matching by client_id.
+    def test_encrypted_vault_round_trip(self, api_sync, reset_vault_encryption):
+        """Plaintext written to an encrypted vault is ciphertext at rest but
+        transparent plaintext over the wire."""
         vaults = api_sync.list_vaults()
         assert vaults, f"api_sync should have pre-registered a vault; got {vaults}"
         vault_id = vaults[0]["id"]
-
-        # 2. Enable encryption at the DB level (toggle endpoint is a future phase)
-        _enable_vault_encryption(vault_id)
-
-        # 3. Build an ApiClient that sends X-Vault-ID so vault-scoped endpoints resolve
         vault_client = api_sync.with_vault(vault_id)
 
+        # 1. Toggle encryption via real endpoint
+        resp = vault_client.session.post(
+            f"{API_URL}/vaults/{vault_id}/encrypt", timeout=10
+        )
+        assert resp.status_code == 202, (
+            f"encrypt failed: {resp.status_code} {resp.text[:300]}"
+        )
+
+        # 2. Wait for backfill to finish (empty vault — should be near-instant)
+        wait_for_encryption_status(vault_client, vault_id, "encrypted", timeout=30)
+
+        # 3. Write note
         plaintext = "secret diary entry — only plaintext should come back"
         note_path = "journal/today.md"
+        resp = vault_client.session.post(
+            f"{API_URL}/notes",
+            json={"path": note_path, "content": plaintext, "mtime": time.time()},
+            timeout=10,
+        )
+        assert resp.ok, f"upsert_note failed: {resp.status_code} {resp.text[:300]}"
 
-        try:
-            # 4. Upsert note
-            resp = vault_client.session.post(
-                f"{API_URL}/notes",
-                json={"path": note_path, "content": plaintext, "mtime": time.time()},
-                timeout=10,
-            )
-            assert resp.ok, f"upsert_note failed: {resp.status_code} {resp.text[:300]}"
+        # 4. Read back — transparent decrypt returns plaintext
+        note = vault_client.get_note(note_path)
+        assert note is not None, f"Note not found after upsert: {note_path}"
+        assert note["content"] == plaintext, (
+            f"Expected plaintext content, got: {note['content'][:100]!r}"
+        )
 
-            # 5. Read back — must return decrypted plaintext
-            note = vault_client.get_note(note_path)
-            assert note is not None, f"Note not found after upsert: {note_path}"
-            assert note["content"] == plaintext, (
-                f"Expected plaintext content, got: {note['content'][:100]!r}"
-            )
-        finally:
-            # Teardown: disable encryption so subsequent tests using this vault aren't affected
-            sql = f"UPDATE vaults SET encrypted = false WHERE id = {int(vault_id)};\n"
-            cmd = [
-                "docker", "exec", "-i", CI_POSTGRES_CONTAINER,
-                "psql", "-U", "engram", "-d", "engram",
-            ]
-            subprocess.run(cmd, input=sql, capture_output=True, text=True, timeout=15)
+        # 5. PROBE: at-rest ciphertext in Postgres
+        assert_note_ciphertext_at_rest(vault_id, note_path)
+
+        # 6. PROBE: at-rest ciphertext in Qdrant (after embed worker)
+        wait_for_qdrant_indexed(vault_id, note_path, timeout=30)
+        assert_qdrant_ciphertext(vault_id, min_chunks=1)
