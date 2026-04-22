@@ -423,4 +423,27 @@ defmodule Engram.Crypto do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @spec cancel_decrypt_vault(Engram.Vaults.Vault.t(), Engram.Accounts.User.t()) ::
+          {:ok, Engram.Vaults.Vault.t()} | {:error, :bad_status}
+  def cancel_decrypt_vault(%Engram.Vaults.Vault{} = vault, %Engram.Accounts.User{} = user) do
+    Engram.Repo.with_tenant(user.id, fn ->
+      locked = Engram.Repo.get!(Engram.Vaults.Vault, vault.id, lock: "FOR UPDATE")
+
+      if locked.encryption_status != "decrypt_pending" do
+        Engram.Repo.rollback(:bad_status)
+      else
+        locked
+        |> Ecto.Changeset.change(%{
+          encryption_status: "encrypted",
+          decrypt_requested_at: nil
+        })
+        |> Engram.Repo.update!()
+      end
+    end)
+    |> case do
+      {:ok, vault} -> {:ok, vault}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 end
