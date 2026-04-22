@@ -14,8 +14,6 @@ import logging
 import os
 import time
 
-import pytest
-
 from helpers.crypto_probe import (
     assert_note_ciphertext_at_rest,
     assert_note_plaintext_at_rest,
@@ -40,6 +38,9 @@ class TestVaultToggleBackfill:
         assert vaults
         vault_id = vaults[0]["id"]
         vault_client = api_sync.with_vault(vault_id)
+
+        # Starting-state guard — fail fast if a prior test left the vault encrypted
+        wait_for_encryption_status(vault_client, vault_id, "none", timeout=5)
 
         notes = [
             ("meeting-notes.md", "Meeting with Alice about Q2 roadmap"),
