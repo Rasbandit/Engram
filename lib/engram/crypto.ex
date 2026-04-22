@@ -323,4 +323,54 @@ defmodule Engram.Crypto do
   defp safe_decode64(nil), do: :error
   defp safe_decode64(s) when is_binary(s), do: Base.decode64(s)
   defp safe_decode64(_), do: :error
+
+  @cooldown_days 7
+
+  @spec encrypt_vault(Engram.Vaults.Vault.t(), Engram.Accounts.User.t()) ::
+          {:ok, Engram.Vaults.Vault.t()} | {:error, :cooldown | :bad_status | term()}
+  def encrypt_vault(%Engram.Vaults.Vault{} = vault, %Engram.Accounts.User{} = user) do
+    Engram.Repo.with_tenant(user.id, fn ->
+      locked = Engram.Repo.get!(Engram.Vaults.Vault, vault.id, lock: "FOR UPDATE")
+
+      cond do
+        locked.encryption_status != "none" ->
+          Engram.Repo.rollback(:bad_status)
+
+        cooldown_active?(locked) ->
+          Engram.Repo.rollback(:cooldown)
+
+        true ->
+          now = DateTime.utc_now()
+
+          updated =
+            locked
+            |> Ecto.Changeset.change(%{
+              encrypted: true,
+              encryption_status: "encrypting",
+              last_toggle_at: now
+            })
+            |> Engram.Repo.update!()
+
+          {:ok, _} =
+            Engram.Workers.EncryptVault.new(%{
+              vault_id: vault.id,
+              user_id: user.id,
+              cursor: 0
+            })
+            |> Oban.insert()
+
+          updated
+      end
+    end)
+    |> case do
+      {:ok, vault} -> {:ok, vault}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp cooldown_active?(%Engram.Vaults.Vault{last_toggle_at: nil}), do: false
+
+  defp cooldown_active?(%Engram.Vaults.Vault{last_toggle_at: ts}) do
+    DateTime.diff(DateTime.utc_now(), ts, :day) < @cooldown_days
+  end
 end
