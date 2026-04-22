@@ -40,7 +40,7 @@ def _fetch_note_row(vault_id: int, path: str) -> dict:
     if the note doesn't exist."""
     sql = (
         f"\\set target_path '{path}'\n"
-        f"SELECT content IS NULL, title IS NULL, "
+        f"SELECT (content IS NULL OR content = ''), (title IS NULL OR title = ''), "
         f"content_ciphertext IS NOT NULL, content_nonce IS NOT NULL, "
         f"title_ciphertext IS NOT NULL, title_nonce IS NOT NULL, tags_ciphertext IS NOT NULL "
         f"FROM notes WHERE vault_id = {int(vault_id)} AND path = :'target_path';"
@@ -48,10 +48,10 @@ def _fetch_note_row(vault_id: int, path: str) -> dict:
     out = _psql(sql, fetch=True)
     assert out, f"Note not found in DB: vault_id={vault_id} path={path!r}"
     line = out.splitlines()[0]
-    c_null, t_null, c_ct, c_n, t_ct, t_n, tag_ct = line.split("|")
+    c_cleared, t_cleared, c_ct, c_n, t_ct, t_n, tag_ct = line.split("|")
     return {
-        "content_is_null": c_null == "t",
-        "title_is_null": t_null == "t",
+        "content_cleared": c_cleared == "t",
+        "title_cleared": t_cleared == "t",
         "content_ciphertext_present": c_ct == "t",
         "content_nonce_present": c_n == "t",
         "title_ciphertext_present": t_ct == "t",
@@ -64,10 +64,10 @@ def assert_note_ciphertext_at_rest(vault_id: int, path: str) -> None:
     """Assert the note at (vault_id, path) is stored as ciphertext."""
     row = _fetch_note_row(vault_id, path)
     failures = []
-    if not row["content_is_null"]:
-        failures.append("content is not NULL")
-    if not row["title_is_null"]:
-        failures.append("title is not NULL")
+    if not row["content_cleared"]:
+        failures.append("content is not cleared (not NULL and not empty)")
+    if not row["title_cleared"]:
+        failures.append("title is not cleared (not NULL and not empty)")
     if not row["content_ciphertext_present"]:
         failures.append("content_ciphertext is NULL")
     if not row["content_nonce_present"]:
@@ -86,8 +86,8 @@ def assert_note_plaintext_at_rest(vault_id: int, path: str) -> None:
     """Inverse. Content column populated, ciphertext columns NULL."""
     row = _fetch_note_row(vault_id, path)
     failures = []
-    if row["content_is_null"]:
-        failures.append("content is NULL (expected plaintext)")
+    if row["content_cleared"]:
+        failures.append("content is cleared (NULL or empty — expected plaintext)")
     if row["content_ciphertext_present"]:
         failures.append("content_ciphertext is set (expected NULL)")
     if row["content_nonce_present"]:

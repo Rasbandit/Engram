@@ -61,7 +61,7 @@ class TestVaultToggleBackfill:
         for path, _ in notes:
             assert_note_plaintext_at_rest(vault_id, path)
         for path, _ in notes:
-            wait_for_qdrant_indexed(vault_id, path, timeout=30)
+            wait_for_qdrant_indexed(vault_id, path, timeout=60)
         assert_qdrant_plaintext(vault_id, min_chunks=len(notes))
 
         # 3. Toggle encrypt

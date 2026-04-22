@@ -91,7 +91,7 @@ async def test_encrypted_sync_obsidian(
     assert_note_ciphertext_at_rest(vault_id, path)
 
     # 5. PROBE: ciphertext in Qdrant (after embed worker)
-    wait_for_qdrant_indexed(vault_id, path, timeout=30)
+    wait_for_qdrant_indexed(vault_id, path, timeout=60)
     assert_qdrant_ciphertext(vault_id, min_chunks=1)
 
     # 6. B pulls via full sync

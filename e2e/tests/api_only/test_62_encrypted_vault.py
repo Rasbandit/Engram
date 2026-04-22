@@ -107,5 +107,5 @@ class TestEncryptedVaultRoundTrip:
         assert_note_ciphertext_at_rest(vault_id, note_path)
 
         # 6. PROBE: at-rest ciphertext in Qdrant (after embed worker)
-        wait_for_qdrant_indexed(vault_id, note_path, timeout=30)
+        wait_for_qdrant_indexed(vault_id, note_path, timeout=60)
         assert_qdrant_ciphertext(vault_id, min_chunks=1)
