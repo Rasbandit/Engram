@@ -171,6 +171,56 @@ def _looks_base64(s: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9+/=]+", s))
 
 
+def wait_for_encryption_status(
+    api_client, vault_id: int, target: str, *, timeout: float = 60.0
+) -> dict:
+    """Poll GET /api/vaults/:id/encryption_progress every 1s until
+    status == target. Returns last response body. Raises TimeoutError otherwise.
+
+    `api_client` must be an authenticated ApiClient (api_sync or vault-scoped)."""
+    api_url = os.environ.get("ENGRAM_API_URL") or "http://localhost:8100/api"
+    deadline = time.monotonic() + timeout
+    last_body = None
+    while time.monotonic() < deadline:
+        resp = api_client.session.get(
+            f"{api_url}/vaults/{vault_id}/encryption_progress",
+            timeout=5,
+        )
+        if resp.ok:
+            last_body = resp.json()
+            if last_body.get("status") == target:
+                return last_body
+        time.sleep(1)
+    raise TimeoutError(
+        f"Vault {vault_id} never reached encryption_status={target!r} within {timeout}s; "
+        f"last body: {last_body!r}"
+    )
+
+
+def backdate_last_toggle(vault_id: int, *, days: int) -> None:
+    """Shift vaults.last_toggle_at into the past so cooldown check passes.
+    Used between encrypt and decrypt steps in a single test run."""
+    sql = (
+        f"UPDATE vaults SET last_toggle_at = last_toggle_at - interval '{int(days)} days' "
+        f"WHERE id = {int(vault_id)};"
+    )
+    _psql(sql)
+
+
+def backdate_decrypt_requested(vault_id: int, *, hours: int) -> None:
+    """Shift decrypt_requested_at AND the scheduled Oban DecryptVault job's
+    scheduled_at into the past so the scheduler picks it up immediately."""
+    sql = (
+        f"UPDATE vaults SET decrypt_requested_at = decrypt_requested_at - interval '{int(hours)} hours' "
+        f"WHERE id = {int(vault_id)}; "
+        f"UPDATE oban_jobs SET scheduled_at = scheduled_at - interval '{int(hours)} hours' "
+        f"WHERE worker = 'Engram.Workers.DecryptVault' "
+        f"AND (args->>'vault_id')::int = {int(vault_id)} "
+        f"AND state = 'scheduled';"
+    )
+    _psql(sql)
+
+
 def wait_for_qdrant_indexed(vault_id: int, path: str, timeout: float = 30.0) -> None:
     """Poll Qdrant for a point whose source_path matches `path`. Raises TimeoutError
     on timeout. Needed before probing Qdrant ciphertext in tests because the embed
