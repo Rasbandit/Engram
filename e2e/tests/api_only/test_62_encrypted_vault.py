@@ -58,6 +58,10 @@ def reset_vault_encryption(api_sync):
         api_sync.session.post(f"{API_URL}/vaults/{vault_id}/decrypt", timeout=10)
         backdate_decrypt_requested(vault_id, hours=25)
         wait_for_encryption_status(api_sync, vault_id, "none", timeout=60)
+        # Leave the vault ready for any subsequent test (or rerun) — the
+        # POST /decrypt above reset last_toggle_at to 'now', so backdate it
+        # again.
+        backdate_last_toggle(vault_id, days=8)
 
 
 class TestEncryptedVaultRoundTrip:

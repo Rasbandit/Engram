@@ -107,7 +107,7 @@ def _qdrant_scroll(vault_id: int, limit: int = 100) -> list[dict]:
     resp = requests.post(
         f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/scroll",
         json={
-            "filter": {"must": [{"key": "vault_id", "match": {"value": int(vault_id)}}]},
+            "filter": {"must": [{"key": "vault_id", "match": {"value": str(int(vault_id))}}]},
             "limit": limit,
             "with_payload": True,
             "with_vector": False,
@@ -233,7 +233,7 @@ def wait_for_qdrant_indexed(vault_id: int, path: str, timeout: float = 30.0) -> 
                 json={
                     "filter": {
                         "must": [
-                            {"key": "vault_id", "match": {"value": int(vault_id)}},
+                            {"key": "vault_id", "match": {"value": str(int(vault_id))}},
                             {"key": "source_path", "match": {"value": path}},
                         ]
                     },
