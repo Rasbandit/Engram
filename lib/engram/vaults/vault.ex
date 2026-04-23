@@ -28,4 +28,14 @@ defmodule Engram.Vaults.Vault do
     |> unique_constraint([:user_id, :slug], name: :vaults_user_id_slug_index)
     |> unique_constraint([:user_id, :client_id], name: :vaults_user_id_client_id_index)
   end
+
+  @doc """
+  Updates only the `encryption_status` field of a vault. Used for state transitions
+  between "none", "encrypting", "encrypted", "decrypting".
+  """
+  def update_status(%__MODULE__{} = vault, status) when is_binary(status) do
+    vault
+    |> Ecto.Changeset.change(%{encryption_status: status})
+    |> Engram.Repo.update()
+  end
 end

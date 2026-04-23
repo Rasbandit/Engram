@@ -60,4 +60,19 @@ defmodule Engram.Notes.Note do
       changeset
     end
   end
+
+  def encryption_changeset(note, attrs) do
+    note
+    |> cast(attrs, [
+      :content,
+      :content_ciphertext,
+      :content_nonce,
+      :title,
+      :title_ciphertext,
+      :title_nonce,
+      :tags,
+      :tags_ciphertext,
+      :tags_nonce
+    ])
+  end
 end
