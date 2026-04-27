@@ -6,7 +6,8 @@ defmodule EngramWeb.DeviceAuthController do
 
   @verification_path "/app/link"
 
-  def start(conn, %{"client_id" => client_id}) do
+  def start(conn, params) do
+    client_id = Map.get(params, "client_id", "unknown")
     case DeviceFlow.start_device_flow(client_id) do
       {:ok, auth} ->
         base_url = EngramWeb.Endpoint.url()

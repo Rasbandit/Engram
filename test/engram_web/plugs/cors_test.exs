@@ -41,4 +41,34 @@ defmodule EngramWeb.Plugs.CORSTest do
     origin = Application.get_env(:engram, :cors_origin, "*")
     assert is_binary(origin) or is_list(origin)
   end
+
+  test "list config echoes request Origin when in allowlist" do
+    Application.put_env(:engram, :cors_origin, [
+      "http://engram.ax",
+      "app://obsidian.md"
+    ])
+    on_exit(fn -> Application.delete_env(:engram, :cors_origin) end)
+
+    conn =
+      build_conn()
+      |> put_req_header("origin", "app://obsidian.md")
+      |> options("/api/health")
+
+    assert get_resp_header(conn, "access-control-allow-origin") == ["app://obsidian.md"]
+  end
+
+  test "list config falls back to first entry when Origin not in allowlist" do
+    Application.put_env(:engram, :cors_origin, [
+      "http://engram.ax",
+      "app://obsidian.md"
+    ])
+    on_exit(fn -> Application.delete_env(:engram, :cors_origin) end)
+
+    conn =
+      build_conn()
+      |> put_req_header("origin", "https://evil.example.com")
+      |> options("/api/health")
+
+    assert get_resp_header(conn, "access-control-allow-origin") == ["http://engram.ax"]
+  end
 end

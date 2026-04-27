@@ -234,8 +234,10 @@ if config_env() == :prod do
   # Without it (CI, local dev), defaults apply: CORS allows "*", WS allows all.
   if phx_host = System.get_env("PHX_HOST") do
     scheme = System.get_env("PHX_SCHEME") || "https"
-    config :engram, :cors_origin, "#{scheme}://#{phx_host}"
-    config :engram, :websocket_check_origin, ["#{scheme}://#{phx_host}", "app://obsidian.md"]
+    web_origin = "#{scheme}://#{phx_host}"
+    obsidian_origins = ["app://obsidian.md", "capacitor://localhost", "http://localhost"]
+    config :engram, :cors_origin, [web_origin | obsidian_origins]
+    config :engram, :websocket_check_origin, [web_origin | obsidian_origins]
   end
 
   # ## SSL Support
