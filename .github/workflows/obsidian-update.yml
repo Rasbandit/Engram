@@ -18,10 +18,11 @@ jobs:
   update:
     runs-on: [self-hosted, engram]
     steps:
+      # Full checkout (no sparse). Earlier versions used sparse-checkout to fetch
+      # only update-obsidian.sh, but that left `core.sparseCheckout=true` and
+      # skip-worktree bits on the shared self-hosted runner workspace, poisoning
+      # subsequent CI jobs (mix.exs absent → "Could not find a Mix.Project").
       - uses: actions/checkout@v6
-        with:
-          sparse-checkout: .github/update-obsidian.sh
-          sparse-checkout-cone-mode: false
 
       - name: Update Obsidian to latest release
         run: |
