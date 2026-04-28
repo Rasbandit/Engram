@@ -65,10 +65,18 @@ jobs:
           docker compose -f docker-compose.ci.yml -p "$CI_PROJECT" down -v --remove-orphans 2>/dev/null || true
           pkill -9 -f "$E2E_CONFIG_PREFIX" 2>/dev/null || true
           rm -rf ${E2E_VAULT_PREFIX}-* ${E2E_CONFIG_PREFIX}-* ${MARKER_PREFIX}-*
-          # Cross-repo plugin checkouts leak sparse-checkout config into the
-          # backend workspace. With clean:false the filter persists and the
-          # next backend checkout ships without mix.exs. Disable on entry.
-          if [ -d .git ]; then git sparse-checkout disable 2>/dev/null || true; fi
+          # Sparse-checkout leak recovery. Cross-repo plugin checkouts and the
+          # obsidian-update workflow can leave `core.sparseCheckout=true` and
+          # skip-worktree bits on the shared workspace index. `git sparse-checkout
+          # disable` clears the config but NOT the index bits, so a subsequent
+          # `actions/checkout@v6 --clean:false` lands an empty working tree
+          # (mix.exs missing, etc.). Nuke `.git` when poison is detected so the
+          # next checkout reclones cleanly. Untracked caches (_build/, deps/,
+          # node_modules/) survive — they live outside .git.
+          if [ -d .git ] && { [ -f .git/info/sparse-checkout ] || [ "$(git config --get core.sparseCheckout 2>/dev/null)" = "true" ]; }; then
+            echo "::warning::Sparse-checkout leak detected — removing .git for fresh clone"
+            rm -rf .git
+          fi
 
       - uses: actions/checkout@v6
         with:
@@ -462,7 +470,14 @@ jobs:
     steps:
       - name: Reset sparse-checkout leaked from cross-repo jobs
         run: |
-          if [ -d .git ]; then git sparse-checkout disable 2>/dev/null || true; fi
+          # See comment in e2e-clerk's "Pre-cleanup stale resources" step.
+          # `git sparse-checkout disable` does not clear stale skip-worktree
+          # bits on the index, so we nuke .git on detected leak to force a
+          # fresh clone via the next actions/checkout step.
+          if [ -d .git ] && { [ -f .git/info/sparse-checkout ] || [ "$(git config --get core.sparseCheckout 2>/dev/null)" = "true" ]; }; then
+            echo "::warning::Sparse-checkout leak detected — removing .git for fresh clone"
+            rm -rf .git
+          fi
 
       - uses: actions/checkout@v6
         with:
@@ -541,7 +556,14 @@ jobs:
     steps:
       - name: Reset sparse-checkout leaked from cross-repo jobs
         run: |
-          if [ -d .git ]; then git sparse-checkout disable 2>/dev/null || true; fi
+          # See comment in e2e-clerk's "Pre-cleanup stale resources" step.
+          # `git sparse-checkout disable` does not clear stale skip-worktree
+          # bits on the index, so we nuke .git on detected leak to force a
+          # fresh clone via the next actions/checkout step.
+          if [ -d .git ] && { [ -f .git/info/sparse-checkout ] || [ "$(git config --get core.sparseCheckout 2>/dev/null)" = "true" ]; }; then
+            echo "::warning::Sparse-checkout leak detected — removing .git for fresh clone"
+            rm -rf .git
+          fi
 
       - uses: actions/checkout@v6
         with:
@@ -654,7 +676,14 @@ jobs:
     steps:
       - name: Reset sparse-checkout leaked from cross-repo jobs
         run: |
-          if [ -d .git ]; then git sparse-checkout disable 2>/dev/null || true; fi
+          # See comment in e2e-clerk's "Pre-cleanup stale resources" step.
+          # `git sparse-checkout disable` does not clear stale skip-worktree
+          # bits on the index, so we nuke .git on detected leak to force a
+          # fresh clone via the next actions/checkout step.
+          if [ -d .git ] && { [ -f .git/info/sparse-checkout ] || [ "$(git config --get core.sparseCheckout 2>/dev/null)" = "true" ]; }; then
+            echo "::warning::Sparse-checkout leak detected — removing .git for fresh clone"
+            rm -rf .git
+          fi
 
       - uses: actions/checkout@v6
         with:
@@ -802,7 +831,14 @@ jobs:
     steps:
       - name: Reset sparse-checkout leaked from cross-repo jobs
         run: |
-          if [ -d .git ]; then git sparse-checkout disable 2>/dev/null || true; fi
+          # See comment in e2e-clerk's "Pre-cleanup stale resources" step.
+          # `git sparse-checkout disable` does not clear stale skip-worktree
+          # bits on the index, so we nuke .git on detected leak to force a
+          # fresh clone via the next actions/checkout step.
+          if [ -d .git ] && { [ -f .git/info/sparse-checkout ] || [ "$(git config --get core.sparseCheckout 2>/dev/null)" = "true" ]; }; then
+            echo "::warning::Sparse-checkout leak detected — removing .git for fresh clone"
+            rm -rf .git
+          fi
 
       - uses: actions/checkout@v6
 
