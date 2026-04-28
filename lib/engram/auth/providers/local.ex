@@ -6,8 +6,6 @@ defmodule Engram.Auth.Providers.Local do
 
   @behaviour Engram.Auth.Provider
 
-  @access_token_ttl 15 * 60
-
   @impl true
   def verify_token(token) do
     case Engram.Token.verify_and_validate(token) do
@@ -55,7 +53,7 @@ defmodule Engram.Auth.Providers.Local do
     claims = %{
       "sub" => external_id,
       "email" => email,
-      "exp" => :os.system_time(:second) + @access_token_ttl,
+      "exp" => :os.system_time(:second) + Engram.Token.ttl_seconds(),
       "iss" => "engram",
       "aud" => "engram"
     }
