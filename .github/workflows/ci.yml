@@ -462,6 +462,8 @@ jobs:
           find /tmp -maxdepth 1 -name '.ff*.node' -mmin +60 -delete 2>/dev/null || true
 
   unit-tests:
+    # Skip on cross-repo plugin dispatch — plugin can't regress backend ExUnit.
+    if: github.event_name != 'repository_dispatch'
     runs-on: [self-hosted, engram]
 
     env:
@@ -547,6 +549,9 @@ jobs:
         run: find /tmp -maxdepth 1 -name '.ff*.node' -mmin +60 -delete 2>/dev/null || true
 
   e2e-local:
+    # Skip on cross-repo plugin dispatch — plugin uses Clerk JWTs in production,
+    # so the local-auth API path is backend-internal.
+    if: github.event_name != 'repository_dispatch'
     runs-on: [self-hosted, engram]
 
     env:
@@ -668,6 +673,9 @@ jobs:
           find /tmp -maxdepth 1 -name '.ff*.node' -mmin +60 -delete 2>/dev/null || true
 
   e2e-browser:
+    # Skip on cross-repo plugin dispatch — Playwright targets backend's React
+    # frontend, which the plugin (separate repo) cannot affect.
+    if: github.event_name != 'repository_dispatch'
     runs-on: [self-hosted, engram]
 
     env:
@@ -810,15 +818,29 @@ jobs:
           EL="${{ needs.e2e-local.result }}"
           EB="${{ needs.e2e-browser.result }}"
 
-          # version-check is skipped on main (only runs on branches) — that's expected
+          # version-check is skipped on main (only runs on branches) — that's expected.
           if [ "$VC" != "success" ] && [ "$VC" != "skipped" ]; then
             echo "::error::version-check failed — bump mix.exs version before merging"
             exit 1
           fi
-          if [ "$UT" != "success" ] || [ "$EC" != "success" ] || [ "$EL" != "success" ] || [ "$EB" != "success" ]; then
-            echo "Required jobs failed: unit-tests=$UT, e2e-clerk=$EC, e2e-local=$EL, e2e-browser=$EB"
+
+          # e2e-clerk is the only job that exercises the plugin↔backend contract,
+          # so it must succeed regardless of trigger.
+          if [ "$EC" != "success" ]; then
+            echo "::error::e2e-clerk failed: $EC"
             exit 1
           fi
+
+          # On cross-repo plugin dispatch (plugin-e2e-trigger), unit-tests / e2e-local
+          # / e2e-browser are intentionally skipped — plugin cannot regress backend
+          # internals. Only assert success when those jobs actually ran.
+          for pair in "unit-tests=$UT" "e2e-local=$EL" "e2e-browser=$EB"; do
+            name="${pair%=*}"; result="${pair#*=}"
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "::error::$name failed: $result"
+              exit 1
+            fi
+          done
 
   deploy-fastraid:
     if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.ci.result == 'success'

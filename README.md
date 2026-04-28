@@ -88,7 +88,8 @@ Any AI assistant that speaks MCP can query your vault:
 
 ```bash
 mix deps.get
-mix ecto.setup    # Create DB + run migrations + seeds
+mix ecto.setup            # Create DB + run migrations + seeds
+bash scripts/install-hooks.sh  # One-time: enables pre-push version-bump check
 ```
 
 ### 2. Configure
