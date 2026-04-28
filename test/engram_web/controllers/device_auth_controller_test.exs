@@ -81,7 +81,7 @@ defmodule EngramWeb.DeviceAuthControllerTest do
       assert String.starts_with?(resp["refresh_token"], "engram_rt_")
       assert resp["vault_id"] == vault.id
       assert resp["user_email"] == user.email
-      assert resp["expires_in"] == 3600
+      assert resp["expires_in"] == Engram.Token.ttl_seconds()
     end
 
     test "returns expired for consumed code", %{conn: conn} do
@@ -110,7 +110,7 @@ defmodule EngramWeb.DeviceAuthControllerTest do
       assert is_binary(resp["access_token"])
       assert is_binary(resp["refresh_token"])
       assert resp["refresh_token"] != tokens.refresh_token
-      assert resp["expires_in"] == 3600
+      assert resp["expires_in"] == Engram.Token.ttl_seconds()
     end
 
     test "rejects revoked refresh token", %{conn: conn} do

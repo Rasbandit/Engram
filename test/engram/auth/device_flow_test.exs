@@ -77,7 +77,21 @@ defmodule Engram.Auth.DeviceFlowTest do
       assert String.starts_with?(result.refresh_token, "engram_rt_")
       assert result.vault_id == vault.id
       assert result.user_email == user.email
-      assert result.expires_in == 3600
+      assert result.expires_in == Engram.Token.ttl_seconds()
+    end
+
+    test "expires_in matches the actual JWT exp claim" do
+      user = insert(:user)
+      vault = insert(:vault, user: user)
+      {:ok, auth} = DeviceFlow.start_device_flow("client_1")
+      {:ok, _} = DeviceFlow.authorize_device(auth.user_code, user, vault.id)
+
+      issued_at = Joken.current_time()
+      {:ok, result} = DeviceFlow.exchange_device_code(auth.device_code)
+      {:ok, claims} = Engram.Token.verify_and_validate(result.access_token)
+
+      jwt_ttl = claims["exp"] - issued_at
+      assert_in_delta jwt_ttl, result.expires_in, 2
     end
 
     test "marks device code as consumed after exchange" do
@@ -112,7 +126,7 @@ defmodule Engram.Auth.DeviceFlowTest do
       assert is_binary(refreshed.access_token)
       assert is_binary(refreshed.refresh_token)
       assert refreshed.refresh_token != initial.refresh_token
-      assert refreshed.expires_in == 3600
+      assert refreshed.expires_in == Engram.Token.ttl_seconds()
     end
 
     test "old refresh token is revoked after rotation" do

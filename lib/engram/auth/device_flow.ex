@@ -13,7 +13,6 @@ defmodule Engram.Auth.DeviceFlow do
   @device_code_bytes 32
   @refresh_token_prefix "engram_rt_"
   @refresh_token_bytes 32
-  @access_token_ttl_seconds 3600
   @refresh_token_ttl_days 90
   @device_code_ttl_seconds 300
 
@@ -118,7 +117,7 @@ defmodule Engram.Auth.DeviceFlow do
          %{
            access_token: access_token,
            refresh_token: raw_refresh,
-           expires_in: @access_token_ttl_seconds
+           expires_in: Engram.Token.ttl_seconds()
          }}
     end
   end
@@ -157,7 +156,7 @@ defmodule Engram.Auth.DeviceFlow do
        refresh_token: raw_refresh,
        vault_id: auth.vault_id,
        user_email: auth.user.email,
-       expires_in: @access_token_ttl_seconds
+       expires_in: Engram.Token.ttl_seconds()
      }}
   end
 
