@@ -13,6 +13,15 @@ on:
         required: false
         default: "main"
 
+# Serialize all backend CI runs on the self-hosted runner pool. Two parallel
+# `docker compose build` invocations collide on the shared buildkit cache
+# mounts (`id=mix-deps`, `id=mix-build`) and intermittently abort with
+# "graceful_stop" mid-compile. Queue runs instead of cancelling so plugin
+# dispatches and main pushes both complete.
+concurrency:
+  group: engram-backend-ci
+  cancel-in-progress: false
+
 env:
   DOCKER_BUILDKIT: "1"
   COMPOSE_DOCKER_CLI_BUILD: "1"
