@@ -7,9 +7,12 @@ defmodule EngramWeb.Plugs.Auth do
   3. Legacy JWT: `Authorization: Bearer <jwt-without-kid>` — for backward compat (HS256)
 
   Sets `conn.assigns.current_user` on success, halts with 401 on failure.
+  Logs the failure reason at :info so 401s in production are diagnosable
+  (expired token vs bad signature vs missing user) without a redeploy.
   """
 
   import Plug.Conn
+  require Logger
 
   def init(opts), do: opts
 
@@ -23,7 +26,9 @@ defmodule EngramWeb.Plugs.Auth do
         |> assign(:current_user, user)
         |> assign(:current_api_key, api_key)
 
-      {:error, _reason} ->
+      {:error, reason} ->
+        Logger.info("auth rejected: #{format_reason(reason)} path=#{conn.request_path}")
+
         conn
         |> put_resp_content_type("application/json")
         |> send_resp(401, Jason.encode!(%{error: "unauthorized"}))
@@ -37,4 +42,17 @@ defmodule EngramWeb.Plugs.Auth do
       _ -> {:error, :no_auth}
     end
   end
+
+  # Joken returns its claim-validation failures as a keyword list (e.g.
+  # [message: "Invalid token", claim: "exp", claim_val: 1777359682]). Surface
+  # the offending claim so "expired" looks different from "bad signature" in logs.
+  defp format_reason(reason) when is_list(reason) do
+    case Keyword.get(reason, :claim) do
+      nil -> "invalid_token (#{Keyword.get(reason, :message, "unknown")})"
+      claim -> "claim_invalid:#{claim}"
+    end
+  end
+
+  defp format_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_reason(reason), do: inspect(reason)
 end
