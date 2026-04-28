@@ -1,6 +1,8 @@
 defmodule EngramWeb.Plugs.AuthTest do
   use EngramWeb.ConnCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias Engram.Accounts
   alias EngramWeb.Plugs.Auth
 
@@ -67,6 +69,46 @@ defmodule EngramWeb.Plugs.AuthTest do
 
     assert conn.status == 401
     assert conn.halted
+  end
+
+  describe "401 logging" do
+    setup do
+      previous_level = Logger.level()
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: previous_level) end)
+      :ok
+    end
+
+    test "logs claim_invalid:exp when access token is expired" do
+      claims = %{
+        "user_id" => 1,
+        "iss" => "engram",
+        "aud" => "engram",
+        "exp" => Joken.current_time() - 60
+      }
+
+      signer = Joken.Signer.create("HS256", Application.get_env(:joken, :default_signer))
+      {:ok, expired_token} = Joken.Signer.sign(claims, signer)
+
+      log =
+        capture_log([level: :info], fn ->
+          build_conn()
+          |> put_req_header("authorization", "Bearer #{expired_token}")
+          |> Auth.call([])
+        end)
+
+      assert log =~ "auth rejected"
+      assert log =~ "claim_invalid:exp"
+    end
+
+    test "logs no_auth when authorization header is missing" do
+      log =
+        capture_log([level: :info], fn ->
+          build_conn() |> Auth.call([])
+        end)
+
+      assert log =~ "auth rejected: no_auth"
+    end
   end
 
   test "returns 401 for JWT referencing deleted user" do

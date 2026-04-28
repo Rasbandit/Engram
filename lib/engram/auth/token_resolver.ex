@@ -46,11 +46,20 @@ defmodule Engram.Auth.TokenResolver do
   def resolve(_), do: {:error, :invalid_token}
 
   defp authenticate_internal_jwt(token) do
-    with {:ok, %{"user_id" => user_id}} when is_integer(user_id) <- Accounts.verify_jwt(token),
-         %Accounts.User{} = user <- Accounts.get_user(user_id) do
-      {:ok, user}
-    else
-      _ -> {:error, :invalid_token}
+    case Accounts.verify_jwt(token) do
+      {:ok, %{"user_id" => user_id}} when is_integer(user_id) ->
+        case Accounts.get_user(user_id) do
+          %Accounts.User{} = user -> {:ok, user}
+          _ -> {:error, :user_not_found}
+        end
+
+      {:ok, _claims} ->
+        {:error, :missing_claims}
+
+      {:error, reason} ->
+        # Preserve Joken's structured failure (e.g. [claim: "exp", ...]) so the
+        # auth plug can log *why* the token was rejected.
+        {:error, reason}
     end
   end
 end
