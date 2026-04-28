@@ -8,13 +8,24 @@ defmodule EngramWeb.Endpoint do
     longpoll: false
 
   @doc false
+  # Phoenix.Socket.Transport invokes this MFA with `URI.parse(origin)`, so we must
+  # normalize the URI back to a `scheme://host[:port]` string before comparing
+  # against the configured allowlist.
   def check_origin(origin) do
     case Application.get_env(:engram, :websocket_check_origin, false) do
       false -> true
-      list when is_list(list) -> origin in list
+      list when is_list(list) -> normalize_origin(origin) in list
       _ -> false
     end
   end
+
+  defp normalize_origin(%URI{scheme: scheme, host: host, port: port}) do
+    default = URI.default_port(scheme)
+    port_part = if is_nil(port) or port == default, do: "", else: ":#{port}"
+    "#{scheme}://#{host}#{port_part}"
+  end
+
+  defp normalize_origin(origin) when is_binary(origin), do: origin
 
   # Serve at "/" the static files from "priv/static" directory.
   #
