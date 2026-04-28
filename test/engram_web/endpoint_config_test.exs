@@ -57,4 +57,95 @@ defmodule EngramWeb.EndpointConfigTest do
     assert EngramWeb.Endpoint.check_origin(URI.parse("http://engram.ax:8080"))
     refute EngramWeb.Endpoint.check_origin(URI.parse("http://engram.ax"))
   end
+
+  # Drives Phoenix.Socket.Transport.check_origin/5 — the actual code path that
+  # logged the FastRaid production error. This closes the gap that pure unit
+  # tests on `EngramWeb.Endpoint.check_origin/1` left open: it proves Phoenix
+  # really invokes our MFA with `URI.parse(origin)` and that the fix unblocks
+  # the WebSocket handshake for `app://obsidian.md`.
+  describe "Phoenix.Socket.Transport.check_origin (integration)" do
+    setup do
+      Application.put_env(:engram, :websocket_check_origin, [
+        "http://engram.ax",
+        "app://obsidian.md"
+      ])
+
+      # Phoenix.Socket.Transport caches `:check_origin` config per
+      # `{handler, endpoint}` in :ets. Use a unique handler module per test so
+      # the cache from one test cannot poison another, even with async: false.
+      handler =
+        Module.concat([__MODULE__, "Handler#{System.unique_integer([:positive])}"])
+
+      Module.create(
+        handler,
+        quote do
+          def __socket__(:user_socket), do: nil
+        end,
+        Macro.Env.location(__ENV__)
+      )
+
+      on_exit(fn -> Application.delete_env(:engram, :websocket_check_origin) end)
+
+      %{handler: handler}
+    end
+
+    test "accepts Obsidian app:// origin", %{handler: handler} do
+      conn = build_conn_with_origin("app://obsidian.md")
+
+      result =
+        Phoenix.Socket.Transport.check_origin(
+          conn,
+          handler,
+          EngramWeb.Endpoint,
+          check_origin: {EngramWeb.Endpoint, :check_origin, []}
+        )
+
+      refute result.halted, "Phoenix should accept allowlisted Obsidian origin"
+    end
+
+    test "accepts configured web host origin", %{handler: handler} do
+      conn = build_conn_with_origin("http://engram.ax")
+
+      result =
+        Phoenix.Socket.Transport.check_origin(
+          conn,
+          handler,
+          EngramWeb.Endpoint,
+          check_origin: {EngramWeb.Endpoint, :check_origin, []}
+        )
+
+      refute result.halted
+    end
+
+    test "rejects an origin that is not in the allowlist", %{handler: handler} do
+      conn = build_conn_with_origin("https://evil.example.com")
+
+      # `sender` (5th arg) is invoked instead of the default `Plug.Conn.send_resp/1`
+      # so the rejection conn is captured rather than actually transmitted.
+      # Phoenix logs the same "Could not check origin" error we saw in production
+      # — capture it to keep test output clean while still asserting on it.
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          result =
+            Phoenix.Socket.Transport.check_origin(
+              conn,
+              handler,
+              EngramWeb.Endpoint,
+              [check_origin: {EngramWeb.Endpoint, :check_origin, []}],
+              fn captured -> captured end
+            )
+
+          assert result.halted
+          assert result.status == 403
+        end)
+
+      assert log =~ "Could not check origin for Phoenix.Socket transport"
+      assert log =~ "https://evil.example.com"
+    end
+
+    defp build_conn_with_origin(origin) do
+      Plug.Test.conn(:get, "/socket/websocket")
+      |> Plug.Conn.put_req_header("origin", origin)
+    end
+  end
 end
