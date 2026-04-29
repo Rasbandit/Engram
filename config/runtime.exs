@@ -175,12 +175,15 @@ end
 
 # Endpoint URL — used by EngramWeb.Endpoint.url() for device flow verification links,
 # email URLs, etc. Works in dev and prod. Defaults to localhost in dev.
-if phx_host = System.get_env("PHX_HOST") do
+# PHX_HOST may be a comma-separated list; the FIRST entry is canonical.
+phx_hosts = Engram.HostOrigins.parse(System.get_env("PHX_HOST"))
+
+if phx_hosts do
   scheme = System.get_env("PHX_SCHEME") || if(config_env() == :prod, do: "https", else: "http")
   url_port = String.to_integer(System.get_env("PHX_PORT") || if(config_env() == :prod, do: "443", else: "80"))
 
   config :engram, EngramWeb.Endpoint,
-    url: [host: phx_host, port: url_port, scheme: scheme]
+    url: [host: phx_hosts.canonical_host, port: url_port, scheme: scheme]
 end
 
 if config_env() == :prod do
@@ -232,12 +235,10 @@ if config_env() == :prod do
 
   # CORS and WebSocket origin — only lock down when PHX_HOST is explicitly set.
   # Without it (CI, local dev), defaults apply: CORS allows "*", WS allows all.
-  if phx_host = System.get_env("PHX_HOST") do
-    scheme = System.get_env("PHX_SCHEME") || "https"
-    web_origin = "#{scheme}://#{phx_host}"
-    obsidian_origins = ["app://obsidian.md", "capacitor://localhost", "http://localhost"]
-    config :engram, :cors_origin, [web_origin | obsidian_origins]
-    config :engram, :websocket_check_origin, [web_origin | obsidian_origins]
+  # See Engram.HostOrigins for parsing rules (CSV, scheme expansion, dedup).
+  if phx_hosts do
+    config :engram, :cors_origin, phx_hosts.origins
+    config :engram, :websocket_check_origin, phx_hosts.origins
   end
 
   # ## SSL Support
