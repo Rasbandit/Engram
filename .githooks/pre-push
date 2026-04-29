@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Pre-push hook: refuse to push branches whose mix.exs version still matches
+# main. CI's `version-check` job enforces the same rule, but failing here
+# shaves ~30s off the feedback loop and avoids burning a CI runner.
+#
+# Bypass for WIP / draft branches with: git push --no-verify
+
+set -euo pipefail
+
+current_branch="$(git rev-parse --abbrev-ref HEAD)"
+
+# Allow main, tags, and detached HEAD to push freely.
+if [ "$current_branch" = "main" ] || [ "$current_branch" = "HEAD" ]; then
+  exit 0
+fi
+
+# Compare branch version against origin/main. If origin/main is unfetched, skip
+# the check rather than block the push — fetching here would slow every push.
+if ! git rev-parse --verify --quiet origin/main >/dev/null; then
+  exit 0
+fi
+
+extract_version() {
+  grep -m1 'version:' "$1" 2>/dev/null | sed 's/.*"\(.*\)".*/\1/'
+}
+
+branch_version="$(extract_version mix.exs)"
+main_version="$(git show origin/main:mix.exs 2>/dev/null | grep -m1 'version:' | sed 's/.*"\(.*\)".*/\1/')"
+
+if [ -z "$branch_version" ] || [ -z "$main_version" ]; then
+  exit 0
+fi
+
+if [ "$branch_version" = "$main_version" ]; then
+  cat >&2 <<EOF
+✖ pre-push: mix.exs version ($branch_version) has not been bumped from main.
+
+  Bump the version in mix.exs before pushing:
+    sed -i 's/version: "$main_version"/version: "<new>"/' mix.exs
+
+  To push WIP without bumping, use: git push --no-verify
+EOF
+  exit 1
+fi
+
+echo "✓ pre-push: mix.exs version differs from main (main=$main_version, branch=$branch_version)"
