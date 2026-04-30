@@ -68,9 +68,15 @@ defmodule Engram.Workers.EncryptVault do
 
         true ->
           with {:ok, user} <- Crypto.ensure_user_dek(user) do
+            # Filter out already-encrypted notes so a retry after a partial-success
+            # batch (commit succeeded, next-batch enqueue failed → Oban retries
+            # with the same cursor) does not re-encrypt empty plaintext over
+            # existing ciphertext. Idempotency invariant: a note in this load
+            # window has plaintext that has not yet been replaced.
             notes =
               from(n in Note,
-                where: n.vault_id == ^vault.id and n.id > ^cursor,
+                where:
+                  n.vault_id == ^vault.id and n.id > ^cursor and is_nil(n.content_ciphertext),
                 order_by: [asc: n.id],
                 limit: @batch_size
               )

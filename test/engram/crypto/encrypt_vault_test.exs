@@ -159,4 +159,57 @@ defmodule Engram.Crypto.EncryptVaultTest do
                       "embed_texts must be called outside the worker's `with_tenant` transaction so the Postgres connection isn't held during the slow HTTP call"
     end
   end
+
+  describe "perform/1 retry idempotency" do
+    test "skips notes whose ciphertext is already populated", %{user: user, vault: vault} do
+      # Regression: the worker commits per-note encryption before issuing the
+      # next-batch enqueue. If that enqueue fails (transient DB error, unique
+      # conflict, network blip), perform/1 returns an error and Oban retries
+      # the SAME job with the SAME cursor. Without the load-batch filter, the
+      # retry would reload the already-encrypted notes — content_ciphertext
+      # set, plaintext nulled — and `Indexing.prepare_index` would parse
+      # `note.content || ""` as empty, then `encrypt_postgres` would overwrite
+      # the existing ciphertext with ciphertext-of-empty. Plaintext gone.
+      {:ok, user} = Engram.Crypto.ensure_user_dek(user)
+
+      {:ok, already_encrypted_note} =
+        Engram.Notes.upsert_note(user, vault, %{
+          "path" => "retry/already.md",
+          "content" => "# Already done",
+          "mtime" => 1_000.0
+        })
+
+      already_encrypted_note
+      |> Ecto.Changeset.change(%{
+        content: nil,
+        content_ciphertext: <<1, 2, 3>>,
+        content_nonce: <<4, 5, 6>>
+      })
+      |> Repo.update!()
+
+      vault
+      |> Ecto.Changeset.change(%{encrypted: true, encryption_status: "encrypting"})
+      |> Repo.update!()
+
+      # The retry path: cursor=0, vault is in `encrypting`, the only matching
+      # row is one whose ciphertext is already populated. The load query must
+      # filter it out and the worker must finalize the empty batch instead of
+      # round-tripping it through the encryption pipeline.
+      assert :ok =
+               EncryptVault.perform(%Oban.Job{
+                 args: %{"vault_id" => vault.id, "user_id" => user.id, "cursor" => 0}
+               })
+
+      {:ok, reloaded} =
+        Repo.with_tenant(user.id, fn ->
+          Repo.get!(Engram.Notes.Note, already_encrypted_note.id)
+        end)
+
+      assert reloaded.content_ciphertext == <<1, 2, 3>>,
+             "an already-encrypted note must not be re-encrypted on retry"
+
+      assert reloaded.content_nonce == <<4, 5, 6>>,
+             "the nonce must not be regenerated on retry — that would invalidate the existing ciphertext"
+    end
+  end
 end
