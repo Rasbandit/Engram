@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -130,10 +131,16 @@ class TestEncryptCooldown:
             "429 body must include retry_after so the plugin can render the "
             "'next toggle available' hint without a second round trip"
         )
-        # retry_after should be in seconds; ~7 days = 604800s. Be lenient since
-        # last_toggle_at is set at the time of the encrypt POST.
-        assert 0 < int(body["retry_after"]) <= 7 * 24 * 3600 + 60, (
-            f"retry_after should be within (0, 7d]; got {body['retry_after']}"
+        # retry_after is an ISO-8601 timestamp computed as
+        # `last_toggle_at + cooldown_days`. Confirm it parses, lies in the
+        # future, and is within the 7-day window we just configured.
+        retry_at = datetime.fromisoformat(body["retry_after"].replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        assert retry_at > now, (
+            f"retry_after should be in the future; got {retry_at} vs now={now}"
+        )
+        assert retry_at - now <= timedelta(days=7, seconds=60), (
+            f"retry_after should be within 7 days from now; got {retry_at - now}"
         )
 
     def test_backdating_last_toggle_unblocks_next_toggle(
