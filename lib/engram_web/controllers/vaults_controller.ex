@@ -9,7 +9,7 @@ defmodule EngramWeb.VaultsController do
   def index(conn, _params) do
     user = conn.assigns.current_user
     vaults = Vaults.list_vaults(user)
-    json(conn, %{vaults: Enum.map(vaults, &vault_json/1)})
+    json(conn, %{vaults: Enum.map(vaults, &vault_json(&1, user))})
   end
 
   # ── create ─────────────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ defmodule EngramWeb.VaultsController do
       {:ok, vault} ->
         conn
         |> put_status(201)
-        |> json(%{vault: vault_json(vault)})
+        |> json(%{vault: vault_json(vault, user)})
 
       {:error, :vault_limit_reached} ->
         limit = Billing.effective_limit(user, "max_vaults")
@@ -45,7 +45,7 @@ defmodule EngramWeb.VaultsController do
     case parse_id(id) do
       {:ok, vault_id} ->
         case Vaults.get_vault(user, vault_id) do
-          {:ok, vault} -> json(conn, %{vault: vault_json(vault)})
+          {:ok, vault} -> json(conn, %{vault: vault_json(vault, user)})
           {:error, :not_found} -> not_found(conn)
         end
 
@@ -63,7 +63,7 @@ defmodule EngramWeb.VaultsController do
     case parse_id(id) do
       {:ok, vault_id} ->
         case Vaults.update_vault(user, vault_id, attrs) do
-          {:ok, vault} -> json(conn, %{vault: vault_json(vault)})
+          {:ok, vault} -> json(conn, %{vault: vault_json(vault, user)})
           {:error, :not_found} -> not_found(conn)
 
           {:error, changeset} ->
@@ -150,10 +150,10 @@ defmodule EngramWeb.VaultsController do
         {:ok, vault, :created} ->
           conn
           |> put_status(201)
-          |> json(vault_json(vault) |> Map.put(:status, "created"))
+          |> json(vault_json(vault, user) |> Map.put(:status, "created"))
 
         {:ok, vault, :existing} ->
-          json(conn, vault_json(vault) |> Map.put(:status, "existing"))
+          json(conn, vault_json(vault, user) |> Map.put(:status, "existing"))
 
         {:error, :vault_limit_reached} ->
           limit = Billing.effective_limit(user, "max_vaults")
@@ -167,7 +167,7 @@ defmodule EngramWeb.VaultsController do
 
   # ── Private ────────────────────────────────────────────────────────────────
 
-  defp vault_json(vault) do
+  defp vault_json(vault, user) do
     %{
       id: vault.id,
       name: vault.name,
@@ -179,9 +179,13 @@ defmodule EngramWeb.VaultsController do
       encryption_status: vault.encryption_status,
       encrypted_at: vault.encrypted_at,
       decrypt_requested_at: vault.decrypt_requested_at,
-      last_toggle_at: vault.last_toggle_at
+      last_toggle_at: vault.last_toggle_at,
+      cooldown_days: cooldown_days_for(user)
     }
   end
+
+  defp cooldown_days_for(%Engram.Accounts.User{encryption_toggle_cooldown_days: days}), do: days
+  defp cooldown_days_for(_), do: nil
 
   defp not_found(conn) do
     conn
@@ -210,7 +214,7 @@ defmodule EngramWeb.VaultsController do
     with {:ok, vault_id} <- parse_vault_id(id),
          {:ok, vault} <- Vaults.get_vault(user, vault_id),
          {:ok, updated} <- fun.(vault, user) do
-      conn |> put_status(202) |> json(%{vault: vault_json(updated)})
+      conn |> put_status(202) |> json(%{vault: vault_json(updated, user)})
     else
       {:error, :not_found} ->
         not_found(conn)
@@ -219,7 +223,7 @@ defmodule EngramWeb.VaultsController do
         not_found(conn)
 
       {:error, :cooldown} ->
-        retry_after = compute_retry_after(id, conn.assigns.current_user)
+        retry_after = compute_retry_after(id, user)
 
         conn
         |> put_status(429)
@@ -235,11 +239,12 @@ defmodule EngramWeb.VaultsController do
     end
   end
 
-  defp compute_retry_after(id, user) do
-    with {:ok, vault_id} <- parse_vault_id(id),
+  defp compute_retry_after(id, %Engram.Accounts.User{} = user) do
+    with days when is_integer(days) and days > 0 <- user.encryption_toggle_cooldown_days,
+         {:ok, vault_id} <- parse_vault_id(id),
          {:ok, vault} <- Vaults.get_vault(user, vault_id),
          %DateTime{} = toggled <- vault.last_toggle_at do
-      toggled |> DateTime.add(7, :day) |> DateTime.to_iso8601()
+      toggled |> DateTime.add(days, :day) |> DateTime.to_iso8601()
     else
       _ -> nil
     end

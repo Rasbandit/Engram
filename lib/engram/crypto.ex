@@ -324,8 +324,6 @@ defmodule Engram.Crypto do
   defp safe_decode64(s) when is_binary(s), do: Base.decode64(s)
   defp safe_decode64(_), do: :error
 
-  @cooldown_days 7
-
   @spec encrypt_vault(Engram.Vaults.Vault.t(), Engram.Accounts.User.t()) ::
           {:ok, Engram.Vaults.Vault.t()} | {:error, :cooldown | :bad_status | term()}
   def encrypt_vault(%Engram.Vaults.Vault{} = vault, %Engram.Accounts.User{} = user) do
@@ -336,7 +334,7 @@ defmodule Engram.Crypto do
         locked.encryption_status != "none" ->
           Engram.Repo.rollback(:bad_status)
 
-        cooldown_active?(locked) ->
+        cooldown_active?(locked, user) ->
           Engram.Repo.rollback(:cooldown)
 
         true ->
@@ -368,10 +366,24 @@ defmodule Engram.Crypto do
     end
   end
 
-  defp cooldown_active?(%Engram.Vaults.Vault{last_toggle_at: nil}), do: false
+  # Cooldown rules:
+  # * No prior toggle → no cooldown.
+  # * No per-user cooldown configured (NULL or ≤0) → no cooldown. This is the
+  #   default and the self-hosted default; the hosted operator opts users in by
+  #   setting users.encryption_toggle_cooldown_days.
+  defp cooldown_active?(%Engram.Vaults.Vault{last_toggle_at: nil}, _user), do: false
 
-  defp cooldown_active?(%Engram.Vaults.Vault{last_toggle_at: ts}) do
-    DateTime.diff(DateTime.utc_now(), ts, :day) < @cooldown_days
+  defp cooldown_active?(_vault, %Engram.Accounts.User{encryption_toggle_cooldown_days: nil}),
+    do: false
+
+  defp cooldown_active?(_vault, %Engram.Accounts.User{encryption_toggle_cooldown_days: days})
+       when not is_integer(days) or days <= 0,
+       do: false
+
+  defp cooldown_active?(%Engram.Vaults.Vault{last_toggle_at: ts}, %Engram.Accounts.User{
+         encryption_toggle_cooldown_days: days
+       }) do
+    DateTime.diff(DateTime.utc_now(), ts, :day) < days
   end
 
   @decrypt_delay_hours 24
@@ -386,7 +398,7 @@ defmodule Engram.Crypto do
         locked.encryption_status != "encrypted" ->
           Engram.Repo.rollback(:bad_status)
 
-        cooldown_active?(locked) ->
+        cooldown_active?(locked, user) ->
           Engram.Repo.rollback(:cooldown)
 
         true ->

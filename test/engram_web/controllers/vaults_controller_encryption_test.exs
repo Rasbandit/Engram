@@ -4,7 +4,7 @@ defmodule EngramWeb.VaultsControllerEncryptionTest do
   alias Engram.Accounts
 
   setup %{conn: conn} do
-    user = insert(:user)
+    user = insert(:user, encryption_toggle_cooldown_days: 7)
     insert(:user_override, user: user, overrides: %{"max_vaults" => 10})
     {:ok, raw_key, _api_key} = Accounts.create_api_key(user, "test")
     conn = put_req_header(conn, "authorization", "Bearer #{raw_key}")
@@ -17,6 +17,29 @@ defmodule EngramWeb.VaultsControllerEncryptionTest do
       resp = post(conn, ~p"/api/vaults/#{vault.id}/encrypt")
       json = json_response(resp, 202)
       assert json["vault"]["encryption_status"] == "encrypting"
+      assert json["vault"]["cooldown_days"] == 7
+    end
+
+    test "202 even within would-be cooldown when user has no cooldown_days", %{conn: conn, user: user} do
+      {:ok, _} =
+        user
+        |> Ecto.Changeset.change(%{encryption_toggle_cooldown_days: nil})
+        |> Engram.Repo.update()
+
+      recent = DateTime.utc_now() |> DateTime.add(-1, :day)
+
+      vault =
+        insert(:vault,
+          user: user,
+          encrypted: false,
+          encryption_status: "none",
+          last_toggle_at: recent
+        )
+
+      resp = post(conn, ~p"/api/vaults/#{vault.id}/encrypt")
+      json = json_response(resp, 202)
+      assert json["vault"]["encryption_status"] == "encrypting"
+      assert json["vault"]["cooldown_days"] == nil
     end
 
     test "429 on cooldown", %{conn: conn, user: user} do

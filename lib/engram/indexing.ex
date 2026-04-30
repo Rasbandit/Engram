@@ -20,24 +20,79 @@ defmodule Engram.Indexing do
 
   @doc """
   Full pipeline for a note: parse → embed → delete old chunks → upsert new chunks.
-  Returns {:ok, chunk_count} or {:error, reason}.
+  Returns `{:ok, chunk_count}` or `{:error, reason}`.
 
   Takes the note's vault so Qdrant payloads can be encrypted when
   `vault.encrypted = true`.
+
+  Internally calls `prepare_index/2` (HTTP/CPU only, no DB writes) followed by
+  `commit_index/1` (DB + Qdrant writes). Workers that need to keep the slow
+  embedding call outside a transaction can call those two directly and run the
+  commit step inside a per-note `Repo.with_tenant/2`.
   """
   def index_note(note, %Engram.Vaults.Vault{} = vault) do
+    case prepare_index(note, vault) do
+      {:ok, :no_chunks} -> {:ok, 0}
+      {:ok, prepared} -> commit_index(prepared)
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc """
+  Phase 1 of the indexing pipeline. Parses the note, calls the embedder, and
+  builds the encrypted Qdrant payloads + chunk row inserts in memory.
+
+  Performs **no** DB writes — safe to call without a transaction. Designed for
+  the EncryptVault worker so the slow Voyage AI HTTP call never holds a
+  Postgres connection.
+
+  Returns:
+    * `{:ok, :no_chunks}` — note has no parseable chunks
+    * `{:ok, prepared}` — ready to hand to `commit_index/1`
+    * `{:error, reason}` — embed failed, encryption failed, etc.
+  """
+  def prepare_index(note, %Engram.Vaults.Vault{} = vault) do
     chunks = Markdown.parse(note.content || "", note.path)
 
     if chunks == [] do
-      {:ok, 0}
+      {:ok, :no_chunks}
     else
       context_texts = Enum.map(chunks, & &1.context_text)
       dims = Application.get_env(:engram, :embed_dims, @default_dims)
 
       with :ok <- Qdrant.ensure_collection(collection(), dims),
            {:ok, vectors} <- embed_for_indexing(context_texts),
-           :ok <- replace_chunks(note, vault, chunks, vectors) do
-        {:ok, length(chunks)}
+           {:ok, prepared} <- build_prepared(note, vault, chunks, vectors) do
+        {:ok, prepared}
+      end
+    end
+  end
+
+  @doc """
+  Phase 2 of the indexing pipeline. Applies the prepared structure: deletes
+  old Qdrant points + chunk rows, inserts the new ones, upserts Qdrant points.
+
+  Caller is responsible for tenant context — non-tenant-scoped callers
+  (e.g. `EmbedNote`) run as the superuser role and bypass RLS; tenant-scoped
+  callers (e.g. `EncryptVault`) wrap this in a short `Repo.with_tenant/2`.
+
+  Returns `{:ok, chunk_count}` or `{:error, reason}`.
+  """
+  def commit_index(%{note: note, chunk_rows: chunk_rows, qdrant_points: qdrant_points}) do
+    with :ok <-
+           Qdrant.delete_by_note(
+             collection(),
+             to_string(note.user_id),
+             to_string(note.vault_id),
+             note.path
+           ) do
+      # skip_tenant_check: trusted internal pipeline, already scoped by note_id/user_id
+      Repo.delete_all(from(c in Chunk, where: c.note_id == ^note.id), skip_tenant_check: true)
+      Repo.insert_all(Chunk, chunk_rows, skip_tenant_check: true)
+
+      case Qdrant.upsert_points(collection(), qdrant_points) do
+        :ok -> {:ok, length(chunk_rows)}
+        other -> other
       end
     end
   end
@@ -72,10 +127,10 @@ defmodule Engram.Indexing do
     end
   end
 
-  defp replace_chunks(note, vault, chunks, vectors) do
-    # Encrypt-first: build payloads + encrypt in memory BEFORE any mutation.
-    # If any chunk's encryption fails, no Postgres row or Qdrant point is touched
-    # and prior state survives for the next Oban retry.
+  # Encrypt-first: build payloads + encrypt in memory BEFORE any mutation.
+  # If any chunk's encryption fails, no Postgres row or Qdrant point is touched
+  # and prior state survives for the next Oban retry.
+  defp build_prepared(note, vault, chunks, vectors) do
     user = Engram.Accounts.get_user!(note.user_id)
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
@@ -130,12 +185,8 @@ defmodule Engram.Indexing do
       end)
 
     with {:ok, prepared_pairs} <- prepared,
-         {chunk_rows, qdrant_points} = prepared_pairs |> Enum.reverse() |> Enum.unzip(),
-         :ok <- Qdrant.delete_by_note(collection(), to_string(note.user_id), to_string(note.vault_id), note.path) do
-      # skip_tenant_check: trusted internal pipeline, already scoped by note_id/user_id
-      Repo.delete_all(from(c in Chunk, where: c.note_id == ^note.id), skip_tenant_check: true)
-      Repo.insert_all(Chunk, chunk_rows, skip_tenant_check: true)
-      Qdrant.upsert_points(collection(), qdrant_points)
+         {chunk_rows, qdrant_points} = prepared_pairs |> Enum.reverse() |> Enum.unzip() do
+      {:ok, %{note: note, chunk_rows: chunk_rows, qdrant_points: qdrant_points}}
     end
   end
 end
