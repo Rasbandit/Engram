@@ -251,3 +251,24 @@ def wait_for_qdrant_indexed(vault_id: int, path: str, timeout: float = 30.0) -> 
     raise TimeoutError(
         f"Qdrant never indexed vault_id={vault_id} path={path!r} within {timeout}s"
     )
+
+
+def set_user_cooldown_days(user_id: int, days: int | None) -> None:
+    """Set users.encryption_toggle_cooldown_days for cooldown E2E tests.
+    Pass `None` to clear the column (server treats NULL as "no cooldown")."""
+    value = "NULL" if days is None else str(int(days))
+    _psql(
+        f"UPDATE users SET encryption_toggle_cooldown_days = {value} "
+        f"WHERE id = {int(user_id)};"
+    )
+
+
+def get_user_id_for_vault(vault_id: int) -> int:
+    """Look up the owning user_id for a vault. Used by tests that need to
+    set per-user encryption settings without going through the API."""
+    out = _psql(
+        f"SELECT user_id FROM vaults WHERE id = {int(vault_id)};",
+        fetch=True,
+    )
+    assert out, f"Vault not found in DB: vault_id={vault_id}"
+    return int(out.splitlines()[0])
