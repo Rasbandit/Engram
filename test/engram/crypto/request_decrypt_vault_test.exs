@@ -8,7 +8,7 @@ defmodule Engram.Crypto.RequestDecryptVaultTest do
   alias Engram.Repo
 
   setup do
-    user = insert(:user)
+    user = insert(:user, encryption_toggle_cooldown_days: 7)
     old = DateTime.utc_now() |> DateTime.add(-8, :day)
 
     vault =
@@ -43,10 +43,19 @@ defmodule Engram.Crypto.RequestDecryptVaultTest do
       assert {:error, :bad_status} = Crypto.request_decrypt_vault(vault, user)
     end
 
-    test "returns :cooldown when last_toggle_at within 7 days", %{user: user, vault: vault} do
+    test "returns :cooldown when last_toggle_at within configured cooldown", %{user: user, vault: vault} do
       recent = DateTime.utc_now() |> DateTime.add(-3, :day)
       {:ok, vault} = vault |> Ecto.Changeset.change(%{last_toggle_at: recent}) |> Repo.update()
       assert {:error, :cooldown} = Crypto.request_decrypt_vault(vault, user)
+    end
+
+    test "skips cooldown when user.encryption_toggle_cooldown_days is NULL", %{user: user, vault: vault} do
+      {:ok, user} =
+        user |> Ecto.Changeset.change(%{encryption_toggle_cooldown_days: nil}) |> Repo.update()
+
+      recent = DateTime.utc_now() |> DateTime.add(-1, :day)
+      {:ok, vault} = vault |> Ecto.Changeset.change(%{last_toggle_at: recent}) |> Repo.update()
+      assert {:ok, _} = Crypto.request_decrypt_vault(vault, user)
     end
 
     test "emits :decrypt_requested telemetry", %{user: user, vault: vault} do
