@@ -86,12 +86,14 @@ defmodule Engram.Auth.DeviceFlowTest do
       {:ok, auth} = DeviceFlow.start_device_flow("client_1")
       {:ok, _} = DeviceFlow.authorize_device(auth.user_code, user, vault.id)
 
-      issued_at = Joken.current_time()
       {:ok, result} = DeviceFlow.exchange_device_code(auth.device_code)
       {:ok, claims} = Engram.Token.verify_and_validate(result.access_token)
 
-      jwt_ttl = claims["exp"] - issued_at
-      assert_in_delta jwt_ttl, result.expires_in, 2
+      # Compare values *inside* the JWT — `iat` is captured by the same call
+      # that sets `exp`, so this is immune to scheduler delay between the
+      # test capturing wall-clock time and the token actually being signed.
+      jwt_ttl = claims["exp"] - claims["iat"]
+      assert jwt_ttl == result.expires_in
     end
 
     test "marks device code as consumed after exchange" do
