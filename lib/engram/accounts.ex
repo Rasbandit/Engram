@@ -273,7 +273,16 @@ defmodule Engram.Accounts do
   # ── JWT ─────────────────────────────────────────────────────────
 
   def generate_jwt(user) do
-    extra_claims = %{"user_id" => user.id}
+    # `sub` + `email` match what the active auth provider's verify_token expects
+    # (Local provider rejects tokens missing them with :missing_claims). `user_id`
+    # is kept for the internal-JWT fallback in TokenResolver and for any callers
+    # that look it up by integer DB id.
+    extra_claims = %{
+      "sub" => user.external_id,
+      "email" => user.email,
+      "user_id" => user.id
+    }
+
     Engram.Token.generate_and_sign!(extra_claims)
   end
 

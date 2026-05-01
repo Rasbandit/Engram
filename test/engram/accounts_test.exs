@@ -142,7 +142,12 @@ defmodule Engram.AccountsTest do
 
       from(rt in Engram.Auth.RefreshToken, where: rt.id == ^record.id)
       |> Engram.Repo.update_all(
-        [set: [expires_at: DateTime.add(DateTime.utc_now(), -1, :second) |> DateTime.truncate(:second)]],
+        [
+          set: [
+            expires_at:
+              DateTime.add(DateTime.utc_now(), -1, :second) |> DateTime.truncate(:second)
+          ]
+        ],
         skip_tenant_check: true
       )
 
@@ -161,6 +166,29 @@ defmodule Engram.AccountsTest do
 
     test "rejects tampered token" do
       assert {:error, _reason} = Accounts.verify_jwt("garbage.token.here")
+    end
+
+    test "includes sub (external_id) and email so the active auth provider accepts the token" do
+      # Regression: device flow mints access tokens via Accounts.generate_jwt/1.
+      # If sub/email are missing, the Local provider rejects them with
+      # :missing_claims and authenticated requests 401 in a refresh loop.
+      user = insert(:user, external_id: "user-ext-abc", email: "alice@example.com")
+
+      token = Accounts.generate_jwt(user)
+      {:ok, claims} = Accounts.verify_jwt(token)
+
+      assert claims["sub"] == "user-ext-abc"
+      assert claims["email"] == "alice@example.com"
+      assert claims["user_id"] == user.id
+    end
+
+    test "device-flow tokens are accepted by Local provider verify_token" do
+      user = insert(:user, external_id: "user-ext-xyz", email: "bob@example.com")
+
+      token = Accounts.generate_jwt(user)
+
+      assert {:ok, %{external_id: "user-ext-xyz", email: "bob@example.com"}} =
+               Engram.Auth.Providers.Local.verify_token(token)
     end
   end
 
