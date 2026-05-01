@@ -82,6 +82,33 @@ defmodule Engram.AttachmentsTest do
       assert v2.size_bytes == byte_size("updated content")
     end
 
+    test "encrypts content at rest with encryption_version=1", %{user: user, vault: vault} do
+      plaintext = "the quick brown fox jumps over the lazy dog"
+      test_pid = self()
+
+      expect(Engram.MockStorage, :put, fn _key, binary, _opts ->
+        send(test_pid, {:storage_put, binary})
+        :ok
+      end)
+
+      assert {:ok, att} =
+               Attachments.upsert_attachment(user, vault, %{
+                 "path" => @path,
+                 "content_base64" => Base.encode64(plaintext)
+               })
+
+      assert att.encryption_version == 1
+      assert is_binary(att.content_nonce)
+      assert byte_size(att.content_nonce) == 12
+      assert att.content_hash == :crypto.hash(:md5, plaintext) |> Base.encode16(case: :lower)
+      assert att.size_bytes == byte_size(plaintext)
+
+      assert_receive {:storage_put, ciphertext}
+      refute ciphertext == plaintext
+      # AES-256-GCM appends 16-byte tag to ciphertext
+      assert byte_size(ciphertext) == byte_size(plaintext) + 16
+    end
+
     test "vault isolation — attachment in vault A not visible from vault B", %{user: user} do
       vault_a = insert(:vault, user: user)
       vault_b = insert(:vault, user: user)
@@ -153,6 +180,64 @@ defmodule Engram.AttachmentsTest do
         end)
 
       assert log =~ "Attachment blob missing"
+    end
+  end
+
+  describe "encryption round-trip" do
+    test "upsert then get returns plaintext (S3 path)", %{user: user, vault: vault} do
+      plaintext = "round-trip secret payload"
+      pid = self()
+
+      expect(Engram.MockStorage, :put, fn _key, ct, _opts ->
+        send(pid, {:put, ct})
+        :ok
+      end)
+
+      assert {:ok, _put} =
+               Attachments.upsert_attachment(user, vault, %{
+                 "path" => @path,
+                 "content_base64" => Base.encode64(plaintext)
+               })
+
+      assert_receive {:put, ciphertext}
+
+      expect(Engram.MockStorage, :get, fn _key -> {:ok, ciphertext} end)
+
+      # ensure_user_dek/1 provisioned a DEK; refresh stale struct as prod auth would.
+      user = Repo.reload!(user)
+
+      assert {:ok, %Attachment{content: ^plaintext, encryption_version: 1}} =
+               Attachments.get_attachment(user, vault, @path)
+    end
+
+    test "get returns legacy plaintext unchanged for encryption_version=0", %{
+      user: user,
+      vault: vault,
+      storage_key: storage_key
+    } do
+      legacy_bytes = "pre-encryption plaintext bytes"
+
+      {:ok, _} =
+        Repo.with_tenant(user.id, fn ->
+          %Attachment{}
+          |> Attachment.changeset(%{
+            path: @path,
+            content: nil,
+            content_hash: "legacyhash",
+            mime_type: "image/png",
+            size_bytes: byte_size(legacy_bytes),
+            user_id: user.id,
+            vault_id: vault.id,
+            storage_key: storage_key,
+            encryption_version: 0
+          })
+          |> Repo.insert()
+        end)
+
+      expect(Engram.MockStorage, :get, fn _key -> {:ok, legacy_bytes} end)
+
+      assert {:ok, %Attachment{content: ^legacy_bytes, encryption_version: 0}} =
+               Attachments.get_attachment(user, vault, @path)
     end
   end
 end

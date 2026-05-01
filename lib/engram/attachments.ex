@@ -9,6 +9,8 @@ defmodule Engram.Attachments do
 
   import Ecto.Query
 
+  alias Engram.Crypto
+  alias Engram.Crypto.Envelope
   alias Engram.Repo
   alias Engram.Attachments.Attachment
   alias Engram.Notes.PathSanitizer
@@ -24,10 +26,14 @@ defmodule Engram.Attachments do
     mtime = attrs["mtime"] || attrs[:mtime]
     explicit_mime = attrs["mime_type"] || attrs[:mime_type]
 
-    with {:ok, binary} <- decode_base64(content_b64),
-         :ok <- validate_size(binary),
-         {:ok, key, changeset_attrs} <- prepare_upload(user, vault, path, binary, mtime, explicit_mime),
-         :ok <- store_external(key, binary, changeset_attrs.mime_type) do
+    with {:ok, plaintext} <- decode_base64(content_b64),
+         :ok <- validate_size(plaintext),
+         {:ok, user} <- Crypto.ensure_user_dek(user),
+         {:ok, dek} <- Crypto.get_dek(user),
+         {ciphertext, nonce} <- Envelope.encrypt(plaintext, dek),
+         {:ok, key, changeset_attrs} <-
+           prepare_upload(user, vault, path, plaintext, ciphertext, nonce, mtime, explicit_mime),
+         :ok <- store_external(key, ciphertext, changeset_attrs.mime_type) do
       Repo.with_tenant(user.id, fn ->
         existing =
           Repo.one(
@@ -77,7 +83,7 @@ defmodule Engram.Attachments do
 
       {:ok, %Attachment{content: content} = att} when not is_nil(content) ->
         # Content already in the row (Database adapter)
-        {:ok, att}
+        decrypt_if_needed(att, user)
 
       {:ok, %Attachment{} = att} ->
         # Content stored externally (S3 adapter) — fetch it
@@ -85,7 +91,7 @@ defmodule Engram.Attachments do
 
         case Storage.adapter().get(key) do
           {:ok, binary} ->
-            {:ok, %{att | content: binary}}
+            decrypt_if_needed(%{att | content: binary}, user)
 
           {:error, :not_found} ->
             # Live row with missing blob = storage corruption, not a normal 404
@@ -201,15 +207,31 @@ defmodule Engram.Attachments do
 
   # -- Private helpers --
 
+  defp decrypt_if_needed(%Attachment{encryption_version: 0} = att, _user), do: {:ok, att}
+
+  defp decrypt_if_needed(
+         %Attachment{encryption_version: 1, content_nonce: nonce, content: ct} = att,
+         user
+       )
+       when is_binary(nonce) and is_binary(ct) do
+    with {:ok, dek} <- Crypto.get_dek(user),
+         {:ok, plaintext} <- Envelope.decrypt(ct, nonce, dek) do
+      {:ok, %{att | content: plaintext}}
+    else
+      :error -> {:error, :decrypt_failed}
+      {:error, _} = err -> err
+    end
+  end
+
   defp validate_size(binary) do
     if byte_size(binary) > Attachment.max_attachment_bytes(),
       do: {:error, :too_large},
       else: :ok
   end
 
-  defp prepare_upload(user, vault, path, binary, mtime, explicit_mime) do
+  defp prepare_upload(user, vault, path, plaintext, ciphertext, nonce, mtime, explicit_mime) do
     mime = explicit_mime || detect_mime(path)
-    hash = :crypto.hash(:md5, binary) |> Base.encode16(case: :lower)
+    hash = :crypto.hash(:md5, plaintext) |> Base.encode16(case: :lower)
     key = Storage.key(user.id, vault.id, path)
     backend = Storage.adapter()
 
@@ -218,14 +240,16 @@ defmodule Engram.Attachments do
         path: path,
         content_hash: hash,
         mime_type: mime,
-        size_bytes: byte_size(binary),
+        size_bytes: byte_size(plaintext),
         mtime: mtime,
         user_id: user.id,
         vault_id: vault.id,
         storage_key: key,
-        deleted_at: nil
+        deleted_at: nil,
+        encryption_version: 1,
+        content_nonce: nonce
       }
-      |> maybe_include_content(backend, binary)
+      |> maybe_include_content(backend, ciphertext)
 
     {:ok, key, changeset_attrs}
   end
