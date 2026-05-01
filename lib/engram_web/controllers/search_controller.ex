@@ -20,7 +20,7 @@ defmodule EngramWeb.SearchController do
 
     case Search.search(user, vault, query, opts) do
       {:ok, results} ->
-        json(conn, %{results: results})
+        json(conn, %{results: group_by_note(results)})
 
       {:error, :feature_not_available} ->
         conn
@@ -54,4 +54,41 @@ defmodule EngramWeb.SearchController do
   end
 
   defp clamp_limit(_), do: 5
+
+  # Collapse per-chunk Qdrant hits into one row per note. The web UI shows
+  # a card per note; the MCP path bypasses this and gets raw chunks.
+  defp group_by_note(chunks) do
+    chunks
+    |> Enum.reject(fn c -> is_nil(Map.get(c, :source_path)) end)
+    |> Enum.group_by(&Map.fetch!(&1, :source_path))
+    |> Enum.map(fn {path, group} ->
+      [best | _] = Enum.sort_by(group, & &1.score, :desc)
+
+      %{
+        path: path,
+        title: best[:title] || derive_title(path),
+        folder: derive_folder(path),
+        heading_path: best[:heading_path],
+        snippet: best[:text],
+        score: best.score,
+        match_count: length(group)
+      }
+    end)
+    |> Enum.sort_by(& &1.score, :desc)
+  end
+
+  defp derive_folder(path) do
+    case String.split(path, "/") do
+      [_only_file] -> ""
+      segments -> segments |> Enum.drop(-1) |> Enum.join("/")
+    end
+  end
+
+  defp derive_title(path) do
+    path
+    |> String.split("/")
+    |> List.last()
+    |> Kernel.||("")
+    |> String.replace_suffix(".md", "")
+  end
 end

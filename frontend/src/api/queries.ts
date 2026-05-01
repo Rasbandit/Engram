@@ -32,8 +32,11 @@ export interface Note extends NoteSummary {
 export interface SearchResult {
   path: string
   title: string
+  folder: string
+  heading_path: string | null
   snippet: string
   score: number
+  match_count: number
 }
 
 export interface User {

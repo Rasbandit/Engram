@@ -50,8 +50,13 @@ defmodule EngramWeb.SearchControllerTest do
       conn = post(conn, "/api/search", %{query: "iron panel"})
       assert %{"results" => results} = json_response(conn, 200)
       assert length(results) == 1
-      assert hd(results)["score"] == 0.95
-      assert hd(results)["source_path"] == "Health/Iron Panel.md"
+      [hit] = results
+      assert hit["score"] == 0.95
+      assert hit["path"] == "Health/Iron Panel.md"
+      assert hit["title"] == "Iron Panel"
+      assert hit["folder"] == "Health"
+      assert hit["snippet"] == "Ferritin levels."
+      assert hit["match_count"] == 1
     end
 
     test "passes limit param", %{conn: conn, bypass: bypass} do
