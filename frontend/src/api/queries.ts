@@ -52,14 +52,14 @@ export function useFolders() {
   })
 }
 
-export function useFolderNotes(folder: string) {
+export function useFolderNotes(folder: string, options?: { enabled?: boolean }) {
   const vaultId = useActiveVaultId()
   return useQuery({
     queryKey: ['folderNotes', vaultId, folder],
     queryFn: () =>
       api.get<{ notes: NoteSummary[] }>(`/folders/list?folder=${encodeURIComponent(folder)}`),
     select: (data) => data.notes,
-    enabled: !!folder,
+    enabled: options?.enabled ?? folder.length > 0,
   })
 }
 
