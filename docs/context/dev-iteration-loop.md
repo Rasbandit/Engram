@@ -45,12 +45,21 @@ If you ever see a white page on `:4000` or `engram.ras.band` after a rebuild and
 
 ## Background-process recipe
 
-When iterating with the user, start both servers as backgrounded shells:
+When iterating with the user, start servers as backgrounded shells:
 
 ```
-make dev                                                  # Phoenix :4000
-cd backend/frontend && bun run dev                        # Vite :5173
+make dev                                                  # Phoenix :4000 only
+make frontend-dev                                         # Vite :5173 (separate terminal, only if you want hot-reload)
 ```
+
+> **Phoenix no longer auto-spawns Vite.** It used to via `config/dev.exs`'s
+> `watchers:` list, but Phoenix launches watchers as Port children that
+> survive `pkill -9` on the BEAM, leaving orphan `node` processes holding
+> :5173, :5174, :5175… across restarts. Vite is now only started by
+> explicit `make frontend-dev`.
+>
+> `make dev-stop` also kills any stray listeners on :5173–:5199 as a
+> safety net.
 
 Steer the user to `:5173` for fast feedback. If they're on `engram.ras.band`, every UI change requires `bun run build` first. If the page goes white after a rebuild, suspect SPA cache (verify with the curl/grep above) before suspecting JS errors.
 

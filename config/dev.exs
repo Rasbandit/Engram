@@ -36,8 +36,12 @@ config :engram, EngramWeb.Endpoint,
   code_reloader: true,
   debug_errors: true,
   secret_key_base: "hZXoe4bVk7sJkF6CT/1jG+/4X03lcdTECjUFOWwKSlF0KAecv1CROWuFYqrtzY3k",
+  # No Vite watcher here — Phoenix spawns watchers as Port children that
+  # don't get cleaned up on BEAM SIGKILL, leaving orphan node processes
+  # holding :5173+ across restarts. Run `make frontend-dev` separately
+  # when you want hot-reload at :5173, or `bun run build` to refresh the
+  # bundle Phoenix serves at :4000 / engram.ras.band.
   watchers: [
-    npm: ["run", "dev", "--", "--clearScreen", "false", cd: Path.expand("../frontend", __DIR__)],
     tailwind: {Tailwind, :install_and_run, [:marketing, ~w(--watch)]}
   ]
 
