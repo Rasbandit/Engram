@@ -120,7 +120,9 @@ defmodule Engram.Attachments do
 
     Repo.with_tenant(user.id, fn ->
       from(a in Attachment,
-        where: a.path == ^path and a.user_id == ^user.id and a.vault_id == ^vault.id and is_nil(a.deleted_at)
+        where:
+          a.path == ^path and a.user_id == ^user.id and a.vault_id == ^vault.id and
+            is_nil(a.deleted_at)
       )
       |> Repo.update_all(set: [deleted_at: now, updated_at: now])
     end)
@@ -142,7 +144,11 @@ defmodule Engram.Attachments do
 
       {:error, reason} ->
         require Logger
-        Logger.warning("Failed to delete blob key=#{key}: #{inspect(reason)} (row already soft-deleted)")
+
+        Logger.warning(
+          "Failed to delete blob key=#{key}: #{inspect(reason)} (row already soft-deleted)"
+        )
+
         :ok
     end
   end
@@ -213,10 +219,20 @@ defmodule Engram.Attachments do
   end
 
   defp prepare_upload(user, vault, path, plaintext, mtime, explicit_mime) do
+    # A.4 — writes are S3-only. If the adapter is still `Storage.Database`
+    # (legacy deploy or template drift), refuse rather than silently writing
+    # ciphertext into the BYTEA `content` column.
+    if Storage.adapter() == Storage.Database do
+      {:error, :writes_disabled}
+    else
+      do_prepare_upload(user, vault, path, plaintext, mtime, explicit_mime)
+    end
+  end
+
+  defp do_prepare_upload(user, vault, path, plaintext, mtime, explicit_mime) do
     mime = explicit_mime || detect_mime(path)
     hash = :crypto.hash(:md5, plaintext) |> Base.encode16(case: :lower)
     key = Storage.key(user.id, vault.id, path)
-    backend = Storage.adapter()
 
     base_attrs = %{
       path: path,
@@ -230,23 +246,17 @@ defmodule Engram.Attachments do
       deleted_at: nil
     }
 
-    cond do
-      backend == Storage.Database ->
-        {:ok, key, Map.put(base_attrs, :content, plaintext), :skip}
+    with {:ok, user} <- Crypto.ensure_user_dek(user),
+         {:ok, dek} <- Crypto.get_dek(user) do
+      {ciphertext, nonce} = Envelope.encrypt(plaintext, dek)
 
-      true ->
-        with {:ok, user} <- Crypto.ensure_user_dek(user),
-             {:ok, dek} <- Crypto.get_dek(user) do
-          {ciphertext, nonce} = Envelope.encrypt(plaintext, dek)
+      attrs =
+        base_attrs
+        |> Map.put(:encryption_version, 1)
+        |> Map.put(:content_nonce, nonce)
+        |> Map.put(:content, nil)
 
-          attrs =
-            base_attrs
-            |> Map.put(:encryption_version, 1)
-            |> Map.put(:content_nonce, nonce)
-            |> Map.put(:content, nil)
-
-          {:ok, key, attrs, ciphertext}
-        end
+      {:ok, key, attrs, ciphertext}
     end
   end
 
@@ -263,7 +273,11 @@ defmodule Engram.Attachments do
     {:ok, %{att | content: binary}}
   end
 
-  defp decrypt_if_needed(%Attachment{encryption_version: 1, content_nonce: nonce} = att, ciphertext, user) do
+  defp decrypt_if_needed(
+         %Attachment{encryption_version: 1, content_nonce: nonce} = att,
+         ciphertext,
+         user
+       ) do
     fresh_user = if is_nil(user.encrypted_dek), do: Repo.reload!(user), else: user
 
     with {:ok, dek} <- Crypto.get_dek(fresh_user),

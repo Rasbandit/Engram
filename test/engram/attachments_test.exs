@@ -40,6 +40,20 @@ defmodule Engram.AttachmentsTest do
       assert att.size_bytes == byte_size("test image content")
     end
 
+    test "refuses to write when storage adapter is Storage.Database", %{user: user, vault: vault} do
+      # A.4 cut writes to S3-only. If a deploy still has STORAGE_BACKEND=database
+      # (or template drift unsets it), we must NOT silently fall through to the
+      # S3 write path that would push ciphertext into the BYTEA `content` column —
+      # that's the exact corruption shape from the 2026-05-02 incident.
+      Application.put_env(:engram, :storage, Engram.Storage.Database)
+
+      assert {:error, :writes_disabled} =
+               Attachments.upsert_attachment(user, vault, %{
+                 "path" => @path,
+                 "content_base64" => @valid_content
+               })
+    end
+
     test "rejects attachment over max size", %{user: user, vault: vault} do
       oversized = Base.encode64(:binary.copy("x", 6 * 1024 * 1024))
 
@@ -199,16 +213,7 @@ defmodule Engram.AttachmentsTest do
       user = insert(:user)
       vault = insert(:vault, user: user)
 
-      prev = Application.get_env(:engram, :storage)
-      Application.put_env(:engram, :storage, Engram.Storage.Database)
-      on_exit(fn -> Application.put_env(:engram, :storage, prev) end)
-
-      {:ok, _att} =
-        Engram.Attachments.upsert_attachment(user, vault, %{
-          "path" => "legacy.bin",
-          "content_base64" => Base.encode64("legacy plaintext"),
-          "mtime" => 0.0
-        })
+      seed_legacy_bytea_row!(user, vault, "legacy.bin", "legacy plaintext")
 
       {:ok, fetched} = Engram.Attachments.get_attachment(user, vault, "legacy.bin")
       assert fetched.content == "legacy plaintext"
@@ -281,20 +286,9 @@ defmodule Engram.AttachmentsTest do
       user = insert(:user) |> Engram.Repo.reload!()
       vault = insert(:vault, user: user)
 
-      # Step 1: write a legacy BYTEA row using the Database adapter.
-      prev = Application.get_env(:engram, :storage)
-      Application.put_env(:engram, :storage, Engram.Storage.Database)
+      seed_legacy_bytea_row!(user, vault, "migrate.bin", "legacy plaintext")
 
-      {:ok, _legacy} =
-        Engram.Attachments.upsert_attachment(user, vault, %{
-          "path" => "migrate.bin",
-          "content_base64" => Base.encode64("legacy plaintext"),
-          "mtime" => 0.0
-        })
-
-      # Step 2: flip back to S3 (InMemory) and re-upload the same path.
-      Application.put_env(:engram, :storage, prev)
-
+      # Re-upload the same path via the (current) S3 path.
       {:ok, _new} =
         Engram.Attachments.upsert_attachment(user, vault, %{
           "path" => "migrate.bin",
@@ -320,7 +314,11 @@ defmodule Engram.AttachmentsTest do
   end
 
   describe "get_attachment/3 with S3 storage (content nil)" do
-    test "fetches binary from storage backend when content is nil", %{user: user, vault: vault, storage_key: storage_key} do
+    test "fetches binary from storage backend when content is nil", %{
+      user: user,
+      vault: vault,
+      storage_key: storage_key
+    } do
       # Insert an attachment row with content: nil and a storage_key
       {:ok, _att} =
         Repo.with_tenant(user.id, fn ->
@@ -346,7 +344,11 @@ defmodule Engram.AttachmentsTest do
                Attachments.get_attachment(user, vault, @path)
     end
 
-    test "returns storage error when blob is missing for live row", %{user: user, vault: vault, storage_key: storage_key} do
+    test "returns storage error when blob is missing for live row", %{
+      user: user,
+      vault: vault,
+      storage_key: storage_key
+    } do
       {:ok, _att} =
         Repo.with_tenant(user.id, fn ->
           %Attachment{}
@@ -369,10 +371,34 @@ defmodule Engram.AttachmentsTest do
 
       log =
         capture_log(fn ->
-          assert {:error, {:storage, :blob_missing}} = Attachments.get_attachment(user, vault, @path)
+          assert {:error, {:storage, :blob_missing}} =
+                   Attachments.get_attachment(user, vault, @path)
         end)
 
       assert log =~ "Attachment blob missing"
     end
+  end
+
+  # Insert a legacy `encryption_version=0` row with plaintext in the BYTEA
+  # `content` column — same shape `Storage.Database` produced before A.4.
+  # Used to verify the read path still serves pre-encryption attachments
+  # until A.5 retires the column entirely.
+  defp seed_legacy_bytea_row!(user, vault, path, plaintext) do
+    Repo.with_tenant(user.id, fn ->
+      %Attachment{}
+      |> Attachment.changeset(%{
+        path: path,
+        content: plaintext,
+        content_hash: :crypto.hash(:md5, plaintext) |> Base.encode16(case: :lower),
+        mime_type: "application/octet-stream",
+        size_bytes: byte_size(plaintext),
+        mtime: 0.0,
+        user_id: user.id,
+        vault_id: vault.id,
+        storage_key: "#{user.id}/#{vault.id}/#{path}",
+        encryption_version: 0
+      })
+      |> Repo.insert!()
+    end)
   end
 end
