@@ -1,0 +1,137 @@
+defmodule EngramWeb.RequestLoggerTest do
+  use ExUnit.Case, async: false
+
+  alias Engram.Test.LogCapture
+  alias EngramWeb.RequestLogger
+
+  @sentinel_path "/api/notes/secret-folder/XYZZYZ-LOGTEST-CONFIDENTIAL.md"
+  @sentinel_query "q=XYZZYZ-LOGTEST-USER-SEARCH"
+
+  setup do
+    previous_level = Logger.level()
+    Logger.configure(level: :info)
+    RequestLogger.attach()
+
+    on_exit(fn ->
+      :telemetry.detach(:engram_request_logger)
+      Logger.configure(level: previous_level)
+    end)
+
+    :ok
+  end
+
+  test "emits message with only method + status + duration — no path bytes" do
+    conn = %Plug.Conn{
+      method: "GET",
+      request_path: @sentinel_path,
+      query_string: @sentinel_query,
+      status: 401
+    }
+
+    {_, events} =
+      LogCapture.with_events(fn ->
+        :telemetry.execute(
+          [:phoenix, :endpoint, :stop],
+          %{duration: 5_000_000},
+          %{conn: conn}
+        )
+      end)
+
+    event = find_request_event(events)
+    assert event, "expected a request log event, got: #{inspect(events)}"
+
+    msg = render_msg(event.msg)
+    assert msg =~ "GET"
+    assert msg =~ "401"
+    assert msg =~ ~r/\d+ms/
+
+    refute msg =~ "XYZZYZ", "leaked path content into message body: #{inspect(msg)}"
+  end
+
+  test "routes request_path + request_query through metadata where the redact filter scrubs them" do
+    conn = %Plug.Conn{
+      method: "GET",
+      request_path: @sentinel_path,
+      query_string: @sentinel_query,
+      status: 200
+    }
+
+    {_, events} =
+      LogCapture.with_events(fn ->
+        :telemetry.execute(
+          [:phoenix, :endpoint, :stop],
+          %{duration: 1_000_000},
+          %{conn: conn}
+        )
+      end)
+
+    event = find_request_event(events)
+    assert event
+
+    assert event.meta[:request_path] == "[REDACTED]"
+    assert event.meta[:request_query] == "[REDACTED]"
+    refute inspect(event.meta) =~ "XYZZYZ"
+  end
+
+  test "passes through method, status, user_id as structured metadata (not redacted)" do
+    user = %{id: 42}
+
+    conn = %Plug.Conn{
+      method: "POST",
+      request_path: "/api/notes",
+      query_string: "",
+      status: 201,
+      assigns: %{current_user: user}
+    }
+
+    {_, events} =
+      LogCapture.with_events(fn ->
+        :telemetry.execute(
+          [:phoenix, :endpoint, :stop],
+          %{duration: 2_000_000},
+          %{conn: conn}
+        )
+      end)
+
+    event = find_request_event(events)
+    assert event
+
+    assert event.meta[:method] == "POST"
+    assert event.meta[:status] == 201
+    assert event.meta[:user_id] == 42
+  end
+
+  test "tolerates absent current_user assign (anonymous request)" do
+    conn = %Plug.Conn{
+      method: "GET",
+      request_path: "/api/health",
+      query_string: "",
+      status: 200,
+      assigns: %{}
+    }
+
+    {_, events} =
+      LogCapture.with_events(fn ->
+        :telemetry.execute(
+          [:phoenix, :endpoint, :stop],
+          %{duration: 100_000},
+          %{conn: conn}
+        )
+      end)
+
+    event = find_request_event(events)
+    assert event
+    assert event.meta[:user_id] == nil
+  end
+
+  defp find_request_event(events) do
+    Enum.find(events, fn e ->
+      msg = render_msg(e.msg)
+      msg =~ ~r/^[A-Z]+ \d+ in \d+ms$/
+    end)
+  end
+
+  defp render_msg({:string, s}), do: IO.iodata_to_binary(s)
+  defp render_msg({:report, _}), do: ""
+  defp render_msg(other), do: to_string(other)
+end

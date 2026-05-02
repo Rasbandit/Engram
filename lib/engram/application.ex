@@ -9,6 +9,7 @@ defmodule Engram.Application do
   def start(_type, _args) do
     Engram.Crypto.Config.validate!()
     install_log_redaction_filter()
+    EngramWeb.RequestLogger.attach()
 
     children =
       [

@@ -49,7 +49,11 @@ defmodule EngramWeb.Endpoint do
   end
 
   plug Plug.RequestId
-  plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
+  # `log: false` suppresses Phoenix.Logger's default request log emission,
+  # which interpolates conn.method + conn.request_path into the message body
+  # (past the metadata-only RedactFilter). EngramWeb.RequestLogger replaces
+  # it with a structured equivalent that routes the path through metadata.
+  plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint], log: false
 
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
