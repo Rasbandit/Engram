@@ -14,6 +14,9 @@ defmodule Engram.Vaults.Vault do
     field :encryption_status, :string, default: "none"
     field :decrypt_requested_at, :utc_datetime_usec
     field :last_toggle_at, :utc_datetime_usec
+    field :name_ciphertext, :binary
+    field :name_nonce, :binary
+    field :name_hmac, :binary
 
     belongs_to :user, Engram.Accounts.User
     # has_many :notes and :attachments added in Task 6 once vault_id FK is added to those tables
@@ -23,7 +26,18 @@ defmodule Engram.Vaults.Vault do
 
   def changeset(vault, attrs) do
     vault
-    |> cast(attrs, [:name, :description, :slug, :client_id, :is_default, :user_id, :deleted_at])
+    |> cast(attrs, [
+      :name,
+      :description,
+      :slug,
+      :client_id,
+      :is_default,
+      :user_id,
+      :deleted_at,
+      :name_ciphertext,
+      :name_nonce,
+      :name_hmac
+    ])
     |> validate_required([:name, :slug, :user_id])
     |> unique_constraint([:user_id, :slug], name: :vaults_user_id_slug_index)
     |> unique_constraint([:user_id, :client_id], name: :vaults_user_id_client_id_index)
