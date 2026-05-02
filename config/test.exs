@@ -25,11 +25,12 @@ repo_opts =
       [url: url]
   end
 
-config :engram, Engram.Repo,
-  Keyword.merge(repo_opts,
-    pool: Ecto.Adapters.SQL.Sandbox,
-    pool_size: System.schedulers_online() * 2
-  )
+config :engram,
+       Engram.Repo,
+       Keyword.merge(repo_opts,
+         pool: Ecto.Adapters.SQL.Sandbox,
+         pool_size: System.schedulers_online() * 2
+       )
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
@@ -48,8 +49,10 @@ config :engram, :embedder, Engram.MockEmbedder
 config :engram, :qdrant_collection, "engram_notes"
 config :engram, :qdrant_retry, false
 
-# Use real database storage in tests (backward-compatible default)
-config :engram, :storage, Engram.Storage.Database
+# Tests use the ETS-backed in-memory adapter by default. Suites that need
+# to assert on storage interactions override to `Engram.MockStorage` in
+# setup — see test/engram/attachments_test.exs for the pattern.
+config :engram, :storage, Engram.Storage.InMemory
 
 # Disable Oban queues/plugins in test — jobs must be triggered explicitly via perform_job/2
 # Use Oban.Testing.with_testing_mode(:inline, fn -> ... end) in tests that need inline execution
@@ -89,5 +92,4 @@ config :engram, :auth_provider, :local
 # Stable test master key — 32 bytes of 0xAB, base64-encoded
 config :engram,
   key_provider: Engram.Crypto.KeyProvider.Local,
-  encryption_master_key:
-    Base.encode64(:binary.copy(<<0xAB>>, 32))
+  encryption_master_key: Base.encode64(:binary.copy(<<0xAB>>, 32))

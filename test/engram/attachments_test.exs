@@ -127,7 +127,11 @@ defmodule Engram.AttachmentsTest do
   end
 
   describe "get_attachment/3 with S3 storage (content nil)" do
-    test "fetches binary from storage backend when content is nil", %{user: user, vault: vault, storage_key: storage_key} do
+    test "fetches binary from storage backend when content is nil", %{
+      user: user,
+      vault: vault,
+      storage_key: storage_key
+    } do
       # Insert an attachment row with content: nil and a storage_key
       {:ok, _att} =
         Repo.with_tenant(user.id, fn ->
@@ -153,7 +157,11 @@ defmodule Engram.AttachmentsTest do
                Attachments.get_attachment(user, vault, @path)
     end
 
-    test "returns storage error when blob is missing for live row", %{user: user, vault: vault, storage_key: storage_key} do
+    test "returns storage error when blob is missing for live row", %{
+      user: user,
+      vault: vault,
+      storage_key: storage_key
+    } do
       {:ok, _att} =
         Repo.with_tenant(user.id, fn ->
           %Attachment{}
@@ -176,7 +184,8 @@ defmodule Engram.AttachmentsTest do
 
       log =
         capture_log(fn ->
-          assert {:error, {:storage, :blob_missing}} = Attachments.get_attachment(user, vault, @path)
+          assert {:error, {:storage, :blob_missing}} =
+                   Attachments.get_attachment(user, vault, @path)
         end)
 
       assert log =~ "Attachment blob missing"

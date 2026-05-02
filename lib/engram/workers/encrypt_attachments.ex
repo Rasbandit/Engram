@@ -54,7 +54,9 @@ defmodule Engram.Workers.EncryptAttachments do
   end
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"vault_id" => vault_id, "user_id" => user_id, "cursor" => cursor}}) do
+  def perform(%Oban.Job{
+        args: %{"vault_id" => vault_id, "user_id" => user_id, "cursor" => cursor}
+      }) do
     case load_batch(vault_id, user_id, cursor) do
       :noop -> :ok
       {:error, _} = err -> err
@@ -114,16 +116,10 @@ defmodule Engram.Workers.EncryptAttachments do
     end
   end
 
-  # BYTEA-backed legacy row — content already in the column.
-  defp encrypt_one(%Attachment{content: bytes} = att, _user, _vault, dek) when is_binary(bytes) do
-    {ct, nonce} = Envelope.encrypt(bytes, dek)
-    update_row(att, %{encryption_version: 1, content_nonce: nonce, content: ct})
-  end
-
-  # S3-backed legacy row — fetch, encrypt, rewrite, update row metadata only.
-  defp encrypt_one(%Attachment{content: nil, storage_key: key} = att, user, vault, dek) do
+  # Fetch ciphertext-or-plaintext from S3, re-encrypt, rewrite, stamp row.
+  defp encrypt_one(%Attachment{} = att, user, vault, dek) do
     backend = Storage.adapter()
-    fetch_key = key || Storage.key(user.id, vault.id, att.path)
+    fetch_key = att.storage_key || Storage.key(user.id, vault.id, att.path)
 
     with {:ok, plaintext} <- backend.get(fetch_key),
          {ct, nonce} <- Envelope.encrypt(plaintext, dek),
@@ -142,7 +138,8 @@ defmodule Engram.Workers.EncryptAttachments do
   end
 
   defp enqueue_next(vault, user, last_id) do
-    case __MODULE__.new(%{vault_id: vault.id, user_id: user.id, cursor: last_id}) |> Oban.insert() do
+    case __MODULE__.new(%{vault_id: vault.id, user_id: user.id, cursor: last_id})
+         |> Oban.insert() do
       {:ok, %Oban.Job{conflict?: false}} ->
         :ok
 

@@ -6,7 +6,11 @@ defmodule Engram.Attachments.Attachment do
 
   schema "attachments" do
     field :path, :string
-    field :content, :binary
+    # Plaintext bytes are never persisted on the row — they live in the
+    # configured S3-compatible adapter (Tigris in prod, MinIO in CI/dev).
+    # `content` is a transient virtual field populated by `get_attachment/3`
+    # after fetch + decrypt.
+    field :content, :binary, virtual: true
     field :content_hash, :string
     field :mime_type, :string
     field :size_bytes, :integer
@@ -26,7 +30,6 @@ defmodule Engram.Attachments.Attachment do
     attachment
     |> cast(attrs, [
       :path,
-      :content,
       :content_hash,
       :mime_type,
       :size_bytes,
@@ -42,7 +45,9 @@ defmodule Engram.Attachments.Attachment do
     |> validate_number(:size_bytes, less_than_or_equal_to: @max_attachment_bytes)
     |> validate_inclusion(:encryption_version, [0, 1])
     |> validate_nonce_consistency()
-    |> unique_constraint([:user_id, :vault_id, :path], name: :attachments_user_vault_path_active_index)
+    |> unique_constraint([:user_id, :vault_id, :path],
+      name: :attachments_user_vault_path_active_index
+    )
   end
 
   defp validate_nonce_consistency(changeset) do

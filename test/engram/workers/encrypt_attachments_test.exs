@@ -23,45 +23,6 @@ defmodule Engram.Workers.EncryptAttachmentsTest do
   end
 
   describe "perform/1" do
-    test "encrypts a single legacy BYTEA attachment in place", %{user: user, vault: vault} do
-      legacy_bytes = "totally-plaintext-payload"
-
-      {:ok, {:ok, att}} =
-        Repo.with_tenant(user.id, fn ->
-          %Attachment{}
-          |> Attachment.changeset(%{
-            path: "legacy/old.bin",
-            content: legacy_bytes,
-            content_hash: :crypto.hash(:md5, legacy_bytes) |> Base.encode16(case: :lower),
-            mime_type: "application/octet-stream",
-            size_bytes: byte_size(legacy_bytes),
-            user_id: user.id,
-            vault_id: vault.id,
-            storage_key: "#{user.id}/#{vault.id}/legacy/old.bin",
-            encryption_version: 0
-          })
-          |> Repo.insert()
-        end)
-
-      assert :ok =
-               perform_job(EncryptAttachments, %{
-                 "vault_id" => vault.id,
-                 "user_id" => user.id,
-                 "cursor" => 0
-               })
-
-      reloaded = Repo.get!(Attachment, att.id, skip_tenant_check: true)
-      assert reloaded.encryption_version == 1
-      assert is_binary(reloaded.content_nonce)
-      assert byte_size(reloaded.content_nonce) == 12
-      assert reloaded.content != legacy_bytes
-      assert byte_size(reloaded.content) == byte_size(legacy_bytes) + 16
-
-      user = Repo.reload!(user)
-      assert {:ok, %Attachment{content: ^legacy_bytes}} =
-               Attachments.get_attachment(user, vault, "legacy/old.bin")
-    end
-
     test "skips already-encrypted rows (version=1)", %{user: user, vault: vault} do
       pid = self()
 
@@ -179,10 +140,12 @@ defmodule Engram.Workers.EncryptAttachmentsTest do
       {:ok, count} = EncryptAttachments.enqueue_legacy_vaults()
       assert count == 1
 
-      assert_enqueued worker: EncryptAttachments,
-                      args: %{"vault_id" => vault_a.id, "user_id" => user.id, "cursor" => 0}
+      assert_enqueued(
+        worker: EncryptAttachments,
+        args: %{"vault_id" => vault_a.id, "user_id" => user.id, "cursor" => 0}
+      )
 
-      refute_enqueued worker: EncryptAttachments, args: %{"vault_id" => vault_b.id}
+      refute_enqueued(worker: EncryptAttachments, args: %{"vault_id" => vault_b.id})
     end
 
     test "ignores already-encrypted attachments", %{user: user, vault: vault} do
@@ -201,7 +164,7 @@ defmodule Engram.Workers.EncryptAttachmentsTest do
 
       {:ok, count} = EncryptAttachments.enqueue_legacy_vaults()
       assert count == 0
-      refute_enqueued worker: EncryptAttachments
+      refute_enqueued(worker: EncryptAttachments)
     end
   end
 end
