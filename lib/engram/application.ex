@@ -8,6 +8,7 @@ defmodule Engram.Application do
   @impl true
   def start(_type, _args) do
     Engram.Crypto.Config.validate!()
+    install_log_redaction_filter()
 
     children =
       [
@@ -27,6 +28,18 @@ defmodule Engram.Application do
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Engram.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  defp install_log_redaction_filter do
+    # Idempotent: removing a missing filter is a no-op error we ignore so
+    # repeated boots (and ExUnit's per-suite restart) don't crash.
+    _ = :logger.remove_primary_filter(:engram_redact)
+
+    :ok =
+      :logger.add_primary_filter(
+        :engram_redact,
+        {&Engram.Logger.RedactFilter.filter/2, []}
+      )
   end
 
   defp clerk_strategy_child do

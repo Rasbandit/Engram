@@ -89,7 +89,12 @@ defmodule Engram.Attachments do
           {:error, :not_found} ->
             # Live row with missing blob = storage corruption, not a normal 404
             require Logger
-            Logger.error("Attachment blob missing for live row: id=#{att.id} key=#{key}")
+
+            Logger.error("Attachment blob missing for live row",
+              attachment_id: att.id,
+              storage_key: key
+            )
+
             {:error, {:storage, :blob_missing}}
 
           {:error, reason} ->
@@ -137,8 +142,9 @@ defmodule Engram.Attachments do
       {:error, reason} ->
         require Logger
 
-        Logger.warning(
-          "Failed to delete blob key=#{key}: #{inspect(reason)} (row already soft-deleted)"
+        Logger.warning("Failed to delete blob (row already soft-deleted)",
+          storage_key: key,
+          reason: inspect(reason)
         )
 
         :ok

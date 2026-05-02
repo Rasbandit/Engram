@@ -133,12 +133,16 @@ defmodule Engram.Workers.CleanupVault do
         :ok
 
       {:error, reason} ->
-        Logger.warning(
-          "CleanupVault: storage delete failed for key #{key}: #{inspect(reason)}"
+        Logger.warning("CleanupVault: storage delete failed",
+          storage_key: key,
+          reason: inspect(reason)
         )
     end
   rescue
     e ->
-      Logger.warning("CleanupVault: storage delete raised for key #{key}: #{inspect(e)}")
+      Logger.warning("CleanupVault: storage delete raised",
+        storage_key: key,
+        reason: Exception.message(e)
+      )
   end
 end
