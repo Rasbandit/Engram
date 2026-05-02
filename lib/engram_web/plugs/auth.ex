@@ -27,7 +27,10 @@ defmodule EngramWeb.Plugs.Auth do
         |> assign(:current_api_key, api_key)
 
       {:error, reason} ->
-        Logger.info("auth rejected: #{format_reason(reason)} path=#{conn.request_path}")
+        Logger.info("auth rejected",
+          reason: format_reason(reason),
+          request_path: conn.request_path
+        )
 
         conn
         |> put_resp_content_type("application/json")

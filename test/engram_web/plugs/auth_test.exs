@@ -1,9 +1,8 @@
 defmodule EngramWeb.Plugs.AuthTest do
   use EngramWeb.ConnCase, async: false
 
-  import ExUnit.CaptureLog
-
   alias Engram.Accounts
+  alias Engram.Test.LogCapture
   alias EngramWeb.Plugs.Auth
 
   setup do
@@ -90,24 +89,48 @@ defmodule EngramWeb.Plugs.AuthTest do
       signer = Joken.Signer.create("HS256", Application.get_env(:joken, :default_signer))
       {:ok, expired_token} = Joken.Signer.sign(claims, signer)
 
-      log =
-        capture_log([level: :info], fn ->
+      {_conn, events} =
+        LogCapture.with_events(fn ->
           build_conn()
           |> put_req_header("authorization", "Bearer #{expired_token}")
           |> Auth.call([])
         end)
 
-      assert log =~ "auth rejected"
-      assert log =~ "claim_invalid:exp"
+      assert Enum.any?(events, fn e ->
+               match?({:string, "auth rejected"}, e.msg) and
+                 e.meta[:reason] == "claim_invalid:exp"
+             end),
+             "expected an auth-rejected event with reason=claim_invalid:exp, got: #{inspect(events)}"
     end
 
     test "logs no_auth when authorization header is missing" do
-      log =
-        capture_log([level: :info], fn ->
+      {_conn, events} =
+        LogCapture.with_events(fn ->
           build_conn() |> Auth.call([])
         end)
 
-      assert log =~ "auth rejected: no_auth"
+      assert Enum.any?(events, fn e ->
+               match?({:string, "auth rejected"}, e.msg) and e.meta[:reason] == "no_auth"
+             end),
+             "expected an auth-rejected event with reason=no_auth, got: #{inspect(events)}"
+    end
+
+    test "scrubs request_path metadata via the global redact filter" do
+      sentinel = "/api/notes/secret-folder/XYZZYZ-LOGTEST-confidential.md"
+
+      {_conn, events} =
+        LogCapture.with_events(fn ->
+          conn = build_conn()
+          %{conn | request_path: sentinel} |> Auth.call([])
+        end)
+
+      auth_event = Enum.find(events, &match?({:string, "auth rejected"}, &1.msg))
+      assert auth_event, "expected an 'auth rejected' event"
+
+      assert auth_event.meta[:request_path] == "[REDACTED]",
+             "expected request_path to be redacted by the primary filter, got: #{inspect(auth_event.meta)}"
+
+      refute auth_event.meta |> inspect() =~ "XYZZYZ-LOGTEST"
     end
   end
 
