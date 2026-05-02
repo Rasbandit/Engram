@@ -43,7 +43,8 @@ defmodule Engram.Notes do
            created_at: now,
            updated_at: now
          },
-         {:ok, note_attrs} <- Engram.Crypto.maybe_encrypt_note_fields(note_attrs, user, vault) do
+         {:ok, note_attrs} <- Engram.Crypto.maybe_encrypt_note_fields(note_attrs, user, vault),
+         note_attrs = inject_phase_b_fields(note_attrs, user, sanitized_path, folder, tags) do
       changeset = Note.changeset(%Note{}, note_attrs)
 
       result =
@@ -146,12 +147,25 @@ defmodule Engram.Notes do
             {count, _} =
               from(n in Note, where: n.id == ^note.id)
               |> Repo.update_all(
-                set: [path: new_path, folder: new_folder, title: new_title, embed_hash: nil, updated_at: now]
+                set: [
+                  path: new_path,
+                  folder: new_folder,
+                  title: new_title,
+                  embed_hash: nil,
+                  updated_at: now
+                ]
               )
 
             if count == 1 do
               {:ok,
-               %{note | path: new_path, folder: new_folder, title: new_title, embed_hash: nil, updated_at: now}}
+               %{
+                 note
+                 | path: new_path,
+                   folder: new_folder,
+                   title: new_title,
+                   embed_hash: nil,
+                   updated_at: now
+               }}
             else
               :not_found
             end
@@ -199,12 +213,14 @@ defmodule Engram.Notes do
         |> Repo.update_all(set: [deleted_at: now, updated_at: now])
       end)
 
-      Oban.insert(DeleteNoteIndex.new(%{
-        note_id: note.id,
-        user_id: note.user_id,
-        vault_id: note.vault_id,
-        path: note.path
-      }))
+      Oban.insert(
+        DeleteNoteIndex.new(%{
+          note_id: note.id,
+          user_id: note.user_id,
+          vault_id: note.vault_id,
+          path: note.path
+        })
+      )
     end
 
     broadcast_change(user.id, vault.id, "delete", path)
@@ -434,7 +450,13 @@ defmodule Engram.Notes do
         Enum.each(updates, fn {id, _old_path, new_path, new_note_folder, new_title} ->
           from(n in Note, where: n.id == ^id)
           |> Repo.update_all(
-            set: [path: new_path, folder: new_note_folder, title: new_title, embed_hash: nil, updated_at: now]
+            set: [
+              path: new_path,
+              folder: new_note_folder,
+              title: new_title,
+              embed_hash: nil,
+              updated_at: now
+            ]
           )
         end)
       end)
@@ -554,5 +576,29 @@ defmodule Engram.Notes do
       "path" => path,
       "vault_id" => vault_id
     })
+  end
+
+  # Phase B.1 dual-write — computes HMAC + envelope-encrypts each filterable field.
+  # Returns the original attrs map merged with phase_b_* fields. Skips silently
+  # if the user has no DEK yet (Phase B is mandatory but tests sometimes touch
+  # unprovisioned users; ensure_user_dek/1 in upsert_note handles that).
+  defp inject_phase_b_fields(attrs, user, path, folder, tags) do
+    with {:ok, dek} <- Engram.Crypto.get_dek(user),
+         {:ok, filter_key} <- Engram.Crypto.dek_filter_key(user) do
+      {path_ct, path_n} = Engram.Crypto.Envelope.encrypt(path, dek)
+      {folder_ct, folder_n} = Engram.Crypto.Envelope.encrypt(folder, dek)
+
+      Map.merge(attrs, %{
+        path_ciphertext: path_ct,
+        path_nonce: path_n,
+        path_hmac: Engram.Crypto.hmac_field(filter_key, path),
+        folder_ciphertext: folder_ct,
+        folder_nonce: folder_n,
+        folder_hmac: Engram.Crypto.hmac_field(filter_key, folder),
+        tags_hmac: Enum.map(tags || [], &Engram.Crypto.hmac_field(filter_key, &1))
+      })
+    else
+      _ -> attrs
+    end
   end
 end
