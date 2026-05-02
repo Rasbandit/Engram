@@ -140,6 +140,61 @@ defmodule Engram.AttachmentsTest do
     end
   end
 
+  describe "encrypted S3 storage path" do
+    setup do
+      prev = Application.get_env(:engram, :storage)
+      Application.put_env(:engram, :storage, Engram.MockStorage)
+      on_exit(fn -> Application.put_env(:engram, :storage, prev) end)
+
+      Mox.stub_with(Engram.MockStorage, Engram.Storage.InMemory)
+      :ok
+    end
+
+    test "encrypts attachment content before put when active backend is S3" do
+      user = insert(:user) |> Engram.Repo.reload!()
+      vault = insert(:vault, user: user)
+      plaintext = "secret bytes"
+      b64 = Base.encode64(plaintext)
+
+      test_pid = self()
+
+      Mox.expect(Engram.MockStorage, :put, fn _key, bytes, _opts ->
+        send(test_pid, {:put_bytes, bytes})
+        :ok
+      end)
+
+      {:ok, _att} =
+        Engram.Attachments.upsert_attachment(user, vault, %{
+          "path" => "secret.bin",
+          "content_base64" => b64,
+          "mtime" => 0.0
+        })
+
+      assert_receive {:put_bytes, stored}, 500
+      refute stored == plaintext
+      assert byte_size(stored) >= byte_size(plaintext) + 16
+    end
+
+    test "round-trips encrypted attachment via get_attachment" do
+      user = insert(:user) |> Engram.Repo.reload!()
+      vault = insert(:vault, user: user)
+      plaintext = "round trip me"
+      b64 = Base.encode64(plaintext)
+
+      {:ok, _att} =
+        Engram.Attachments.upsert_attachment(user, vault, %{
+          "path" => "rt.bin",
+          "content_base64" => b64,
+          "mtime" => 0.0
+        })
+
+      {:ok, fetched} = Engram.Attachments.get_attachment(user, vault, "rt.bin")
+      assert fetched.content == plaintext
+      assert fetched.encryption_version == 1
+      assert is_binary(fetched.content_nonce)
+    end
+  end
+
   describe "get_attachment/3 with S3 storage (content nil)" do
     test "fetches binary from storage backend when content is nil", %{user: user, vault: vault, storage_key: storage_key} do
       # Insert an attachment row with content: nil and a storage_key

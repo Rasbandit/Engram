@@ -13,6 +13,8 @@ defmodule Engram.Attachments do
   alias Engram.Attachments.Attachment
   alias Engram.Notes.PathSanitizer
   alias Engram.Storage
+  alias Engram.Crypto
+  alias Engram.Crypto.Envelope
 
   @doc """
   Upserts an attachment. Decodes base64 content, detects MIME type, computes hash.
@@ -24,10 +26,11 @@ defmodule Engram.Attachments do
     mtime = attrs["mtime"] || attrs[:mtime]
     explicit_mime = attrs["mime_type"] || attrs[:mime_type]
 
-    with {:ok, binary} <- decode_base64(content_b64),
-         :ok <- validate_size(binary),
-         {:ok, key, changeset_attrs} <- prepare_upload(user, vault, path, binary, mtime, explicit_mime),
-         :ok <- store_external(key, binary, changeset_attrs.mime_type) do
+    with {:ok, plaintext} <- decode_base64(content_b64),
+         :ok <- validate_size(plaintext),
+         {:ok, key, changeset_attrs, blob_to_store} <-
+           prepare_upload(user, vault, path, plaintext, mtime, explicit_mime),
+         :ok <- store_external(key, blob_to_store, changeset_attrs.mime_type) do
       Repo.with_tenant(user.id, fn ->
         existing =
           Repo.one(
@@ -85,7 +88,7 @@ defmodule Engram.Attachments do
 
         case Storage.adapter().get(key) do
           {:ok, binary} ->
-            {:ok, %{att | content: binary}}
+            maybe_decrypt_attachment(att, binary, user)
 
           {:error, :not_found} ->
             # Live row with missing blob = storage corruption, not a normal 404
@@ -207,47 +210,69 @@ defmodule Engram.Attachments do
       else: :ok
   end
 
-  defp prepare_upload(user, vault, path, binary, mtime, explicit_mime) do
+  defp prepare_upload(user, vault, path, plaintext, mtime, explicit_mime) do
     mime = explicit_mime || detect_mime(path)
-    hash = :crypto.hash(:md5, binary) |> Base.encode16(case: :lower)
+    hash = :crypto.hash(:md5, plaintext) |> Base.encode16(case: :lower)
     key = Storage.key(user.id, vault.id, path)
     backend = Storage.adapter()
 
-    changeset_attrs =
-      %{
-        path: path,
-        content_hash: hash,
-        mime_type: mime,
-        size_bytes: byte_size(binary),
-        mtime: mtime,
-        user_id: user.id,
-        vault_id: vault.id,
-        storage_key: key,
-        deleted_at: nil
-      }
-      |> maybe_include_content(backend, binary)
+    base_attrs = %{
+      path: path,
+      content_hash: hash,
+      mime_type: mime,
+      size_bytes: byte_size(plaintext),
+      mtime: mtime,
+      user_id: user.id,
+      vault_id: vault.id,
+      storage_key: key,
+      deleted_at: nil
+    }
 
-    {:ok, key, changeset_attrs}
+    cond do
+      backend == Storage.Database ->
+        {:ok, key, Map.put(base_attrs, :content, plaintext), :skip}
+
+      true ->
+        with {:ok, user} <- Crypto.ensure_user_dek(user),
+             {:ok, dek} <- Crypto.get_dek(user) do
+          {ciphertext, nonce} = Envelope.encrypt(plaintext, dek)
+
+          attrs =
+            base_attrs
+            |> Map.put(:encryption_version, 1)
+            |> Map.put(:content_nonce, nonce)
+
+          {:ok, key, attrs, ciphertext}
+        end
+    end
   end
 
-  defp store_external(key, binary, mime) do
-    backend = Storage.adapter()
+  defp store_external(_key, :skip, _mime), do: :ok
 
-    if backend == Storage.Database do
-      :ok
-    else
-      case backend.put(key, binary, content_type: mime) do
-        :ok -> :ok
-        {:error, reason} -> {:error, {:storage, reason}}
+  defp store_external(key, binary, mime) do
+    case Storage.adapter().put(key, binary, content_type: mime) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:storage, reason}}
+    end
+  end
+
+  defp maybe_decrypt_attachment(%Attachment{encryption_version: 1, content_nonce: nonce} = att, binary, user)
+       when is_binary(nonce) do
+    # Reload user to ensure encrypted_dek is present — the caller may hold a struct
+    # provisioned before ensure_user_dek ran (e.g., DEK was just lazily created on first put).
+    fresh_user = Repo.reload!(user)
+
+    with {:ok, dek} <- Crypto.get_dek(fresh_user) do
+      case Envelope.decrypt(binary, nonce, dek) do
+        {:ok, plaintext} -> {:ok, %{att | content: plaintext}}
+        :error -> {:error, {:storage, :decrypt_failed}}
       end
     end
   end
 
-  defp maybe_include_content(attrs, Storage.Database, binary) do
-    Map.put(attrs, :content, binary)
+  defp maybe_decrypt_attachment(att, binary, _user) do
+    {:ok, %{att | content: binary}}
   end
-
-  defp maybe_include_content(attrs, _s3_backend, _binary), do: attrs
 
   defp decode_base64(nil), do: {:error, :missing_content}
 
