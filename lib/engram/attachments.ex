@@ -31,6 +31,8 @@ defmodule Engram.Attachments do
          {:ok, user} <- Crypto.ensure_user_dek(user),
          {:ok, dek} <- Crypto.get_dek(user),
          {ciphertext, nonce} <- Envelope.encrypt(plaintext, dek),
+         :ok <-
+           emit_encrypted_telemetry(byte_size(plaintext), user.id, vault.id),
          {:ok, key, changeset_attrs} <-
            prepare_upload(user, vault, path, plaintext, ciphertext, nonce, mtime, explicit_mime),
          :ok <- store_external(key, ciphertext, changeset_attrs.mime_type) do
@@ -207,6 +209,16 @@ defmodule Engram.Attachments do
 
   # -- Private helpers --
 
+  defp emit_encrypted_telemetry(bytes, user_id, vault_id) do
+    :telemetry.execute(
+      [:engram, :crypto, :attachment, :encrypted],
+      %{bytes: bytes},
+      %{user_id: user_id, vault_id: vault_id}
+    )
+
+    :ok
+  end
+
   defp decrypt_if_needed(%Attachment{encryption_version: 0} = att, _user), do: {:ok, att}
 
   defp decrypt_if_needed(
@@ -216,6 +228,12 @@ defmodule Engram.Attachments do
        when is_binary(nonce) and is_binary(ct) do
     with {:ok, dek} <- Crypto.get_dek(user),
          {:ok, plaintext} <- Envelope.decrypt(ct, nonce, dek) do
+      :telemetry.execute(
+        [:engram, :crypto, :attachment, :decrypted],
+        %{bytes: byte_size(plaintext)},
+        %{user_id: user.id, vault_id: att.vault_id}
+      )
+
       {:ok, %{att | content: plaintext}}
     else
       :error -> {:error, :decrypt_failed}

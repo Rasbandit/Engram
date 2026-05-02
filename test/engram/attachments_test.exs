@@ -183,6 +183,75 @@ defmodule Engram.AttachmentsTest do
     end
   end
 
+  describe "telemetry" do
+    test "emits :encrypted event on upsert with byte size", %{user: user, vault: vault} do
+      pid = self()
+      handler = "test-encrypt-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler,
+        [:engram, :crypto, :attachment, :encrypted],
+        fn _name, measurements, metadata, _config ->
+          send(pid, {:telemetry_encrypted, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      expect(Engram.MockStorage, :put, fn _key, _binary, _opts -> :ok end)
+
+      {:ok, _} =
+        Attachments.upsert_attachment(user, vault, %{
+          "path" => @path,
+          "content_base64" => Base.encode64("hello world")
+        })
+
+      assert_receive {:telemetry_encrypted, %{bytes: 11}, %{user_id: u, vault_id: v}}
+      assert u == user.id
+      assert v == vault.id
+    end
+
+    test "emits :decrypted event on get for v=1 rows", %{user: user, vault: vault} do
+      pid = self()
+      handler = "test-decrypt-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler,
+        [:engram, :crypto, :attachment, :decrypted],
+        fn _name, measurements, metadata, _config ->
+          send(pid, {:telemetry_decrypted, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      pid_storage = self()
+
+      expect(Engram.MockStorage, :put, fn _key, ct, _opts ->
+        send(pid_storage, {:ct, ct})
+        :ok
+      end)
+
+      {:ok, _} =
+        Attachments.upsert_attachment(user, vault, %{
+          "path" => @path,
+          "content_base64" => Base.encode64("hi")
+        })
+
+      assert_receive {:ct, ciphertext}
+
+      expect(Engram.MockStorage, :get, fn _key -> {:ok, ciphertext} end)
+
+      user = Repo.reload!(user)
+      {:ok, _} = Attachments.get_attachment(user, vault, @path)
+
+      assert_receive {:telemetry_decrypted, %{bytes: 2}, %{user_id: u}}
+      assert u == user.id
+    end
+  end
+
   describe "encryption round-trip" do
     test "upsert then get returns plaintext (S3 path)", %{user: user, vault: vault} do
       plaintext = "round-trip secret payload"

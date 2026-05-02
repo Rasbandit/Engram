@@ -7,6 +7,16 @@ _Last verified: 2026-04-30_
 ## Status
 Notes-level encryption is shipped (Phase 1-6, PRs #37/#38/#43/#50). Attachments remain plaintext — addressed in Tier 2 Phase A (`docs/encryption-tier-2-plan.md`).
 
+### Attachments — Tier 2 Phase A (in flight)
+
+- New attachment writes are AES-256-GCM encrypted at rest using the per-user DEK (`encryption_version = 1`, 12-byte `content_nonce` on the row). Storage adapters (`Engram.Storage.Database` BYTEA + `Engram.Storage.S3` Tigris) receive ciphertext and stay byte-blob dumb.
+- Mixed-state read path: rows with `encryption_version = 0` return plaintext (legacy); v=1 rows decrypt via `Crypto.get_dek/1` + `Crypto.Envelope.decrypt/3`.
+- `content_hash` stays plaintext-md5 — preserves dedup/sync invariants.
+- Attachments do **not** consult `vault.encrypted` — encryption is mandatory from Phase A onward (notes still respect the toggle until Phase D).
+- **Backfill:** `mix engram.encrypt_attachments` enqueues `Engram.Workers.EncryptAttachments` per (user, vault) holding legacy plaintext rows. Cursor on `attachments.id`, batch 100, idempotent. Source of truth is the partial index `attachments_legacy_plaintext_idx`.
+- Telemetry: `[:engram, :crypto, :attachment, :encrypted]` and `[:engram, :crypto, :attachment, :decrypted]` (measurements `%{bytes: n}`, metadata `%{user_id, vault_id}`).
+- **Drop-legacy PR follows** when `SELECT count(*) FROM attachments WHERE encryption_version = 0 AND deleted_at IS NULL` is zero across prod for ≥7 days. That PR removes the v=0 read branch and requires non-null nonce.
+
 ## What This Is
 Operator runbook for encryption toggling, per-user cooldown, and incident triage. Companion to the architecture spec at `docs/superpowers/specs/2026-04-07-encryption-at-rest-design.md`.
 
