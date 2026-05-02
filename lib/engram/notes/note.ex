@@ -19,6 +19,13 @@ defmodule Engram.Notes.Note do
     field :title_nonce, :binary
     field :tags_ciphertext, :binary
     field :tags_nonce, :binary
+    field :path_ciphertext, :binary
+    field :path_nonce, :binary
+    field :path_hmac, :binary
+    field :folder_ciphertext, :binary
+    field :folder_nonce, :binary
+    field :folder_hmac, :binary
+    field :tags_hmac, {:array, :binary}, default: []
 
     belongs_to :user, Engram.Accounts.User
     belongs_to :vault, Engram.Vaults.Vault
@@ -28,26 +35,38 @@ defmodule Engram.Notes.Note do
   end
 
   @encryption_fields [
-    :content_ciphertext, :content_nonce,
-    :title_ciphertext, :title_nonce,
-    :tags_ciphertext, :tags_nonce
+    :content_ciphertext,
+    :content_nonce,
+    :title_ciphertext,
+    :title_nonce,
+    :tags_ciphertext,
+    :tags_nonce,
+    :path_ciphertext,
+    :path_nonce,
+    :path_hmac,
+    :folder_ciphertext,
+    :folder_nonce,
+    :folder_hmac,
+    :tags_hmac
   ]
 
   def changeset(note, attrs) do
     note
-    |> cast(attrs, [
-      :path,
-      :title,
-      :content,
-      :folder,
-      :tags,
-      :version,
-      :content_hash,
-      :mtime,
-      :user_id,
-      :vault_id,
-      :deleted_at
-    ] ++ @encryption_fields, empty_values: [])
+    |> cast(
+      attrs,
+      [
+        :path,
+        :title,
+        :content,
+        :folder,
+        :tags,
+        :version,
+        :content_hash,
+        :mtime,
+        :user_id,
+        :vault_id,
+        :deleted_at
+      ] ++ @encryption_fields, empty_values: [])
     |> validate_required([:path, :user_id, :vault_id])
     |> default_content()
     |> unique_constraint([:user_id, :vault_id, :path], name: :notes_user_vault_path_active_index)
