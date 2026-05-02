@@ -5,7 +5,7 @@ _Last verified: 2026-04-30_
 ## Status
 Notes-level encryption is shipped (Phase 1-6, PRs #37/#38/#43/#50). Attachments remain plaintext (Phase 7 pending — see `docs/encryption-toggle-followups.md`).
 
-### Phase A — Attachment encryption (PR #58, 0.5.14)
+### Phase A — Attachment encryption (PR #58, 0.5.15)
 
 - New uploads encrypt before S3 put when `STORAGE_BACKEND=s3` is active.
 - Legacy BYTEA reads continue to work unchanged (dual-flow `get_attachment`).
