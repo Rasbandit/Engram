@@ -165,7 +165,9 @@ defmodule Engram.Crypto do
   - All candidates dropped → `{:error, :decrypt_failed}`.
   - Empty input → `{:ok, []}`.
   """
-  @spec maybe_decrypt_qdrant_candidates([map()], User.t(), %{String.t() => Engram.Vaults.Vault.t()}) ::
+  @spec maybe_decrypt_qdrant_candidates([map()], User.t(), %{
+          String.t() => Engram.Vaults.Vault.t()
+        }) ::
           {:ok, [map()]} | {:error, :decrypt_failed}
   def maybe_decrypt_qdrant_candidates([], _user, _vaults_by_id), do: {:ok, []}
 
@@ -268,7 +270,12 @@ defmodule Engram.Crypto do
 
       %Engram.Vaults.Vault{encrypted: false} ->
         if Map.has_key?(candidate, :text_nonce) do
-          emit_shape_mismatch(vault_id_key, candidate, "vault marked unencrypted but payload has text_nonce")
+          emit_shape_mismatch(
+            vault_id_key,
+            candidate,
+            "vault marked unencrypted but payload has text_nonce"
+          )
+
           []
         else
           [candidate]
@@ -384,6 +391,28 @@ defmodule Engram.Crypto do
          encryption_toggle_cooldown_days: days
        }) do
     DateTime.diff(DateTime.utc_now(), ts, :day) < days
+  end
+
+  @filter_key_info "engram-filter-v1"
+
+  @doc """
+  Derives a 32-byte HMAC filter key from the user's DEK using HKDF.
+
+  Used for deterministic fingerprinting of filterable fields (path, folder,
+  tags, vault name). The key is HKDF-Expand of the DEK with versioned info
+  string `"engram-filter-v1"`. Computed on demand — never stored.
+
+  BYOK-ready: the DEK is always available in plaintext after the configured
+  KeyProvider unwraps it, regardless of whether the wrapping CMK is local,
+  AWS KMS, or a customer-supplied CMK. Filter key derivation is identical
+  across providers.
+
+  Returns `{:ok, filter_key}` or `{:error, reason}` propagated from `get_dek/1`.
+  """
+  def dek_filter_key(user) do
+    with {:ok, dek} <- get_dek(user) do
+      {:ok, :crypto.mac(:hmac, :sha256, dek, @filter_key_info)}
+    end
   end
 
   @decrypt_delay_hours 24

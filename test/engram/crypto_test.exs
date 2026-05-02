@@ -100,4 +100,36 @@ defmodule Engram.CryptoTest do
       assert out.tags == ["x"]
     end
   end
+
+  describe "dek_filter_key/1" do
+    test "returns a deterministic 32-byte key for the same user" do
+      user = insert(:user)
+      {:ok, user} = Crypto.ensure_user_dek(user)
+
+      {:ok, key1} = Crypto.dek_filter_key(user)
+      {:ok, key2} = Crypto.dek_filter_key(user)
+
+      assert is_binary(key1)
+      assert byte_size(key1) == 32
+      assert key1 == key2
+    end
+
+    test "returns different keys for different users" do
+      user_a = insert(:user) |> Crypto.ensure_user_dek() |> elem(1)
+      user_b = insert(:user) |> Crypto.ensure_user_dek() |> elem(1)
+
+      {:ok, key_a} = Crypto.dek_filter_key(user_a)
+      {:ok, key_b} = Crypto.dek_filter_key(user_b)
+
+      refute key_a == key_b
+    end
+
+    test "is independent of the DEK itself (HKDF separation)" do
+      user = insert(:user) |> Crypto.ensure_user_dek() |> elem(1)
+      {:ok, dek} = Crypto.get_dek(user)
+      {:ok, filter_key} = Crypto.dek_filter_key(user)
+
+      refute filter_key == dek
+    end
+  end
 end
