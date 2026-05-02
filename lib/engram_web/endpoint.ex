@@ -19,6 +19,8 @@ defmodule EngramWeb.Endpoint do
     end
   end
 
+  defp normalize_origin(%URI{scheme: nil}), do: nil
+
   defp normalize_origin(%URI{scheme: scheme, host: host, port: port}) do
     default = URI.default_port(scheme)
     port_part = if is_nil(port) or port == default, do: "", else: ":#{port}"

@@ -47,6 +47,22 @@ defmodule EngramWeb.EndpointConfigTest do
     assert EngramWeb.Endpoint.check_origin(URI.parse("https://anything.example.com"))
   end
 
+  # Origin headers can arrive scheme-less ("null", "anonymous", clients sending
+  # malformed values). Phoenix calls our MFA with URI.parse(origin) which yields
+  # %URI{scheme: nil, ...}. URI.default_port(nil) raises FunctionClauseError —
+  # without a guard, every such request crashes the WS transport and floods logs.
+  test "Endpoint.check_origin/1 rejects URI with nil scheme without crashing" do
+    Application.put_env(:engram, :websocket_check_origin, [
+      "http://engram.ax",
+      "app://obsidian.md"
+    ])
+
+    on_exit(fn -> Application.delete_env(:engram, :websocket_check_origin) end)
+
+    refute EngramWeb.Endpoint.check_origin(URI.parse("null"))
+    refute EngramWeb.Endpoint.check_origin(%URI{scheme: nil, host: nil, port: nil})
+  end
+
   test "Endpoint.check_origin/1 normalizes URI with explicit non-default port" do
     Application.put_env(:engram, :websocket_check_origin, [
       "http://engram.ax:8080"
