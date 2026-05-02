@@ -11,9 +11,17 @@ Notes-level encryption is shipped (Phase 1-6, PRs #37/#38/#43/#50). Attachments 
 - Legacy BYTEA reads continue to work unchanged (dual-flow `get_attachment`).
 - `mix engram.backfill_bytea_to_s3` enqueues one Oban job per (user, vault) with legacy rows.
 - Worker is idempotent and cursor-driven; rerun is safe.
-- BYTEA column NOT yet dropped — happens in PR #60 after PR #59 cuts writes to S3-only.
+- BYTEA column NOT yet dropped — happens in PR #62 after PR #61 cuts writes to S3-only.
 - Telemetry events for encrypt/decrypt are deferred to PR #59 (Phase A reland keeps surface area minimal).
 - See `docs/superpowers/plans/2026-05-02-encryption-attachments-reland.md` for the full reland plan + production runbook.
+
+### A.4 — Cut writes to S3-only (PR #61, 0.5.18)
+
+- `prepare_upload/6` no longer branches on adapter — single encrypted S3 write path.
+- `STORAGE_BACKEND=database` is now a fatal misconfig: `runtime.exs` raises at boot.
+- Boot default flipped from `database` → `s3`; legacy `Storage.Database` adapter remains for read-only access to pre-encryption BYTEA rows until A.5 retires it.
+- Defense in depth: even if adapter somehow resolves to `Storage.Database`, `prepare_upload/6` returns `{:error, :writes_disabled}` rather than silently overwriting BYTEA with ciphertext (the 2026-05-02 corruption shape).
+- BYTEA `content` column + `Storage.Database` adapter retire in PR #62 (A.5) once selfhost is verified at zero `WHERE encryption_version = 0 AND content IS NOT NULL` rows.
 
 ## What This Is
 Operator runbook for encryption toggling, per-user cooldown, and incident triage. Companion to the architecture spec at `docs/superpowers/specs/2026-04-07-encryption-at-rest-design.md`.
