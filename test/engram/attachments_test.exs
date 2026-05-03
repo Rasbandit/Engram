@@ -97,6 +97,29 @@ defmodule Engram.AttachmentsTest do
       # vault_b has no attachment at this path — MockStorage get would only be called if found
       assert {:ok, nil} = Attachments.get_attachment(user, vault_b, @path)
     end
+
+    test "Phase B dual-write — populates path_hmac/ciphertext/nonce", %{user: user, vault: vault} do
+      expect(Engram.MockStorage, :put, fn _key, _binary, _opts -> :ok end)
+
+      # Ensure user has DEK before calling upsert_attachment
+      user = user |> Engram.Repo.reload!()
+      {:ok, _} = Engram.Crypto.ensure_user_dek(user)
+      user = user |> Engram.Repo.reload!()
+
+      {:ok, att} =
+        Attachments.upsert_attachment(user, vault, %{
+          "path" => "photos/test.png",
+          "content_base64" => Base.encode64("img bytes")
+        })
+
+      {:ok, filter_key} = Engram.Crypto.dek_filter_key(user)
+      expected_hmac = Engram.Crypto.hmac_field(filter_key, "photos/test.png")
+
+      assert att.path_hmac == expected_hmac
+      assert is_binary(att.path_ciphertext)
+      assert byte_size(att.path_nonce) == 12
+      assert att.path == "photos/test.png", "dual-write keeps plaintext path until B.3"
+    end
   end
 
   describe "changeset validations" do

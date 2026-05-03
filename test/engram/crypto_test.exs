@@ -100,4 +100,62 @@ defmodule Engram.CryptoTest do
       assert out.tags == ["x"]
     end
   end
+
+  describe "dek_filter_key/1" do
+    test "returns a deterministic 32-byte key for the same user" do
+      user = insert(:user)
+      {:ok, user} = Crypto.ensure_user_dek(user)
+
+      {:ok, key1} = Crypto.dek_filter_key(user)
+      {:ok, key2} = Crypto.dek_filter_key(user)
+
+      assert is_binary(key1)
+      assert byte_size(key1) == 32
+      assert key1 == key2
+    end
+
+    test "returns different keys for different users" do
+      user_a = insert(:user) |> Crypto.ensure_user_dek() |> elem(1)
+      user_b = insert(:user) |> Crypto.ensure_user_dek() |> elem(1)
+
+      {:ok, key_a} = Crypto.dek_filter_key(user_a)
+      {:ok, key_b} = Crypto.dek_filter_key(user_b)
+
+      refute key_a == key_b
+    end
+
+    test "is independent of the DEK itself (HKDF separation)" do
+      user = insert(:user) |> Crypto.ensure_user_dek() |> elem(1)
+      {:ok, dek} = Crypto.get_dek(user)
+      {:ok, filter_key} = Crypto.dek_filter_key(user)
+
+      refute filter_key == dek
+    end
+  end
+
+  describe "hmac_field/2" do
+    test "returns deterministic 32-byte binary" do
+      key = :crypto.strong_rand_bytes(32)
+
+      h1 = Crypto.hmac_field(key, "projects/2026-q3")
+      h2 = Crypto.hmac_field(key, "projects/2026-q3")
+
+      assert is_binary(h1)
+      assert byte_size(h1) == 32
+      assert h1 == h2
+    end
+
+    test "different inputs yield different hashes for the same key" do
+      key = :crypto.strong_rand_bytes(32)
+
+      refute Crypto.hmac_field(key, "a") == Crypto.hmac_field(key, "b")
+    end
+
+    test "different keys yield different hashes for the same input" do
+      k1 = :crypto.strong_rand_bytes(32)
+      k2 = :crypto.strong_rand_bytes(32)
+
+      refute Crypto.hmac_field(k1, "x") == Crypto.hmac_field(k2, "x")
+    end
+  end
 end

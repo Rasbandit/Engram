@@ -84,7 +84,11 @@ defmodule Engram.NotesTest do
       content = "# Hello\nWorld"
 
       {:ok, note} =
-        Notes.upsert_note(user, vault, %{"path" => "Test/A.md", "content" => content, "mtime" => 1_000.0})
+        Notes.upsert_note(user, vault, %{
+          "path" => "Test/A.md",
+          "content" => content,
+          "mtime" => 1_000.0
+        })
 
       expected = :crypto.hash(:md5, content) |> Base.encode16(case: :lower)
       assert note.content_hash == expected
@@ -141,33 +145,36 @@ defmodule Engram.NotesTest do
 
   describe "Note.changeset/2 nil content guard" do
     test "defaults nil content to empty string" do
-      cs = Engram.Notes.Note.changeset(%Engram.Notes.Note{}, %{
-        path: "test.md",
-        user_id: 1,
-        vault_id: 1,
-        content: nil
-      })
+      cs =
+        Engram.Notes.Note.changeset(%Engram.Notes.Note{}, %{
+          path: "test.md",
+          user_id: 1,
+          vault_id: 1,
+          content: nil
+        })
 
       assert Ecto.Changeset.get_field(cs, :content) == ""
     end
 
     test "preserves non-nil content" do
-      cs = Engram.Notes.Note.changeset(%Engram.Notes.Note{}, %{
-        path: "test.md",
-        user_id: 1,
-        vault_id: 1,
-        content: "# Hello"
-      })
+      cs =
+        Engram.Notes.Note.changeset(%Engram.Notes.Note{}, %{
+          path: "test.md",
+          user_id: 1,
+          vault_id: 1,
+          content: "# Hello"
+        })
 
       assert Ecto.Changeset.get_field(cs, :content) == "# Hello"
     end
 
     test "defaults missing content key to empty string" do
-      cs = Engram.Notes.Note.changeset(%Engram.Notes.Note{}, %{
-        path: "test.md",
-        user_id: 1,
-        vault_id: 1
-      })
+      cs =
+        Engram.Notes.Note.changeset(%Engram.Notes.Note{}, %{
+          path: "test.md",
+          user_id: 1,
+          vault_id: 1
+        })
 
       assert Ecto.Changeset.get_field(cs, :content) == ""
     end
@@ -190,7 +197,12 @@ defmodule Engram.NotesTest do
       assert found.id == created.id
     end
 
-    test "returns not_found for wrong user", %{user: user, vault: vault, other_user: other_user, other_vault: other_vault} do
+    test "returns not_found for wrong user", %{
+      user: user,
+      vault: vault,
+      other_user: other_user,
+      other_vault: other_vault
+    } do
       Notes.upsert_note(user, vault, %{
         "path" => "Test/Private.md",
         "content" => "# Private",
@@ -237,7 +249,12 @@ defmodule Engram.NotesTest do
       assert :ok = Notes.delete_note(user, vault, "Fake/Note.md")
     end
 
-    test "does not affect other user's notes", %{user: user, vault: vault, other_user: other_user, other_vault: other_vault} do
+    test "does not affect other user's notes", %{
+      user: user,
+      vault: vault,
+      other_user: other_user,
+      other_vault: other_vault
+    } do
       Notes.upsert_note(user, vault, %{
         "path" => "Test/Shared Path.md",
         "content" => "# User A note",
@@ -286,7 +303,12 @@ defmodule Engram.NotesTest do
       assert deleted.deleted == true
     end
 
-    test "excludes notes from other users", %{user: user, vault: vault, other_user: other_user, other_vault: other_vault} do
+    test "excludes notes from other users", %{
+      user: user,
+      vault: vault,
+      other_user: other_user,
+      other_vault: other_vault
+    } do
       Notes.upsert_note(other_user, other_vault, %{
         "path" => "Test/Other.md",
         "content" => "# Other user",
@@ -317,8 +339,9 @@ defmodule Engram.NotesTest do
       # This guards against > vs >= regressions in the list_changes query.
       since_truncated = DateTime.truncate(note.updated_at, :second)
       {:ok, changes} = Notes.list_changes(user, vault, since_truncated)
+
       assert Enum.any?(changes, &(&1.path == "Test/SameSecond.md")),
-        "Changes in the same second as truncated server_time must be included"
+             "Changes in the same second as truncated server_time must be included"
     end
   end
 
@@ -348,7 +371,12 @@ defmodule Engram.NotesTest do
       assert Enum.count(tags, &(&1 == "health")) == 1
     end
 
-    test "excludes tags from other users", %{user: user, vault: vault, other_user: other_user, other_vault: other_vault} do
+    test "excludes tags from other users", %{
+      user: user,
+      vault: vault,
+      other_user: other_user,
+      other_vault: other_vault
+    } do
       Notes.upsert_note(other_user, other_vault, %{
         "path" => "A.md",
         "content" => "---\ntags: [secret]\n---",
@@ -397,7 +425,12 @@ defmodule Engram.NotesTest do
       refute "" in folders
     end
 
-    test "excludes other users folders", %{user: user, vault: vault, other_user: other_user, other_vault: other_vault} do
+    test "excludes other users folders", %{
+      user: user,
+      vault: vault,
+      other_user: other_user,
+      other_vault: other_vault
+    } do
       Notes.upsert_note(other_user, other_vault, %{
         "path" => "Private Folder/Note.md",
         "content" => "x",
@@ -421,7 +454,9 @@ defmodule Engram.NotesTest do
         "mtime" => 1_000.0
       })
 
-      assert {:ok, renamed} = Notes.rename_note(user, vault, "Test/Original.md", "Test/Renamed.md")
+      assert {:ok, renamed} =
+               Notes.rename_note(user, vault, "Test/Original.md", "Test/Renamed.md")
+
       assert renamed.path == "Test/Renamed.md"
       assert renamed.title == "Original"
     end
@@ -449,10 +484,16 @@ defmodule Engram.NotesTest do
     end
 
     test "returns not_found for nonexistent note", %{user: user, vault: vault} do
-      assert {:error, :not_found} = Notes.rename_note(user, vault, "Nope/Missing.md", "Nope/New.md")
+      assert {:error, :not_found} =
+               Notes.rename_note(user, vault, "Nope/Missing.md", "Nope/New.md")
     end
 
-    test "does not rename other user's note", %{user: user, vault: vault, other_user: other_user, other_vault: other_vault} do
+    test "does not rename other user's note", %{
+      user: user,
+      vault: vault,
+      other_user: other_user,
+      other_vault: other_vault
+    } do
       Notes.upsert_note(user, vault, %{
         "path" => "Test/Mine.md",
         "content" => "# Mine",
@@ -510,7 +551,12 @@ defmodule Engram.NotesTest do
       refute Enum.any?(tags, &(&1.name == "ghost"))
     end
 
-    test "excludes other user's tags", %{user: user, vault: vault, other_user: other_user, other_vault: other_vault} do
+    test "excludes other user's tags", %{
+      user: user,
+      vault: vault,
+      other_user: other_user,
+      other_vault: other_vault
+    } do
       Notes.upsert_note(other_user, other_vault, %{
         "path" => "Secret.md",
         "content" => "---\ntags: [secret]\n---",
@@ -528,11 +574,23 @@ defmodule Engram.NotesTest do
 
   describe "list_folders_with_counts/2" do
     test "returns folders with correct counts", %{user: user, vault: vault} do
-      Notes.upsert_note(user, vault, %{"path" => "Health/Note1.md", "content" => "x", "mtime" => 1_000.0})
+      Notes.upsert_note(user, vault, %{
+        "path" => "Health/Note1.md",
+        "content" => "x",
+        "mtime" => 1_000.0
+      })
 
-      Notes.upsert_note(user, vault, %{"path" => "Health/Note2.md", "content" => "y", "mtime" => 1_000.0})
+      Notes.upsert_note(user, vault, %{
+        "path" => "Health/Note2.md",
+        "content" => "y",
+        "mtime" => 1_000.0
+      })
 
-      Notes.upsert_note(user, vault, %{"path" => "Work/Note1.md", "content" => "z", "mtime" => 1_000.0})
+      Notes.upsert_note(user, vault, %{
+        "path" => "Work/Note1.md",
+        "content" => "z",
+        "mtime" => 1_000.0
+      })
 
       {:ok, folders} = Notes.list_folders_with_counts(user, vault)
       health = Enum.find(folders, &(&1.folder == "Health"))
@@ -544,7 +602,12 @@ defmodule Engram.NotesTest do
 
     test "includes root folder count", %{user: user, vault: vault} do
       Notes.upsert_note(user, vault, %{"path" => "Root.md", "content" => "x", "mtime" => 1_000.0})
-      Notes.upsert_note(user, vault, %{"path" => "Health/Note.md", "content" => "y", "mtime" => 1_000.0})
+
+      Notes.upsert_note(user, vault, %{
+        "path" => "Health/Note.md",
+        "content" => "y",
+        "mtime" => 1_000.0
+      })
 
       {:ok, folders} = Notes.list_folders_with_counts(user, vault)
       # Root notes have folder = nil or ""
@@ -559,7 +622,12 @@ defmodule Engram.NotesTest do
     end
 
     test "excludes soft-deleted notes", %{user: user, vault: vault} do
-      Notes.upsert_note(user, vault, %{"path" => "Ghost/Note.md", "content" => "x", "mtime" => 1_000.0})
+      Notes.upsert_note(user, vault, %{
+        "path" => "Ghost/Note.md",
+        "content" => "x",
+        "mtime" => 1_000.0
+      })
+
       Notes.delete_note(user, vault, "Ghost/Note.md")
 
       {:ok, folders} = Notes.list_folders_with_counts(user, vault)
@@ -585,7 +653,11 @@ defmodule Engram.NotesTest do
         "mtime" => 1_000.0
       })
 
-      Notes.upsert_note(user, vault, %{"path" => "Work/Note1.md", "content" => "# C", "mtime" => 1_000.0})
+      Notes.upsert_note(user, vault, %{
+        "path" => "Work/Note1.md",
+        "content" => "# C",
+        "mtime" => 1_000.0
+      })
 
       {:ok, notes} = Notes.list_notes_in_folder(user, vault, "Health")
       assert length(notes) == 2
@@ -595,7 +667,11 @@ defmodule Engram.NotesTest do
     end
 
     test "returns root-level notes with empty string", %{user: user, vault: vault} do
-      Notes.upsert_note(user, vault, %{"path" => "Root.md", "content" => "# Root", "mtime" => 1_000.0})
+      Notes.upsert_note(user, vault, %{
+        "path" => "Root.md",
+        "content" => "# Root",
+        "mtime" => 1_000.0
+      })
 
       Notes.upsert_note(user, vault, %{
         "path" => "Health/Note.md",
@@ -626,7 +702,12 @@ defmodule Engram.NotesTest do
       assert notes == []
     end
 
-    test "excludes other user's notes", %{user: user, vault: vault, other_user: other_user, other_vault: other_vault} do
+    test "excludes other user's notes", %{
+      user: user,
+      vault: vault,
+      other_user: other_user,
+      other_vault: other_vault
+    } do
       Notes.upsert_note(other_user, other_vault, %{
         "path" => "Health/Secret.md",
         "content" => "x",
@@ -639,13 +720,99 @@ defmodule Engram.NotesTest do
   end
 
   # ---------------------------------------------------------------------------
+  # upsert_note/2 — Phase B dual-write
+  # ---------------------------------------------------------------------------
+
+  describe "upsert_note/2 — Phase B dual-write" do
+    setup do
+      user = insert(:user)
+      {:ok, user} = Engram.Crypto.ensure_user_dek(user)
+      vault = insert(:vault, user: user)
+      %{user: user, vault: vault}
+    end
+
+    test "populates path_hmac, path_ciphertext, path_nonce", %{user: user, vault: vault} do
+      {:ok, note} =
+        Engram.Notes.upsert_note(user, vault, %{
+          "path" => "projects/q3/secret.md",
+          "content" => "hello"
+        })
+
+      {:ok, filter_key} = Engram.Crypto.dek_filter_key(user)
+      expected_hmac = Engram.Crypto.hmac_field(filter_key, "projects/q3/secret.md")
+
+      assert note.path_hmac == expected_hmac
+      assert is_binary(note.path_ciphertext)
+      assert byte_size(note.path_nonce) == 12
+    end
+
+    test "populates folder_hmac, folder_ciphertext, folder_nonce", %{user: user, vault: vault} do
+      {:ok, note} =
+        Engram.Notes.upsert_note(user, vault, %{
+          "path" => "projects/q3/secret.md",
+          "content" => "hello"
+        })
+
+      {:ok, filter_key} = Engram.Crypto.dek_filter_key(user)
+      expected_hmac = Engram.Crypto.hmac_field(filter_key, "projects/q3")
+
+      assert note.folder_hmac == expected_hmac
+      assert is_binary(note.folder_ciphertext)
+      assert byte_size(note.folder_nonce) == 12
+    end
+
+    test "populates one tags_hmac entry per tag", %{user: user, vault: vault} do
+      {:ok, note} =
+        Engram.Notes.upsert_note(user, vault, %{
+          "path" => "x.md",
+          "content" => "---\ntags: [legal, client-acme]\n---\ny"
+        })
+
+      {:ok, filter_key} = Engram.Crypto.dek_filter_key(user)
+
+      expected = [
+        Engram.Crypto.hmac_field(filter_key, "legal"),
+        Engram.Crypto.hmac_field(filter_key, "client-acme")
+      ]
+
+      assert Enum.sort(note.tags_hmac) == Enum.sort(expected)
+    end
+
+    test "tags_hmac is empty array when no tags", %{user: user, vault: vault} do
+      {:ok, note} = Engram.Notes.upsert_note(user, vault, %{"path" => "x.md", "content" => "y"})
+      assert note.tags_hmac == []
+    end
+
+    test "still writes plaintext path/folder/tags (dual-write)", %{user: user, vault: vault} do
+      {:ok, note} =
+        Engram.Notes.upsert_note(user, vault, %{
+          "path" => "a/b/c.md",
+          "content" => "---\ntags: [t1]\n---\ny"
+        })
+
+      assert note.path == "a/b/c.md"
+      assert note.folder == "a/b"
+      assert note.tags == ["t1"]
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # rename_folder/4
   # ---------------------------------------------------------------------------
 
   describe "rename_folder/4" do
     test "renames folder for all notes in it", %{user: user, vault: vault} do
-      Notes.upsert_note(user, vault, %{"path" => "Old/Note1.md", "content" => "# A", "mtime" => 1_000.0})
-      Notes.upsert_note(user, vault, %{"path" => "Old/Note2.md", "content" => "# B", "mtime" => 1_000.0})
+      Notes.upsert_note(user, vault, %{
+        "path" => "Old/Note1.md",
+        "content" => "# A",
+        "mtime" => 1_000.0
+      })
+
+      Notes.upsert_note(user, vault, %{
+        "path" => "Old/Note2.md",
+        "content" => "# B",
+        "mtime" => 1_000.0
+      })
 
       assert {:ok, 2} = Notes.rename_folder(user, vault, "Old", "New")
 
@@ -683,7 +850,12 @@ defmodule Engram.NotesTest do
       assert {:ok, 0} = Notes.rename_folder(user, vault, "Empty", "StillEmpty")
     end
 
-    test "does not affect other user's notes", %{user: user, vault: vault, other_user: other_user, other_vault: other_vault} do
+    test "does not affect other user's notes", %{
+      user: user,
+      vault: vault,
+      other_user: other_user,
+      other_vault: other_vault
+    } do
       Notes.upsert_note(other_user, other_vault, %{
         "path" => "Shared/Note.md",
         "content" => "# Other",

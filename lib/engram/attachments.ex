@@ -224,6 +224,8 @@ defmodule Engram.Attachments do
     with {:ok, user} <- Crypto.ensure_user_dek(user),
          {:ok, dek} <- Crypto.get_dek(user) do
       {ciphertext, nonce} = Envelope.encrypt(plaintext, dek)
+      {path_ct, path_n} = Envelope.encrypt(path, dek)
+      {:ok, filter_key} = Crypto.dek_filter_key(user)
 
       attrs = %{
         path: path,
@@ -236,7 +238,10 @@ defmodule Engram.Attachments do
         storage_key: key,
         deleted_at: nil,
         encryption_version: 1,
-        content_nonce: nonce
+        content_nonce: nonce,
+        path_ciphertext: path_ct,
+        path_nonce: path_n,
+        path_hmac: Crypto.hmac_field(filter_key, path)
       }
 
       {:ok, key, attrs, ciphertext}
