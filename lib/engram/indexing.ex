@@ -108,7 +108,13 @@ defmodule Engram.Indexing do
   Remove all indexed data for a note (Qdrant points first, then Postgres chunks).
   """
   def delete_note_index(note) do
-    with :ok <- Qdrant.delete_by_note(collection(), to_string(note.user_id), to_string(note.vault_id), note.path) do
+    with :ok <-
+           Qdrant.delete_by_note(
+             collection(),
+             to_string(note.user_id),
+             to_string(note.vault_id),
+             note.path
+           ) do
       Repo.delete_all(from(c in Chunk, where: c.note_id == ^note.id), skip_tenant_check: true)
       :ok
     end
@@ -148,7 +154,13 @@ defmodule Engram.Indexing do
           tags: note.tags || [],
           heading_path: chunk.heading_path,
           text: chunk.text,
-          chunk_index: chunk.position
+          chunk_index: chunk.position,
+          # Phase B.2.4 (additive): write hmacs alongside plaintext so the
+          # B.2.5 backfill worker has a target shape and B.2.3 read switch
+          # can flip atomically once existing points are rewritten.
+          path_hmac: encode_hmac(note.path_hmac),
+          folder_hmac: encode_hmac(note.folder_hmac),
+          tags_hmac: Enum.map(note.tags_hmac || [], &Base.encode64/1)
         }
 
         case Engram.Crypto.maybe_encrypt_qdrant_payload(base_payload, user, vault) do
@@ -189,4 +201,10 @@ defmodule Engram.Indexing do
       {:ok, %{note: note, chunk_rows: chunk_rows, qdrant_points: qdrant_points}}
     end
   end
+
+  # Encodes a Phase B HMAC binary as base64 for JSON-safe Qdrant payload.
+  # Returns nil for nil — leaves the field absent so legacy/un-backfilled
+  # rows don't poison filters with a fake hmac.
+  defp encode_hmac(nil), do: nil
+  defp encode_hmac(bin) when is_binary(bin), do: Base.encode64(bin)
 end

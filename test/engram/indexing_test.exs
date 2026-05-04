@@ -32,7 +32,11 @@ defmodule Engram.IndexingTest do
   # ---------------------------------------------------------------------------
 
   describe "index_note/2" do
-    test "embeds chunks and upserts to Qdrant + Postgres", %{bypass: bypass, note: note, vault: vault} do
+    test "embeds chunks and upserts to Qdrant + Postgres", %{
+      bypass: bypass,
+      note: note,
+      vault: vault
+    } do
       # Mock embedder returns one 3-dim vector per chunk
       Engram.MockEmbedder
       |> expect(:embed_texts, fn texts ->
@@ -151,6 +155,55 @@ defmodule Engram.IndexingTest do
       end)
     end
 
+    test "Phase B: payload includes base64-encoded path/folder/tags hmacs",
+         %{bypass: bypass, user: user} do
+      Engram.Crypto.DekCache.invalidate_all()
+      {:ok, user} = Engram.Crypto.ensure_user_dek(user)
+      vault = insert(:vault, user: user)
+
+      {:ok, note} =
+        Notes.upsert_note(user, vault, %{
+          "path" => "Health/iron.md",
+          "content" => "---\ntags: [labs, ferritin]\n---\n# Iron",
+          "mtime" => 1_000.0
+        })
+
+      Engram.MockEmbedder
+      |> expect(:embed_texts, fn texts ->
+        {:ok, Enum.map(texts, fn _ -> [0.1, 0.2, 0.3] end)}
+      end)
+
+      test_pid = self()
+
+      Bypass.expect(bypass, fn conn ->
+        if String.contains?(conn.request_path, "/points") and conn.method == "PUT" do
+          {:ok, body, conn} = Plug.Conn.read_body(conn)
+          send(test_pid, {:upsert_body, Jason.decode!(body)})
+          Plug.Conn.send_resp(conn, 200, ~s({"result": true}))
+        else
+          Plug.Conn.send_resp(conn, 200, ~s({"result": true}))
+        end
+      end)
+
+      assert {:ok, _} = Indexing.index_note(note, vault)
+      assert_received {:upsert_body, body}
+
+      {:ok, filter_key} = Engram.Crypto.dek_filter_key(user)
+      expected_path_hmac = Base.encode64(Engram.Crypto.hmac_field(filter_key, "Health/iron.md"))
+      expected_folder_hmac = Base.encode64(Engram.Crypto.hmac_field(filter_key, "Health"))
+      expected_labs_hmac = Base.encode64(Engram.Crypto.hmac_field(filter_key, "labs"))
+      expected_ferritin_hmac = Base.encode64(Engram.Crypto.hmac_field(filter_key, "ferritin"))
+
+      Enum.each(body["points"], fn p ->
+        payload = p["payload"]
+        assert payload["path_hmac"] == expected_path_hmac
+        assert payload["folder_hmac"] == expected_folder_hmac
+        assert is_list(payload["tags_hmac"])
+        assert expected_labs_hmac in payload["tags_hmac"]
+        assert expected_ferritin_hmac in payload["tags_hmac"]
+      end)
+    end
+
     test "unencrypted vault → plaintext payload unchanged", %{bypass: bypass, user: user} do
       vault = insert(:vault, user: user, encrypted: false)
 
@@ -214,6 +267,7 @@ defmodule Engram.IndexingTest do
       # upsert_note auto-provisioned via maybe_encrypt_note_fields; simulate the
       # "DEK missing at index time" scenario that emits telemetry.
       import Ecto.Query
+
       Engram.Repo.update_all(
         from(u in Engram.Accounts.User, where: u.id == ^user.id),
         [set: [encrypted_dek: nil]],
