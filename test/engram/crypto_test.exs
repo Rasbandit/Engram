@@ -20,6 +20,28 @@ defmodule Engram.CryptoTest do
     assert user2.encrypted_dek == user1.encrypted_dek
   end
 
+  test "ensure_user_dek does NOT rotate when caller holds a stale struct (encrypted_dek=nil) but DB has a blob",
+       %{user: user} do
+    # Regression for the data-corruption bug fixed in B.2.6: callers holding
+    # a stale user struct (e.g. an in-memory copy fetched before encryption was
+    # toggled on) would silently rotate the DEK on every ensure_user_dek call,
+    # invalidating every existing ciphertext for the user.
+    {:ok, provisioned} = Crypto.ensure_user_dek(user)
+    assert is_binary(provisioned.encrypted_dek)
+    original_blob = provisioned.encrypted_dek
+
+    # `user` is the original fixture struct, still carrying encrypted_dek=nil.
+    assert is_nil(user.encrypted_dek)
+
+    {:ok, after_call} = Crypto.ensure_user_dek(user)
+
+    assert after_call.encrypted_dek == original_blob,
+           "stale-struct call rotated the DEK — every existing ciphertext is now unrecoverable"
+
+    assert after_call.dek_version == provisioned.dek_version
+    assert after_call.key_provider == provisioned.key_provider
+  end
+
   test "get_dek caches after first unwrap", %{user: user} do
     {:ok, user} = Crypto.ensure_user_dek(user)
     # ensure_user_dek pre-populates the cache; clear it to exercise the unwrap path.
