@@ -74,10 +74,13 @@ async def test_restart_preserves_queue(vault_a, cdp_a, api_sync, obsidian_a):
     await obsidian_a.async_start(restart=True)
     await cdp_a.wait_for_plugin_ready(timeout=60)
 
-    # 6. Startup sync should restore queue and flush it
-    #    Poll instead of hard sleep — returns as soon as notes arrive
-    note1 = api_sync.wait_for_note(path1, timeout=15)
-    note2 = api_sync.wait_for_note(path2, timeout=15)
+    # 6. Startup sync should restore queue and flush it.
+    #    Poll instead of hard sleep — returns as soon as notes arrive.
+    #    Same xdist race class as PR #39: the cycle of plugin-ready →
+    #    SyncEngine.startupSync → queue.replay → push can exceed 15s under
+    #    2-worker load. Match the queue-wait deadline (30s) on both.
+    note1 = api_sync.wait_for_note(path1, timeout=30)
+    note2 = api_sync.wait_for_note(path2, timeout=30)
 
     # 7. Both notes should now be on server
     assert note1 is not None, f"{path1} should be on server after restart"
