@@ -554,12 +554,12 @@ defmodule Engram.Notes do
           {note.id, note.path, new_path, new_note_folder, new_title}
         end)
 
-      {:ok, rename_dek} = Engram.Crypto.get_dek(user)
+      {:ok, dek} = Engram.Crypto.get_dek(user)
 
       Repo.with_tenant(user.id, fn ->
         Enum.each(updates, fn {id, _old_path, new_path, new_note_folder, new_title} ->
           phase_b_kw = phase_b_path_folder_for(user, new_path, new_note_folder)
-          {title_ct, title_nonce} = Engram.Crypto.Envelope.encrypt(new_title, rename_dek)
+          {title_ct, title_nonce} = Engram.Crypto.Envelope.encrypt(new_title, dek)
 
           from(n in Note, where: n.id == ^id)
           |> Repo.update_all(
@@ -579,7 +579,6 @@ defmodule Engram.Notes do
       # files at old paths after a folder rename. Tombstones are full-row
       # inserts so each must carry the encrypted path/folder/tags fields too.
       mtime_float = DateTime.to_unix(now) + 0.0
-      {:ok, dek} = Engram.Crypto.get_dek(user)
 
       {empty_tags_ct, empty_tags_nonce} =
         Engram.Crypto.Envelope.encrypt(:erlang.term_to_binary([]), dek)

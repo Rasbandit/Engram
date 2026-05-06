@@ -8,7 +8,8 @@ defmodule EngramWeb.SearchControllerTest do
 
   setup %{conn: conn} do
     user = insert(:user)
-    _vault = insert(:vault, user: user, is_default: true)
+    {:ok, user} = Engram.Crypto.ensure_user_dek(user)
+    vault = insert(:vault, user: user, is_default: true)
     {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "test-key")
     authed = put_req_header(conn, "authorization", "Bearer #{api_key}")
 
@@ -16,13 +17,19 @@ defmodule EngramWeb.SearchControllerTest do
     Application.put_env(:engram, :qdrant_url, "http://localhost:#{bypass.port}")
     on_exit(fn -> Application.delete_env(:engram, :qdrant_url) end)
 
-    %{conn: authed, user: user, bypass: bypass}
+    %{conn: authed, user: user, vault: vault, bypass: bypass}
   end
 
   describe "POST /search" do
-    test "returns results for a valid query", %{conn: conn, bypass: bypass, user: user} do
+    test "returns results for a valid query", %{conn: conn, bypass: bypass, user: user, vault: vault} do
       Engram.MockEmbedder
       |> expect(:embed_texts, fn _ -> {:ok, [List.duplicate(0.1, 3)]} end)
+
+      {:ok, enc} =
+        Engram.Crypto.encrypt_qdrant_payload(
+          %{text: "Ferritin levels.", title: "Iron Panel", heading_path: "Iron Panel"},
+          user
+        )
 
       qdrant_result = %{
         "result" => [
@@ -30,12 +37,16 @@ defmodule EngramWeb.SearchControllerTest do
             "id" => "uuid-1",
             "score" => 0.95,
             "payload" => %{
-              "text" => "Ferritin levels.",
-              "title" => "Iron Panel",
-              "heading_path" => "Iron Panel",
+              "text" => enc.text,
+              "title" => enc.title,
+              "heading_path" => enc.heading_path,
+              "text_nonce" => enc.text_nonce,
+              "title_nonce" => enc.title_nonce,
+              "heading_path_nonce" => enc.heading_path_nonce,
               "source_path" => "Health/Iron Panel.md",
               "tags" => ["health"],
-              "user_id" => to_string(user.id)
+              "user_id" => to_string(user.id),
+              "vault_id" => to_string(vault.id)
             }
           }
         ]
@@ -226,17 +237,38 @@ defmodule EngramWeb.SearchControllerTest do
   end
 
   defp chunk(id, score, source_path, title, text, user) do
+    chunk(id, score, source_path, title, text, user, default_vault_id(user))
+  end
+
+  defp chunk(id, score, source_path, title, text, user, vault_id) do
+    {:ok, enc} =
+      Engram.Crypto.encrypt_qdrant_payload(
+        %{text: text, title: title, heading_path: title},
+        user
+      )
+
     %{
       "id" => id,
       "score" => score,
       "payload" => %{
-        "text" => text,
-        "title" => title,
-        "heading_path" => title,
+        "text" => enc.text,
+        "title" => enc.title,
+        "heading_path" => enc.heading_path,
+        "text_nonce" => enc.text_nonce,
+        "title_nonce" => enc.title_nonce,
+        "heading_path_nonce" => enc.heading_path_nonce,
         "source_path" => source_path,
         "tags" => [],
-        "user_id" => to_string(user.id)
+        "user_id" => to_string(user.id),
+        "vault_id" => to_string(vault_id)
       }
     }
+  end
+
+  defp default_vault_id(user) do
+    user
+    |> Engram.Vaults.list_vaults()
+    |> Enum.find(& &1.is_default)
+    |> Map.fetch!(:id)
   end
 end

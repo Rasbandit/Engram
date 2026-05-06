@@ -92,18 +92,7 @@ defmodule Engram.Workers.BackfillContentHashHmac do
 
       _ ->
         Enum.each(notes, fn note ->
-          {:ok, decrypted} = Crypto.maybe_decrypt_note_fields(note, user)
-          new_hash = Crypto.hmac_content_hash(content_key, decrypted.content || "")
-
-          set =
-            if note.embed_hash == note.content_hash and not is_nil(note.embed_hash) do
-              [content_hash: new_hash, embed_hash: new_hash]
-            else
-              [content_hash: new_hash]
-            end
-
-          from(n in Note, where: n.id == ^note.id)
-          |> Repo.update_all(set: set)
+          rehash_note(note, user, content_key)
         end)
 
         last_id = notes |> List.last() |> Map.fetch!(:id)
@@ -147,6 +136,30 @@ defmodule Engram.Workers.BackfillContentHashHmac do
     end
   end
 
+  defp rehash_note(note, user, content_key) do
+    case Crypto.maybe_decrypt_note_fields(note, user) do
+      {:ok, decrypted} ->
+        new_hash = Crypto.hmac_content_hash(content_key, decrypted.content || "")
+
+        set =
+          if note.embed_hash == note.content_hash and not is_nil(note.embed_hash) do
+            [content_hash: new_hash, embed_hash: new_hash]
+          else
+            [content_hash: new_hash]
+          end
+
+        from(n in Note, where: n.id == ^note.id)
+        |> Repo.update_all(set: set)
+
+      {:error, reason} ->
+        emit_skip_telemetry(:note, note, reason)
+
+        Logger.error(
+          "BackfillContentHashHmac: skipping note #{note.id} (#{inspect(reason)})"
+        )
+    end
+  end
+
   defp rehash_attachment(att, user, content_key) do
     with {:ok, ciphertext} <- Storage.adapter().get(att.storage_key),
          {:ok, dek} <- Crypto.get_dek(user),
@@ -157,9 +170,25 @@ defmodule Engram.Workers.BackfillContentHashHmac do
       |> Repo.update_all(set: [content_hash: new_hash])
     else
       err ->
+        emit_skip_telemetry(:attachment, att, err)
+
         Logger.error(
           "BackfillContentHashHmac: skipping attachment #{att.id} (#{inspect(err)})"
         )
     end
+  end
+
+  defp emit_skip_telemetry(scope, row, reason) do
+    :telemetry.execute(
+      [:engram, :backfill, :content_hash_skipped],
+      %{count: 1},
+      %{
+        scope: scope,
+        id: row.id,
+        user_id: row.user_id,
+        vault_id: row.vault_id,
+        reason: inspect(reason)
+      }
+    )
   end
 end

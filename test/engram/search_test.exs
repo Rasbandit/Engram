@@ -25,15 +25,24 @@ defmodule Engram.SearchTest do
         {:ok, [List.duplicate(0.1, 3)]}
       end)
 
+      {:ok, enc} =
+        Engram.Crypto.encrypt_qdrant_payload(
+          %{text: "Ferritin levels.", title: "Iron Panel", heading_path: "Iron Panel"},
+          user
+        )
+
       qdrant_result = %{
         "result" => [
           %{
             "id" => "uuid-1",
             "score" => 0.95,
             "payload" => %{
-              "text" => "Ferritin levels.",
-              "title" => "Iron Panel",
-              "heading_path" => "Iron Panel",
+              "text" => enc.text,
+              "title" => enc.title,
+              "heading_path" => enc.heading_path,
+              "text_nonce" => enc.text_nonce,
+              "title_nonce" => enc.title_nonce,
+              "heading_path_nonce" => enc.heading_path_nonce,
               "source_path" => "Health/Iron Panel.md",
               "tags" => ["health"],
               "user_id" => to_string(user.id),
@@ -53,6 +62,7 @@ defmodule Engram.SearchTest do
       assert length(results) == 1
       assert hd(results).score == 0.95
       assert hd(results).source_path == "Health/Iron Panel.md"
+      assert hd(results).text == "Ferritin levels."
     end
 
     test "includes vault_id filter in Qdrant request", %{bypass: bypass, user: user, vault: vault} do
@@ -182,13 +192,22 @@ defmodule Engram.SearchTest do
 
         results =
           for i <- 0..3 do
+            {:ok, enc} =
+              Engram.Crypto.encrypt_qdrant_payload(
+                %{text: "Result #{i}", title: "Note #{i}", heading_path: "Section"},
+                user
+              )
+
             %{
               "id" => "uuid-#{i}",
               "score" => 0.9 - i * 0.1,
               "payload" => %{
-                "text" => "Result #{i}",
-                "title" => "Note #{i}",
-                "heading_path" => "Section",
+                "text" => enc.text,
+                "title" => enc.title,
+                "heading_path" => enc.heading_path,
+                "text_nonce" => enc.text_nonce,
+                "title_nonce" => enc.title_nonce,
+                "heading_path_nonce" => enc.heading_path_nonce,
                 "source_path" => "test/note#{i}.md",
                 "tags" => [],
                 "user_id" => to_string(user.id),

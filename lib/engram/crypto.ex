@@ -281,21 +281,17 @@ defmodule Engram.Crypto do
     end
   end
 
-  defp maybe_load_dek(user, candidates) do
-    if Enum.any?(candidates, &Map.has_key?(&1, :text_nonce)) do
-      case get_dek(user) do
-        {:ok, dek} ->
-          {:ok, dek}
+  defp maybe_load_dek(user, _candidates) do
+    case get_dek(user) do
+      {:ok, dek} ->
+        {:ok, dek}
 
-        {:error, reason} ->
-          Logger.error(
-            "qdrant decrypt: failed to load DEK for user_id=#{user.id} reason=#{inspect(reason)}"
-          )
+      {:error, reason} ->
+        Logger.error(
+          "qdrant decrypt: failed to load DEK for user_id=#{user.id} reason=#{inspect(reason)}"
+        )
 
-          {:error, :decrypt_failed}
-      end
-    else
-      {:ok, nil}
+        {:error, :decrypt_failed}
     end
   end
 
@@ -307,19 +303,23 @@ defmodule Engram.Crypto do
   end
 
   # Returns [decrypted_candidate] on success, [] on drop.
+  # Phase B.4: every production payload MUST carry vault_id + text_nonce.
+  # Anything else is a shape mismatch — dropped + telemetry, no plaintext
+  # passthrough that could leak ciphertext-as-plaintext on a malformed point.
   defp decrypt_one(candidate, vaults_by_id, dek) do
-    cond do
-      # No vault_id and no ciphertext — legacy / mock plaintext candidate, pass through.
-      is_nil(candidate_vault_id(candidate)) and not Map.has_key?(candidate, :text_nonce) ->
-        [candidate]
+    vault_id_key = candidate_vault_id(candidate)
 
-      # No vault_id but ciphertext present — shape mismatch, drop.
-      is_nil(candidate_vault_id(candidate)) ->
-        emit_shape_mismatch(nil, candidate, "missing vault_id with text_nonce present")
+    cond do
+      is_nil(vault_id_key) ->
+        emit_shape_mismatch(nil, candidate, "missing vault_id")
+        []
+
+      not Map.has_key?(candidate, :text_nonce) ->
+        emit_shape_mismatch(vault_id_key, candidate, "missing text_nonce")
         []
 
       true ->
-        lookup_and_decrypt(candidate, candidate_vault_id(candidate), vaults_by_id, dek)
+        lookup_and_decrypt(candidate, vault_id_key, vaults_by_id, dek)
     end
   end
 
@@ -344,12 +344,7 @@ defmodule Engram.Crypto do
         []
 
       %Engram.Vaults.Vault{} ->
-        if Map.has_key?(candidate, :text_nonce) do
-          do_decrypt_candidate(candidate, dek)
-        else
-          # Plaintext mock candidate (test traffic) — pass through.
-          [candidate]
-        end
+        do_decrypt_candidate(candidate, dek)
     end
   end
 
@@ -402,11 +397,15 @@ defmodule Engram.Crypto do
   @content_hash_info "engram-content-hash-v1"
 
   @doc """
-  Derives a 32-byte HMAC filter key from the user's DEK using HKDF.
+  Derives a 32-byte HMAC filter key from the user's DEK.
 
   Used for deterministic fingerprinting of filterable fields (path, folder,
-  tags, vault name). The key is HKDF-Expand of the DEK with versioned info
-  string `"engram-filter-v1"`. Computed on demand — never stored.
+  tags, vault name). Computed as `HMAC-SHA256(DEK, "engram-filter-v1")`,
+  i.e. a single-block HMAC PRF with a versioned domain-separation info
+  string. Equivalent to one round of HKDF-Expand (RFC 5869, L=32, T(1)
+  with a counter byte omitted) — the construction is sound because the
+  DEK is already a uniform 32-byte secret, so a full HKDF-Extract step is
+  unnecessary. Computed on demand — never stored.
 
   BYOK-ready: the DEK is always available in plaintext after the configured
   KeyProvider unwraps it, regardless of whether the wrapping CMK is local,
@@ -441,11 +440,12 @@ defmodule Engram.Crypto do
   @doc """
   Derives a 32-byte HMAC content-hash subkey from the user's DEK.
 
-  Domain-separated from `dek_filter_key/1` via the `"engram-content-hash-v1"`
-  HKDF info string so that note-content fingerprints share no key material
-  with path/folder/tag fingerprints. Replaces the legacy global MD5
-  `content_hash` (Phase A of Tier 2): per-user keying defeats cross-user
-  dedup oracles and dictionary attacks against known content.
+  Computed as `HMAC-SHA256(DEK, "engram-content-hash-v1")` — same single-
+  block PRF construction as `dek_filter_key/1`, with a different domain-
+  separation info string so that note-content fingerprints share no key
+  material with path/folder/tag fingerprints. Replaces the legacy global
+  MD5 `content_hash` (Phase A of Tier 2): per-user keying defeats cross-
+  user dedup oracles and dictionary attacks against known content.
   """
   def dek_content_hash_key(user) do
     with {:ok, dek} <- get_dek(user) do

@@ -89,16 +89,4 @@ defmodule Engram.Notes.Note do
       name: :notes_user_id_vault_id_path_hmac_index
     )
   end
-
-  def encryption_changeset(note, attrs) do
-    note
-    |> cast(attrs, [
-      :content_ciphertext,
-      :content_nonce,
-      :title_ciphertext,
-      :title_nonce,
-      :tags_ciphertext,
-      :tags_nonce
-    ])
-  end
 end
