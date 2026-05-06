@@ -30,10 +30,7 @@ defmodule Engram.Notes.EncryptionTest do
       # Raw DB: plaintext content is replaced by empty string (default_content guard),
       # title is nil, ciphertext columns are populated, nonce is 12 bytes,
       # and the ciphertext bytes do NOT equal the plaintext string.
-      {:ok, raw} =
-        Engram.Repo.with_tenant(user.id, fn ->
-          Engram.Repo.get_by!(Engram.Notes.Note, path: "journal/today.md", user_id: user.id)
-        end)
+      raw = Engram.Fixtures.raw_note_by_path!(user, "journal/today.md")
 
       # content is cleared (coerced to "" by the changeset default_content guard)
       assert raw.content == ""
@@ -110,7 +107,7 @@ defmodule Engram.Notes.EncryptionTest do
       assert renamed.title == "The Real Title"
     end
 
-    test "decrypt error logs without crashing" do
+    test "decrypt error raises with operator-friendly metadata, never silently nullifies fields" do
       import ExUnit.CaptureLog
 
       user = insert(:user)
@@ -126,10 +123,7 @@ defmodule Engram.Notes.EncryptionTest do
         })
 
       # Corrupt the ciphertext in the DB so Envelope.decrypt returns an error
-      {:ok, raw} =
-        Engram.Repo.with_tenant(user.id, fn ->
-          Engram.Repo.get_by!(Engram.Notes.Note, path: "broken/note.md", user_id: user.id)
-        end)
+      raw = Engram.Fixtures.raw_note_by_path!(user, "broken/note.md")
 
       <<first, rest::binary>> = raw.content_ciphertext
       tampered_ct = <<Bitwise.bxor(first, 1), rest::binary>>
@@ -144,27 +138,22 @@ defmodule Engram.Notes.EncryptionTest do
       # Clear DEK cache to force a fresh unwrap (removes a confounding variable)
       Engram.Crypto.DekCache.invalidate(user.id)
 
+      # Phase B.3 contract: decrypt failure on a persisted row is data
+      # corruption — must raise so the API returns 5xx + Sentry hit, never
+      # serialize `{"path": null, "content": null}` over a 200 OK.
       log =
         capture_log(fn ->
-          result = Notes.get_note(user, vault, "broken/note.md")
-
-          case result do
-            {:ok, n} ->
-              # Decrypt failed: returned struct should NOT contain the original plaintext
-              refute n.content == "will be unreadable"
-
-            {:error, _} ->
-              # Also acceptable: error is surfaced instead of silently returning corrupt data
-              :ok
+          assert_raise RuntimeError, ~r/Phase B note decryption failed/, fn ->
+            Notes.get_note(user, vault, "broken/note.md")
           end
         end)
 
-      # The error was logged with user_id and note_id for operator triage
+      # Operator triage metadata in the log line
       assert log =~ "decrypt_failed"
       assert log =~ "user_id=#{user.id}"
       assert log =~ "note_id=#{note.id}"
 
-      # Critical: log must NOT contain the plaintext or any DEK material
+      # Log must NOT contain the plaintext or any DEK material
       refute log =~ "will be unreadable"
     end
 
@@ -179,10 +168,7 @@ defmodule Engram.Notes.EncryptionTest do
           "mtime" => 1_000.0
         })
 
-      {:ok, raw} =
-        Engram.Repo.with_tenant(user.id, fn ->
-          Engram.Repo.get_by!(Engram.Notes.Note, path: "recipes/chicken.md", user_id: user.id)
-        end)
+      raw = Engram.Fixtures.raw_note_by_path!(user, "recipes/chicken.md")
 
       assert raw.content == "400F for 25min"
       assert raw.content_ciphertext == nil

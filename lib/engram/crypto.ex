@@ -70,8 +70,13 @@ defmodule Engram.Crypto do
   end
 
   @doc """
-  If `vault.encrypted`, encrypts `content`, `title`, `tags`; sets plaintext
+  If `vault.encrypted`, encrypts `content` + `title` and sets the plaintext
   fields to nil; adds `_ciphertext` + `_nonce` fields. Otherwise passes through.
+
+  Phase B.3: `tags` are encrypted into `tags_ciphertext` by every write via
+  `Engram.Notes.phase_b_keyword_for/4`, regardless of vault.encrypted. This
+  helper no longer touches tags — that's a Phase B contract, not a Phase 4
+  toggle.
   """
   @spec maybe_encrypt_note_fields(map(), User.t(), Engram.Vaults.Vault.t()) ::
           {:ok, map()} | {:error, term()}
@@ -85,23 +90,18 @@ defmodule Engram.Crypto do
          {:ok, dek} <- get_dek(user) do
       content = Map.get(attrs, :content) || Map.get(attrs, "content") || ""
       title = Map.get(attrs, :title) || Map.get(attrs, "title") || ""
-      tags = Map.get(attrs, :tags) || Map.get(attrs, "tags") || []
 
       {content_ct, content_nonce} = Envelope.encrypt(content, dek)
       {title_ct, title_nonce} = Envelope.encrypt(title, dek)
-      {tags_ct, tags_nonce} = Envelope.encrypt(:erlang.term_to_binary(tags), dek)
 
       {:ok,
        attrs
        |> Map.put(:content, nil)
        |> Map.put(:title, nil)
-       |> Map.put(:tags, nil)
        |> Map.put(:content_ciphertext, content_ct)
        |> Map.put(:content_nonce, content_nonce)
        |> Map.put(:title_ciphertext, title_ct)
-       |> Map.put(:title_nonce, title_nonce)
-       |> Map.put(:tags_ciphertext, tags_ct)
-       |> Map.put(:tags_nonce, tags_nonce)}
+       |> Map.put(:title_nonce, title_nonce)}
     end
   end
 
@@ -120,7 +120,8 @@ defmodule Engram.Crypto do
     if needs_note_decrypt?(note) do
       with {:ok, dek} <- get_dek(user),
            {:ok, note} <- decrypt_phase_4_note_fields(note, dek),
-           {:ok, note} <- decrypt_phase_b_note_fields(note, dek) do
+           {:ok, note} <- decrypt_phase_b_note_fields(note, dek),
+           {:ok, note} <- decrypt_phase_b_tags(note, dek) do
         {:ok, note}
       end
     else
@@ -136,10 +137,8 @@ defmodule Engram.Crypto do
 
   defp decrypt_phase_4_note_fields(%Engram.Notes.Note{} = note, dek) do
     with {:ok, content} <- Envelope.decrypt(note.content_ciphertext, note.content_nonce, dek),
-         {:ok, title} <- Envelope.decrypt(note.title_ciphertext, note.title_nonce, dek),
-         {:ok, tags_bin} <- Envelope.decrypt(note.tags_ciphertext, note.tags_nonce, dek) do
-      tags = :erlang.binary_to_term(tags_bin, [:safe])
-      {:ok, %{note | content: content, title: title, tags: tags}}
+         {:ok, title} <- Envelope.decrypt(note.title_ciphertext, note.title_nonce, dek) do
+      {:ok, %{note | content: content, title: title}}
     else
       :error -> {:error, :decrypt_failed}
       {:error, _} = err -> err
@@ -156,6 +155,21 @@ defmodule Engram.Crypto do
     else
       :error -> {:error, :decrypt_failed}
       {:error, _} = err -> err
+    end
+  end
+
+  # Phase B.3: tags ciphertext is populated for every note (encrypted or
+  # unencrypted vault). Decrypts only when the ciphertext is present.
+  defp decrypt_phase_b_tags(%Engram.Notes.Note{tags_ciphertext: nil} = note, _dek),
+    do: {:ok, note}
+
+  defp decrypt_phase_b_tags(%Engram.Notes.Note{} = note, dek) do
+    case Envelope.decrypt(note.tags_ciphertext, note.tags_nonce, dek) do
+      {:ok, tags_bin} ->
+        {:ok, %{note | tags: :erlang.binary_to_term(tags_bin, [:safe])}}
+
+      :error ->
+        {:error, :decrypt_failed}
     end
   end
 
@@ -518,76 +532,9 @@ defmodule Engram.Crypto do
     :crypto.mac(:hmac, :sha256, filter_key, value)
   end
 
-  @decrypt_delay_hours 24
-
-  @spec request_decrypt_vault(Engram.Vaults.Vault.t(), Engram.Accounts.User.t()) ::
-          {:ok, Engram.Vaults.Vault.t()} | {:error, :cooldown | :bad_status | term()}
-  def request_decrypt_vault(%Engram.Vaults.Vault{} = vault, %Engram.Accounts.User{} = user) do
-    Engram.Repo.with_tenant(user.id, fn ->
-      locked = Engram.Repo.get!(Engram.Vaults.Vault, vault.id, lock: "FOR UPDATE")
-
-      cond do
-        locked.encryption_status != "encrypted" ->
-          Engram.Repo.rollback(:bad_status)
-
-        cooldown_active?(locked, user) ->
-          Engram.Repo.rollback(:cooldown)
-
-        true ->
-          now = DateTime.utc_now()
-          scheduled_at = DateTime.add(now, @decrypt_delay_hours, :hour)
-
-          updated =
-            locked
-            |> Ecto.Changeset.change(%{
-              encryption_status: "decrypt_pending",
-              decrypt_requested_at: now,
-              last_toggle_at: now
-            })
-            |> Engram.Repo.update!()
-
-          {:ok, _} =
-            Engram.Workers.DecryptVault.new(
-              %{vault_id: vault.id, user_id: user.id, cursor: 0},
-              scheduled_at: scheduled_at
-            )
-            |> Oban.insert()
-
-          :telemetry.execute(
-            [:engram, :crypto, :decrypt_requested],
-            %{},
-            %{vault_id: vault.id, user_id: user.id, scheduled_at: scheduled_at}
-          )
-
-          updated
-      end
-    end)
-    |> case do
-      {:ok, vault} -> {:ok, vault}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @spec cancel_decrypt_vault(Engram.Vaults.Vault.t(), Engram.Accounts.User.t()) ::
-          {:ok, Engram.Vaults.Vault.t()} | {:error, :bad_status}
-  def cancel_decrypt_vault(%Engram.Vaults.Vault{} = vault, %Engram.Accounts.User{} = user) do
-    Engram.Repo.with_tenant(user.id, fn ->
-      locked = Engram.Repo.get!(Engram.Vaults.Vault, vault.id, lock: "FOR UPDATE")
-
-      if locked.encryption_status != "decrypt_pending" do
-        Engram.Repo.rollback(:bad_status)
-      else
-        locked
-        |> Ecto.Changeset.change(%{
-          encryption_status: "encrypted",
-          decrypt_requested_at: nil
-        })
-        |> Engram.Repo.update!()
-      end
-    end)
-    |> case do
-      {:ok, vault} -> {:ok, vault}
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  # Phase B.3: vault decryption is retired. At-rest encryption is mandatory
+  # for every vault — there is no public path to roll a vault back to
+  # plaintext. Per-note read paths still decrypt on demand (see
+  # `maybe_decrypt_note_fields/2`); whole-vault decryption is a concept
+  # that no longer exists.
 end
