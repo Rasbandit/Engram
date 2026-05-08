@@ -156,3 +156,145 @@ If they have attachments and need full coverage, Phase 7 isn't shipped yet — a
 - Cooldown implementation: PR #50 (per-user cooldown), PR #51 (mix task)
 - Plugin UI: PR #24 (encryption tab + status badge), PR #25 (error handling + persistent status row)
 - Follow-up tracking: `docs/encryption-toggle-followups.md`
+
+---
+
+## Tier-3 / T3.5 — Master-key rotation runbook
+
+_Added 2026-05-08 with PR #78 (T3.5)._
+
+The master key (`ENCRYPTION_MASTER_KEY`) wraps every user's per-user DEK. Rotation is the operator action of swapping the master key without losing access to existing wrapped DEKs. T3.5 added:
+
+- `Engram.Crypto.MasterRotation.rotate_user/2` — per-user rewrap (idempotent).
+- `Engram.Crypto.MasterRotation.rotate_all/2` — cursor-driven streaming over the user fleet.
+- `Engram.Crypto.MasterRotation.enqueue_all/2` — Oban-driven equivalent for production.
+- `mix engram.rotate_master_key --target-version N` — Mix wrapper (dev / staging).
+- `Engram.Crypto.BootCanary` — boot-time current-key-only verify; raises on mismatch.
+- M4 fallback gate — `_PREVIOUS` consulted only for users still below `ENCRYPTION_MASTER_KEY_VERSION`.
+
+### Pre-rotation checklist
+
+1. **Backup the current master key** (see backup section below).
+2. **Generate new key**: `openssl rand 32 | base64`.
+3. **Confirm rotation infra is deployed**: target backend image must have T3.5 (commit ≥ PR #78, version ≥ 0.5.35).
+4. **Confirm the canary table is provisioned**: `SELECT count(*) FROM system_canaries`. Should be `≥ 1` after a single boot of T3.5-or-later.
+
+### Rotation procedure
+
+1. **Set both env vars + bump version** on running app:
+
+   ```
+   ENCRYPTION_MASTER_KEY=<NEW>                  # the new key
+   ENCRYPTION_MASTER_KEY_PREVIOUS=<OLD>          # the prior key
+   ENCRYPTION_MASTER_KEY_VERSION=<TARGET>        # bump (e.g. 1 → 2)
+   ```
+
+   Restart the app. Boot canary will FAIL because the latest canary row is wrapped under `<OLD>` and current is now `<NEW>`. **This is expected before step 2 runs** — the canary is the leading edge.
+
+   To bring up the app during rotation, set `:engram, :boot_canary_enabled` to `false` (env override) for the duration. Re-enable as soon as step 4 completes.
+
+   M4 gate behavior: with VERSION bumped to N, every user at `dek_version < N` is rotation-eligible; `_PREVIOUS` rescues their reads while rotation is in-flight.
+
+2. **Run rotation**:
+
+   - Dev / staging: `mix engram.rotate_master_key --target-version <TARGET>`.
+   - Production: `Engram.Crypto.MasterRotation.enqueue_all(<TARGET>)` via release rpc; jobs land on the `:crypto_backfill` queue (concurrency 1) and survive node restarts.
+
+3. **Verify completion**:
+
+   ```sql
+   SELECT MIN(dek_version), MAX(dek_version), count(*)
+   FROM users
+   WHERE encrypted_dek IS NOT NULL;
+   ```
+
+   `MIN(dek_version) >= TARGET` means rotation is complete.
+
+4. **Rotate the canary**:
+
+   ```
+   /app/bin/engram rpc 'Engram.Crypto.MasterRotation.rotate_canary()'
+   ```
+
+   Restart the app — boot canary will now succeed. Re-enable boot_canary_enabled if you disabled it.
+
+5. **Drop `_PREVIOUS`**:
+
+   ```
+   ENCRYPTION_MASTER_KEY=<NEW>
+   # ENCRYPTION_MASTER_KEY_PREVIOUS unset
+   ENCRYPTION_MASTER_KEY_VERSION=<TARGET>
+   ```
+
+   Restart. Boot canary verifies. M4 telemetry `[:engram, :crypto, :previous_fallback_hit]` should be zero — if not, some user's wrap was missed. Investigate before proceeding.
+
+### Telemetry to watch
+
+- `[:engram, :crypto, :rotate, :user]` — per-user `:ok | :skipped | :failed`. Failures should be zero or single-digit (deleted user mid-flight).
+- `[:engram, :crypto, :previous_fallback_hit]` — every fallback consultation. After step 5, this should be flat zero.
+- `[:engram, :crypto, :boot_canary]` — `:ok` on every successful boot. `:failed` is fail-loud.
+
+### Rollback (the master key is wrong)
+
+If you discover post-step-5 that the new key is wrong (lost, corrupted, mistyped):
+
+1. Re-add `ENCRYPTION_MASTER_KEY_PREVIOUS=<NEW>` and set `ENCRYPTION_MASTER_KEY=<OLD>`.
+2. Decrement `ENCRYPTION_MASTER_KEY_VERSION` to the value it held before the rotation.
+3. Boot canary fails (canary now wrapped under wrong-from-its-perspective key) — disable boot_canary_enabled.
+4. Run rotate-down by manually resetting `users.dek_version` to the prior target via SQL, then rotate forward to that target. Current rotate-down ergonomics are minimal — see Open Questions in `workspace/docs/encryption-tier-3-audit.md`.
+
+---
+
+## Tier-3 / T3.5.6 — Master-key backup procedure
+
+_Added 2026-05-08 with PR #78 (T3.5)._
+
+> **Selfhost reality check:** today, we have one paying environment (selfhost on FastRaid) and zero managed-key-by-customer instances. The "named owners" convention below applies primarily to the saas instance; selfhost users carry their own backup obligation, which is captured in product-level UX (out of scope here).
+
+### What to back up
+
+The master key is **the** secret. Loss = total ciphertext loss for every user (no per-user DEK is recoverable without it).
+
+Sources of truth:
+
+- `ENCRYPTION_MASTER_KEY` (current).
+- `ENCRYPTION_MASTER_KEY_PREVIOUS` (during rotation windows).
+
+### Where to back up
+
+**Tier-3 launch baseline (today):**
+
+1. **Primary:** the value lives in the FastRaid Unraid template's runtime ENV. SSH access required. Owner: open-claw.
+2. **Secondary:** sealed printout in a physical safe at owner's residence. Owner: open-claw.
+3. **Off-site copy:** encrypted, stored in 1Password personal vault. Owner: open-claw.
+
+**Tier-3 follow-up (post-launch):**
+
+- Add at least one independent backup with a non-owner trustee (legal next-of-kin or a designated co-signatory).
+- Add a quarterly restore drill schedule (next drill: **2026-08-08**).
+
+### When to rotate
+
+- **Mandatory:** after any suspicion of master-key exposure (logs, crash dumps, env-var leak in screenshots, etc.).
+- **Mandatory:** before significant operator transitions (handing off ops to a new owner).
+- **Optional / opportunistic:** every 12 months as a cleanliness drill.
+
+### Restore drill (quarterly)
+
+1. On a non-prod laptop, decrypt the off-site copy.
+2. Boot a fresh copy of the latest engram image with `ENCRYPTION_MASTER_KEY=<RESTORED>` against a recent prod database snapshot in a dev compose stack.
+3. Confirm `Engram.Crypto.BootCanary.verify!()` passes — i.e., the restored key matches what's in `system_canaries`.
+4. List a few notes via the API to confirm content decrypts.
+5. Tear down the test stack. Drill complete.
+
+If the drill fails, surface it as a P0 immediately; the off-site copy is suspect.
+
+### Owners + drill schedule
+
+| Role | Person | Responsibility |
+|---|---|---|
+| Primary owner | open-claw | Holds + rotates the master key, runs drills |
+| Drill scheduler | open-claw (until backup owner exists) | Runs quarterly drill, escalates failures |
+| Backup trustee | _[unassigned — to be appointed before saas paying-customers]_ | Emergency decryption authority |
+
+Next drill: **2026-08-08**. Track in `~/Calendar` or equivalent.
