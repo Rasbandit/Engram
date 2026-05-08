@@ -15,6 +15,7 @@ defmodule Engram.Application do
       [
         EngramWeb.Telemetry,
         Engram.Repo,
+        boot_canary_task(),
         {DNSCluster, query: Application.get_env(:engram, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Engram.PubSub},
         EngramWeb.Presence,
@@ -41,6 +42,22 @@ defmodule Engram.Application do
         :engram_redact,
         {&Engram.Logger.RedactFilter.filter/2, []}
       )
+  end
+
+  # T3.5.5 / M3 — boot canary verification. Runs immediately after Repo
+  # comes up. A transient task that exits 0 on success and crashes the
+  # supervisor on failure (which crashes the application start, so the
+  # node fails loudly on a wrong master key). Skipped in :test where
+  # the canary table is per-sandbox; tests cover BootCanary directly.
+  defp boot_canary_task do
+    if Application.get_env(:engram, :boot_canary_enabled, true) do
+      %{
+        id: :engram_boot_canary,
+        start: {Task, :start_link, [&Engram.Crypto.BootCanary.verify!/0]},
+        restart: :transient,
+        type: :worker
+      }
+    end
   end
 
   defp clerk_strategy_child do

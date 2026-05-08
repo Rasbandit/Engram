@@ -63,6 +63,106 @@ defmodule Engram.Crypto.KeyProvider.LocalTest do
     assert {:ok, ^dek} = Local.unwrap_dek(new_wrapped, %{user_id: 1})
   end
 
+  describe "T3.5 / M4 — _PREVIOUS fallback gating" do
+    test "gated when ctx dek_version >= master_key_version (rotated user)" do
+      old_key = :crypto.strong_rand_bytes(32)
+      new_key = :crypto.strong_rand_bytes(32)
+      Application.put_env(:engram, :encryption_master_key, Base.encode64(old_key))
+      dek = Local.generate_dek()
+      {:ok, wrapped_with_old} = Local.wrap_dek(dek, %{user_id: 1})
+
+      Application.put_env(:engram, :encryption_master_key, Base.encode64(new_key))
+      Application.put_env(:engram, :encryption_master_key_previous, Base.encode64(old_key))
+
+      :telemetry.attach(
+        "fallback-gated",
+        [:engram, :crypto, :previous_fallback_hit],
+        fn _n, _m, meta, _ -> send(self(), {:fallback, meta}) end,
+        nil
+      )
+
+      try do
+        # User has been rotated to dek_version 2; current master is also v2.
+        # _PREVIOUS must not rescue — caller's blob is stale data.
+        assert {:error, :invalid_wrapping} =
+                 Local.unwrap_dek(wrapped_with_old, %{
+                   user_id: 1,
+                   dek_version: 2,
+                   master_key_version: 2
+                 })
+
+        assert_received {:fallback, %{outcome: :gated_by_dek_version}}
+      after
+        :telemetry.detach("fallback-gated")
+      end
+    end
+
+    test "ungated + rescues when ctx dek_version < master_key_version (unrotated user)" do
+      old_key = :crypto.strong_rand_bytes(32)
+      new_key = :crypto.strong_rand_bytes(32)
+      Application.put_env(:engram, :encryption_master_key, Base.encode64(old_key))
+      dek = Local.generate_dek()
+      {:ok, wrapped_with_old} = Local.wrap_dek(dek, %{user_id: 1})
+
+      Application.put_env(:engram, :encryption_master_key, Base.encode64(new_key))
+      Application.put_env(:engram, :encryption_master_key_previous, Base.encode64(old_key))
+
+      :telemetry.attach(
+        "fallback-rescue",
+        [:engram, :crypto, :previous_fallback_hit],
+        fn _n, _m, meta, _ -> send(self(), {:fallback, meta}) end,
+        nil
+      )
+
+      try do
+        # Unrotated user (dek_version=1) — fallback allowed, rescues.
+        assert {:ok, ^dek} =
+                 Local.unwrap_dek(wrapped_with_old, %{
+                   user_id: 1,
+                   dek_version: 1,
+                   master_key_version: 2
+                 })
+
+        assert_received {:fallback, %{outcome: :rescued}}
+      after
+        :telemetry.detach("fallback-rescue")
+      end
+    end
+
+    test "explicit :disable_previous_fallback in ctx overrides version logic" do
+      old_key = :crypto.strong_rand_bytes(32)
+      new_key = :crypto.strong_rand_bytes(32)
+      Application.put_env(:engram, :encryption_master_key, Base.encode64(old_key))
+      dek = Local.generate_dek()
+      {:ok, wrapped_with_old} = Local.wrap_dek(dek, %{user_id: 1})
+
+      Application.put_env(:engram, :encryption_master_key, Base.encode64(new_key))
+      Application.put_env(:engram, :encryption_master_key_previous, Base.encode64(old_key))
+
+      assert {:error, :invalid_wrapping} =
+               Local.unwrap_dek(wrapped_with_old, %{
+                 user_id: 1,
+                 dek_version: 1,
+                 master_key_version: 2,
+                 disable_previous_fallback: true
+               })
+    end
+
+    test "ctx without dek_version preserves legacy fallback behavior (back-compat)" do
+      old_key = :crypto.strong_rand_bytes(32)
+      new_key = :crypto.strong_rand_bytes(32)
+      Application.put_env(:engram, :encryption_master_key, Base.encode64(old_key))
+      dek = Local.generate_dek()
+      {:ok, wrapped_with_old} = Local.wrap_dek(dek, %{user_id: 1})
+
+      Application.put_env(:engram, :encryption_master_key, Base.encode64(new_key))
+      Application.put_env(:engram, :encryption_master_key_previous, Base.encode64(old_key))
+
+      # No dek_version → no gate → fallback allowed (legacy behavior).
+      assert {:ok, ^dek} = Local.unwrap_dek(wrapped_with_old, %{user_id: 1})
+    end
+  end
+
   describe "T3.4 / M2 — wrap-format versioning" do
     test "new wraps carry the version + algorithm header bytes (`<<0x01, 0x01, ...>>`)" do
       # T3.4 / M2 — wrap-format version byte + algorithm-id byte. Enables

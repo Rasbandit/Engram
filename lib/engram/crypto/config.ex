@@ -48,6 +48,25 @@ defmodule Engram.Crypto.Config do
     end
   end
 
+  @doc """
+  T3.5 / M4 — current master-key generation. Bumped after each
+  rotation completes (via `ENCRYPTION_MASTER_KEY_VERSION` env or app
+  config). Used by `Engram.Crypto.get_dek/1` to gate the `_PREVIOUS`
+  fallback: a user whose `dek_version >= master_key_version` has
+  already been rotated and MUST decrypt with the current key — falling
+  back to `_PREVIOUS` for such a user signals a rotation regression
+  (or a wrong-key boot) that should fail loudly, not silently rescue.
+
+  Default is `1` — the implicit version for any pre-T3.5 deployment.
+  """
+  @spec master_key_version() :: pos_integer()
+  def master_key_version do
+    case Application.get_env(:engram, :encryption_master_key_version, 1) do
+      v when is_integer(v) and v >= 1 -> v
+      raw when is_binary(raw) -> String.to_integer(raw)
+    end
+  end
+
   defp validate_local_master_key! do
     _ = local_master_key!()
     :ok

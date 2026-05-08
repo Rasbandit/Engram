@@ -67,7 +67,17 @@ defmodule Engram.Crypto.KeyProvider.Local do
 
   def unwrap_dek(_other, _ctx), do: {:error, :malformed_wrapped_blob}
 
-  defp do_unwrap(ct, nonce, _ctx) do
+  # T3.5 / M4 — `_PREVIOUS` fallback is gated on the user's `dek_version`
+  # vs the configured `master_key_version`. A user whose dek_version is
+  # at-or-above the current master generation has been rotated already;
+  # if its blob fails to decrypt with the current key, that is a real
+  # error — falling through to `_PREVIOUS` would silently mask a wrong-
+  # key boot or a rotation regression.
+  #
+  # Telemetry `[:engram, :crypto, :previous_fallback_hit]` fires
+  # whenever the fallback is consulted (whether it rescues or not), so
+  # operators can watch the count drop to zero post-rotation.
+  defp do_unwrap(ct, nonce, ctx) do
     current = Config.local_master_key!()
 
     case Envelope.decrypt(ct, nonce, current) do
@@ -75,18 +85,64 @@ defmodule Engram.Crypto.KeyProvider.Local do
         {:ok, dek}
 
       :error ->
-        case Config.local_master_key_previous() do
-          nil ->
-            {:error, :invalid_wrapping}
+        try_previous_fallback(ct, nonce, ctx)
+    end
+  end
 
-          prev ->
+  defp try_previous_fallback(ct, nonce, ctx) do
+    if previous_fallback_allowed?(ctx) do
+      case Config.local_master_key_previous() do
+        nil ->
+          emit_fallback_telemetry(ctx, :no_previous_configured)
+          {:error, :invalid_wrapping}
+
+        prev ->
+          result =
             case Envelope.decrypt(ct, nonce, prev) do
               {:ok, <<_::256>> = dek} -> {:ok, dek}
               :error -> {:error, :invalid_wrapping}
             end
-        end
+
+          emit_fallback_telemetry(ctx, result)
+          result
+      end
+    else
+      emit_fallback_telemetry(ctx, :gated_by_dek_version)
+      {:error, :invalid_wrapping}
     end
   end
+
+  defp previous_fallback_allowed?(ctx) do
+    cond do
+      Map.get(ctx, :disable_previous_fallback) == true ->
+        false
+
+      true ->
+        dek_version = Map.get(ctx, :dek_version)
+        master_key_version = Map.get(ctx, :master_key_version) || Config.master_key_version()
+
+        is_nil(dek_version) or dek_version < master_key_version
+    end
+  end
+
+  defp emit_fallback_telemetry(ctx, outcome) do
+    :telemetry.execute(
+      [:engram, :crypto, :previous_fallback_hit],
+      %{count: 1},
+      %{
+        user_id: Map.get(ctx, :user_id),
+        dek_version: Map.get(ctx, :dek_version),
+        master_key_version:
+          Map.get(ctx, :master_key_version) || Config.master_key_version(),
+        outcome: classify_outcome(outcome)
+      }
+    )
+  end
+
+  defp classify_outcome({:ok, _}), do: :rescued
+  defp classify_outcome({:error, :invalid_wrapping}), do: :failed
+  defp classify_outcome(:no_previous_configured), do: :no_previous_configured
+  defp classify_outcome(:gated_by_dek_version), do: :gated_by_dek_version
 
   @impl true
   def supports_async_workers?, do: true
@@ -95,6 +151,37 @@ defmodule Engram.Crypto.KeyProvider.Local do
   def rotate_wrapping(wrapped, ctx) do
     with {:ok, dek} <- unwrap_dek(wrapped, ctx) do
       wrap_dek(dek, ctx)
+    end
+  end
+
+  @doc """
+  T3.5.5 / M3 — current-master-key-only unwrap, for `BootCanary`. Bypasses
+  `_PREVIOUS` fallback so a misconfigured `ENCRYPTION_MASTER_KEY` cannot
+  be silently rescued by `_PREVIOUS` during boot verification. Distinct
+  from `unwrap_dek/2` so production callers cannot accidentally adopt
+  this mode and break legitimate rotation reads.
+  """
+  @spec unwrap_dek_current_only(binary()) :: {:ok, <<_::256>>} | {:error, term()}
+  def unwrap_dek_current_only(blob) when is_binary(blob) do
+    current = Config.local_master_key!()
+
+    case blob do
+      <<@wrap_version_v1, @alg_aes_256_gcm, nonce::binary-size(12), ct::binary>>
+      when byte_size(blob) == 62 ->
+        decrypt_or_invalid(ct, nonce, current)
+
+      <<nonce::binary-size(12), ct::binary>> when byte_size(blob) == 60 ->
+        decrypt_or_invalid(ct, nonce, current)
+
+      _ ->
+        {:error, :malformed_wrapped_blob}
+    end
+  end
+
+  defp decrypt_or_invalid(ct, nonce, key) do
+    case Envelope.decrypt(ct, nonce, key) do
+      {:ok, <<_::256>> = dek} -> {:ok, dek}
+      :error -> {:error, :invalid_wrapping}
     end
   end
 end

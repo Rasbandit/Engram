@@ -183,6 +183,8 @@ if config_env() != :test do
     key_provider: key_provider_module,
     encryption_master_key: System.get_env("ENCRYPTION_MASTER_KEY"),
     encryption_master_key_previous: System.get_env("ENCRYPTION_MASTER_KEY_PREVIOUS"),
+    encryption_master_key_version:
+      String.to_integer(System.get_env("ENCRYPTION_MASTER_KEY_VERSION", "1")),
     dek_cache_ttl_ms: String.to_integer(System.get_env("DEK_CACHE_TTL_MS", "3600000"))
 end
 

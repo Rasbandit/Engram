@@ -87,6 +87,10 @@ config :engram,
   key_provider: Engram.Crypto.KeyProvider.Local,
   dek_cache_ttl_ms: 3_600_000
 
+# T3.5.5 / M3 — boot canary verification. Default on; tests disable to
+# avoid sandbox-checkout coupling at supervisor start.
+config :engram, :boot_canary_enabled, true
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

@@ -88,7 +88,7 @@ defmodule Engram.Crypto do
   @spec get_dek(User.t()) :: {:ok, <<_::256>>} | {:error, term()}
   def get_dek(%User{encrypted_dek: nil}), do: {:error, :no_dek}
 
-  def get_dek(%User{id: user_id, encrypted_dek: blob}) do
+  def get_dek(%User{id: user_id, encrypted_dek: blob, dek_version: dek_version}) do
     mark_sensitive()
 
     case DekCache.get(user_id) do
@@ -97,8 +97,15 @@ defmodule Engram.Crypto do
 
       :miss ->
         provider = Resolver.provider_for(user_id)
+        # T3.5 / M4 — pass user.dek_version + master_key_version so the
+        # provider can gate the `_PREVIOUS` fallback (audit M4).
+        ctx = %{
+          user_id: user_id,
+          dek_version: dek_version,
+          master_key_version: Engram.Crypto.Config.master_key_version()
+        }
 
-        case provider.unwrap_dek(blob, %{user_id: user_id}) do
+        case provider.unwrap_dek(blob, ctx) do
           {:ok, dek} ->
             DekCache.put(user_id, dek)
             {:ok, dek}

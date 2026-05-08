@@ -6,6 +6,11 @@ import Config
 # The RateLimitTest validates the 10-req limit explicitly, with per-test resets.
 config :engram, :rate_limit_override, 10_000
 
+# T3.5.5 / M3 — boot canary disabled in tests; supervisor start runs
+# before sandbox checkout, and the canary table is per-sandbox. Tests
+# cover BootCanary directly via Engram.Crypto.BootCanaryTest.
+config :engram, :boot_canary_enabled, false
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used
