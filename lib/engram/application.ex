@@ -7,7 +7,7 @@ defmodule Engram.Application do
 
   @impl true
   def start(_type, _args) do
-    preflight!()
+    Engram.Crypto.Config.validate!()
     install_log_redaction_filter()
     EngramWeb.RequestLogger.attach()
 
@@ -15,6 +15,7 @@ defmodule Engram.Application do
       [
         EngramWeb.Telemetry,
         Engram.Repo,
+        boot_canary_guard(),
         {DNSCluster, query: Application.get_env(:engram, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Engram.PubSub},
         EngramWeb.Presence,
@@ -29,25 +30,20 @@ defmodule Engram.Application do
     Supervisor.start_link(children, opts)
   end
 
-  @doc """
-  Synchronous pre-supervisor boot validation. A raise here propagates out
-  of `Application.start/2` and the VM exits non-zero — true fail-loud.
-
-  T3-audit C2 — the prior wiring put `BootCanary.verify!/0` inside a
-  `Task.start_link` child with `restart: :temporary`. `start_link` returns
-  `{:ok, pid}` synchronously the moment the task is spawned; any later
-  raise inside `verify!/0` lands in the task process where `:temporary`
-  causes the supervisor to log the EXIT and take no further action. Result:
-  app boots with the wrong master key, defeating the whole point of M3.
-  """
-  def preflight! do
-    Engram.Crypto.Config.validate!()
-
+  # T3-audit C2 — runs BootCanary.verify!/0 synchronously in a GenServer's
+  # init/1, AFTER Engram.Repo has started (it queries `system_canaries`).
+  # An init/1 raise → start_link returns {:error, _} → supervisor's
+  # start_link fails → Application.start/2 fails → VM exits non-zero. True
+  # fail-loud. The prior `Task.start_link` wiring returned {:ok, pid}
+  # synchronously and lost the eventual raise to `:temporary`.
+  defp boot_canary_guard do
     if Application.get_env(:engram, :boot_canary_enabled, true) do
-      Engram.Crypto.BootCanary.verify!()
+      %{
+        id: :engram_boot_canary_guard,
+        start: {Engram.Crypto.BootCanaryGuard, :start_link, []},
+        restart: :temporary
+      }
     end
-
-    :ok
   end
 
   defp install_log_redaction_filter do
