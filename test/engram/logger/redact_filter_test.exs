@@ -149,12 +149,33 @@ defmodule Engram.Logger.RedactFilterTest do
         require Logger
         Logger.warning("blob failed", storage_key: @sentinel, reason: :enoent)
 
-        assert_receive {:log_event, event}, 500
+        # Filter on `:storage_key` — `async: true` with a global :logger
+        # primary filter means concurrent tests' Logger calls also reach
+        # this handler. Pre-T3.4 the test asserted on the FIRST event
+        # received, which flaked under CI parallelism.
+        event = wait_for_event_with_storage_key(500)
+
         assert event.meta.storage_key == "[REDACTED]"
         assert event.meta.reason == :enoent
       after
         :logger.remove_handler(handler_id)
       end
+    end
+  end
+
+  defp wait_for_event_with_storage_key(timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait(deadline)
+  end
+
+  defp do_wait(deadline) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      {:log_event, %{meta: %{storage_key: _}} = event} -> event
+      {:log_event, _other} -> do_wait(deadline)
+    after
+      remaining -> flunk("no log event with :storage_key arrived within budget")
     end
   end
 
