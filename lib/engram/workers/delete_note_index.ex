@@ -36,4 +36,16 @@ defmodule Engram.Workers.DeleteNoteIndex do
         {:discard, "invalid path_hmac base64 for note_id=#{note_id}"}
     end
   end
+
+  # T3.2 — defensive fall-through. The strict head above expects the
+  # post-T3.2 arg shape; the migration that ships in this PR deletes any
+  # in-flight jobs carrying the legacy `path` key, but deploy ordering is
+  # not load-bearing on this clause: any unrecognized shape is discarded
+  # with a structured reason so a stale enqueue from a rolled-back deploy
+  # does not raise FunctionClauseError + retry storm. Crucially, the
+  # legacy `path` plaintext key is exactly the leak T3.2/H3 closed —
+  # there is no scenario where we want to "process" such a job.
+  def perform(%Oban.Job{args: args}) do
+    {:discard, "T3.2 legacy or malformed args (keys=#{inspect(Map.keys(args))})"}
+  end
 end
