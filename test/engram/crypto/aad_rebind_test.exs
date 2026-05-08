@@ -147,6 +147,46 @@ defmodule Engram.Crypto.AadRebindTest do
     end
   end
 
+  describe "attachment rebind honesty (T3-audit H5)" do
+    test "emits :attachment_skipped telemetry per user with legacy count", %{user: user} do
+      # T3-audit H5 — attachment rebind is intentionally a no-op (S3 blob's
+      # AAD doesn't get touched here; converges on next upload). Pre-fix,
+      # rebind_user_attachments/1 returned :ok with no signal, so an
+      # operator drain log told them attachments were rebound when they
+      # weren't. Fix: emit per-user telemetry with the count of legacy
+      # attachments that still need natural convergence.
+      legacy_version = Crypto.row_version_legacy()
+
+      # Use the real Vaults context so the vault is born AAD-bound; we want
+      # to isolate this test to the attachment rebind signal, not vault
+      # legacy decrypt.
+      {:ok, vault} = Engram.Vaults.create_vault(user, %{name: "Attachment Vault"})
+
+      _att1 = insert(:attachment, user: user, vault: vault, dek_version: legacy_version)
+      _att2 = insert(:attachment, user: user, vault: vault, dek_version: legacy_version)
+
+      :telemetry.attach(
+        "att-skipped-test",
+        [:engram, :crypto, :aad_rebind, :attachment_skipped],
+        fn _name, measurements, metadata, _ ->
+          send(self(), {:attachment_skipped, measurements, metadata})
+        end,
+        nil
+      )
+
+      try do
+        AadRebind.rebind_user(user.id)
+
+        assert_received {:attachment_skipped, %{count: count}, %{user_id: uid}}
+        assert uid == user.id
+        assert count >= 2,
+               "telemetry must report legacy attachment count so operators can plan natural convergence; got #{count}"
+      after
+        :telemetry.detach("att-skipped-test")
+      end
+    end
+  end
+
   describe "rebind_all/1" do
     test "drives the cursor across multiple users", %{user: user_a} do
       user_b = insert(:user)
