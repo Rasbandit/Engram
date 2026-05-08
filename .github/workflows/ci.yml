@@ -775,6 +775,10 @@ jobs:
           done
           mix ecto.create
           mix ecto.migrate
+          # Ensure Tailwind binary is valid (cache prune can corrupt native deps).
+          # Mirror of unit-tests fix — Playwright's webServer boots Phoenix
+          # which boots Tailwind, and a corrupt :eacces binary kills the boot.
+          mix tailwind.install 2>/dev/null || true
 
       - name: Install frontend deps + Playwright
         working-directory: frontend
