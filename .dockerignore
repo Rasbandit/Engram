@@ -14,3 +14,7 @@ docs
 *.md
 !README.md
 .worktrees
+# T3.0.3 — never bake a BEAM crash dump into a Docker image. May contain
+# plaintext DEKs / master key from process heap at the moment of crash.
+erl_crash.dump
+**/erl_crash.dump

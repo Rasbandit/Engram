@@ -82,4 +82,10 @@ EXPOSE 4000
 
 ENV PHX_SERVER=true
 
+# T3.0.3 — refuse to write erl_crash.dump on BEAM crash. The dump would
+# include plaintext DEKs (ETS) + master key (LocalKeyProvider state) from
+# process heap. Unraid templates also set this; this line is the defense-
+# in-depth default so a template that drifts can't open the leak.
+ENV ERL_CRASH_DUMP_BYTES=0
+
 CMD /app/bin/engram eval "Engram.Release.migrate()" && exec /app/bin/engram start
