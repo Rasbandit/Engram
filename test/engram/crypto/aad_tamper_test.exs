@@ -110,4 +110,50 @@ defmodule Engram.Crypto.AadTamperTest do
     assert {:ok, "needs-aad"} =
              Envelope.decrypt(raw.content_ciphertext, raw.content_nonce, dek, aad)
   end
+
+  describe "post-rotation AAD bind" do
+    # Bypass stubs the Qdrant scroll so rotate_user/1 can complete without a
+    # real Qdrant instance. The sweep returns zero points, which is correct for
+    # these tests (no embeddings seeded).
+    setup do
+      bypass = Bypass.open()
+      Application.put_env(:engram, :qdrant_url, "http://localhost:#{bypass.port}")
+      on_exit(fn -> Application.delete_env(:engram, :qdrant_url) end)
+
+      Bypass.stub(bypass, "POST", "/collections/engram_notes/points/scroll", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(
+          200,
+          Jason.encode!(%{"result" => %{"points" => [], "next_page_offset" => nil}})
+        )
+      end)
+
+      :ok
+    end
+
+    test "swapping ciphertext between rotated rows still fails decrypt",
+         %{user: user, vault: vault} do
+      {:ok, note_a} = Notes.upsert_note(user, vault, %{path: "rot-a.md", content: "rotated-A"})
+      {:ok, note_b} = Notes.upsert_note(user, vault, %{path: "rot-b.md", content: "rotated-B"})
+
+      # Rotate the user's DEK — all rows are re-encrypted under the new DEK
+      # but their AAD strings ("notes:content:<id>") remain bound to row id.
+      assert :ok = Engram.Crypto.UserDekRotation.rotate_user(user.id)
+
+      # Reload user so we have the updated encrypted_dek / dek_version.
+      rotated_user = Repo.get!(Engram.Accounts.User, user.id, skip_tenant_check: true)
+
+      # Pull fresh raw rows — ciphertext is now under the new DEK.
+      raw_a = Repo.get!(Engram.Notes.Note, note_a.id, skip_tenant_check: true)
+      raw_b = Repo.get!(Engram.Notes.Note, note_b.id, skip_tenant_check: true)
+
+      # Splice A's rotated ciphertext + nonce into B's in-memory struct.
+      # AAD reconstructed from B's row id ("notes:content:<B.id>") must NOT
+      # satisfy the tag that was sealed under A's AAD ("notes:content:<A.id>").
+      tampered = %{raw_b | content_ciphertext: raw_a.content_ciphertext, content_nonce: raw_a.content_nonce}
+
+      assert {:error, :decrypt_failed} = Crypto.maybe_decrypt_note_fields(tampered, rotated_user)
+    end
+  end
 end
