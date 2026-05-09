@@ -128,6 +128,49 @@ defmodule Engram.Fixtures do
   end
 
   @doc """
+  Inserts a Vault row directly with valid phase-B ciphertext, bypassing
+  billing checks and Oban side effects. The name is encrypted with empty
+  AAD (legacy dek_version: 1) so rotation tests start with a row that
+  actually needs to be re-encrypted.
+  """
+  def insert_vault!(user, name) do
+    user =
+      case user.encrypted_dek do
+        nil ->
+          {:ok, u} = Engram.Crypto.ensure_user_dek(user)
+          u
+
+        _ ->
+          user
+      end
+
+    {:ok, dek} = Engram.Crypto.get_dek(user)
+    {:ok, filter_key} = Engram.Crypto.dek_filter_key(user)
+    vault_id = Engram.Crypto.next_row_id(:vaults)
+
+    # Legacy encrypt: empty AAD (dek_version 1 — pre-AAD-bind)
+    {ct, nonce} = Engram.Crypto.Envelope.encrypt(name, dek, <<>>)
+
+    seq = System.unique_integer([:positive, :monotonic])
+
+    attrs = %{
+      id: vault_id,
+      user_id: user.id,
+      slug: "vault-fixture-#{seq}",
+      is_default: false,
+      name_ciphertext: ct,
+      name_nonce: nonce,
+      name_hmac: Engram.Crypto.hmac_field(filter_key, name),
+      dek_version: 1
+    }
+
+    Repo.insert!(
+      struct(Engram.Vaults.Vault, attrs),
+      skip_tenant_check: true
+    )
+  end
+
+  @doc """
   Phase B.3 helper — fetches the raw (un-decrypted) Note row by plaintext
   path. Tests that previously called `Repo.get_by!(Note, path: ..., user_id:
   ...)` no longer work because `path` is virtual. This translates the

@@ -61,7 +61,9 @@ defmodule Engram.Crypto.UserDekRotationTest do
 
   describe "rotate_user/2 — notes sweep" do
     setup %{user: user} do
-      vault = insert(:vault, user: user)
+      # Use dek_version: 2 so the vaults sweep skips this placeholder vault
+      # (its name_ciphertext is random bytes, not a valid encryption).
+      vault = insert(:vault, user: user, dek_version: 2)
 
       note_a =
         Engram.Fixtures.insert_note!(user, vault, %{
@@ -108,6 +110,26 @@ defmodule Engram.Crypto.UserDekRotationTest do
         Repo.one!(from(n in Engram.Notes.Note, where: n.id == ^a.id), skip_tenant_check: true)
 
       refute reloaded.content_ciphertext == old_ct
+    end
+  end
+
+  describe "rotate_user/2 — vaults sweep" do
+    test "every vault re-encrypts under the new DEK", %{user: user} do
+      vault = Engram.Fixtures.insert_vault!(user, "Personal")
+      old_ct = vault.name_ciphertext
+
+      assert :ok = UserDekRotation.rotate_user(user.id, 2)
+
+      reloaded_user =
+        Repo.one!(from(u in Engram.Accounts.User, where: u.id == ^user.id), skip_tenant_check: true)
+
+      reloaded_vault =
+        Repo.one!(from(v in Engram.Vaults.Vault, where: v.id == ^vault.id), skip_tenant_check: true)
+
+      assert reloaded_vault.dek_version == 2
+      refute reloaded_vault.name_ciphertext == old_ct
+      assert {:ok, decrypted} = Crypto.maybe_decrypt_vault_fields(reloaded_vault, reloaded_user)
+      assert decrypted.name == "Personal"
     end
   end
 end

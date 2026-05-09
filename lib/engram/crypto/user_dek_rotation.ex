@@ -83,6 +83,7 @@ defmodule Engram.Crypto.UserDekRotation do
          {:ok, new_wrapped, new_dek} <-
            provider.rotate_dek(user.encrypted_dek, %{user_id: user_id}),
          :ok <- sweep_notes(user, old_dek, new_dek, target_dek_version),
+         :ok <- sweep_vaults(user, old_dek, new_dek, target_dek_version),
          :ok <- final_flip(user, target_dek_version, new_wrapped) do
       :ok
     else
@@ -126,6 +127,72 @@ defmodule Engram.Crypto.UserDekRotation do
         end
       end
     )
+  end
+
+  # ---------------------------------------------------------------------------
+  # Vaults sweep
+  # ---------------------------------------------------------------------------
+
+  defp sweep_vaults(%User{id: user_id}, old_dek, new_dek, target_dek_version) do
+    sweep_table_loop(
+      user_id,
+      Engram.Vaults.Vault,
+      target_dek_version,
+      0,
+      fn batch_ids ->
+        Repo.transaction(fn ->
+          vaults =
+            from(v in Engram.Vaults.Vault,
+              where: v.id in ^batch_ids and v.dek_version < ^target_dek_version,
+              lock: "FOR UPDATE"
+            )
+            |> Repo.all(skip_tenant_check: true)
+
+          Enum.each(vaults, fn vault ->
+            updates = rewrap_vault_columns(vault, old_dek, new_dek)
+
+            {1, _} =
+              from(v in Engram.Vaults.Vault, where: v.id == ^vault.id)
+              |> Repo.update_all([set: updates ++ [dek_version: target_dek_version]], skip_tenant_check: true)
+          end)
+        end)
+        |> case do
+          {:ok, _} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+      end
+    )
+  end
+
+  defp rewrap_vault_columns(%Engram.Vaults.Vault{} = vault, old_dek, new_dek) do
+    [
+      {:name, :name_ciphertext, :name_nonce}
+    ]
+    |> Enum.flat_map(fn {column, ct_field, nonce_field} ->
+      ct = Map.get(vault, ct_field)
+      nonce = Map.get(vault, nonce_field)
+
+      if is_nil(ct) or is_nil(nonce) do
+        []
+      else
+        old_aad =
+          if vault.dek_version >= Crypto.row_version_aad_bound() do
+            Crypto.aad_for_row(:vaults, column, vault.id)
+          else
+            <<>>
+          end
+
+        case Envelope.decrypt(ct, nonce, old_dek, old_aad) do
+          {:ok, plaintext} ->
+            new_aad = Crypto.aad_for_row(:vaults, column, vault.id)
+            {new_ct, new_nonce} = Envelope.encrypt(plaintext, new_dek, new_aad)
+            [{ct_field, new_ct}, {nonce_field, new_nonce}]
+
+          :error ->
+            raise "T3.7 sweep_vaults: decrypt failed for vault id=#{vault.id} column=#{column}"
+        end
+      end
+    end)
   end
 
   # ---------------------------------------------------------------------------
