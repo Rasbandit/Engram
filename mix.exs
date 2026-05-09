@@ -86,7 +86,12 @@ defmodule Engram.MixProject do
       # Test
       {:ex_machina, "~> 2.8", only: :test},
       {:mox, "~> 1.1", only: :test},
-      {:bypass, "~> 2.1", only: :test}
+      {:bypass, "~> 2.1", only: :test},
+
+      # Quality tooling (dev/test only — never loaded in prod release)
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false}
     ]
   end
 
