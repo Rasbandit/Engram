@@ -1,0 +1,55 @@
+defmodule Engram.Crypto.RotationLockTest do
+  use Engram.DataCase, async: false
+
+  import Ecto.Query, only: [from: 2]
+
+  alias Engram.Accounts.User
+  alias Engram.Crypto.RotationLock
+  alias Engram.Repo
+
+  setup do
+    user = insert(:user)
+    {:ok, user: user}
+  end
+
+  test "acquire/2 sets dek_rotation_locked_at when null", %{user: user} do
+    assert {:ok, locked_at} = RotationLock.acquire(user.id, target_dek_version: 2)
+    refreshed = Repo.get!(User, user.id, skip_tenant_check: true)
+    assert DateTime.compare(refreshed.dek_rotation_locked_at, locked_at) == :eq
+  end
+
+  test "acquire/2 returns :rotation_in_progress when already locked < 10 min ago", %{user: user} do
+    assert {:ok, _at} = RotationLock.acquire(user.id, target_dek_version: 2)
+
+    assert {:error, :rotation_in_progress} =
+             RotationLock.acquire(user.id, target_dek_version: 2)
+  end
+
+  test "acquire/2 takes over a stale lock (>10 min)", %{user: user} do
+    stale = DateTime.add(DateTime.utc_now(), -11 * 60, :second)
+
+    Repo.update_all(
+      from(u in User, where: u.id == ^user.id),
+      [set: [dek_rotation_locked_at: stale]],
+      skip_tenant_check: true
+    )
+
+    assert {:ok, new_at} = RotationLock.acquire(user.id, target_dek_version: 2)
+    assert DateTime.compare(new_at, stale) == :gt
+  end
+
+  test "release/1 clears dek_rotation_locked_at", %{user: user} do
+    {:ok, _at} = RotationLock.acquire(user.id, target_dek_version: 2)
+    assert :ok = RotationLock.release(user.id)
+    refreshed = Repo.get!(User, user.id, skip_tenant_check: true)
+    assert is_nil(refreshed.dek_rotation_locked_at)
+  end
+
+  test "locked?/1 reflects current state", %{user: user} do
+    refute RotationLock.locked?(user.id)
+    {:ok, _at} = RotationLock.acquire(user.id, target_dek_version: 2)
+    assert RotationLock.locked?(user.id)
+    :ok = RotationLock.release(user.id)
+    refute RotationLock.locked?(user.id)
+  end
+end
