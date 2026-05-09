@@ -1,4 +1,6 @@
 defmodule Mix.Tasks.Engram.RebindAad do
+  @shortdoc "Rebind every user's notes/vaults to row-id-bound AAD (T3.6)"
+
   @moduledoc """
   T3.6.3 — AAD-rebind backfill (Mix entrypoint).
 
@@ -36,8 +38,6 @@ defmodule Mix.Tasks.Engram.RebindAad do
   use Mix.Task
 
   alias Engram.Crypto.AadRebind
-
-  @shortdoc "Rebind every user's notes/vaults to row-id-bound AAD (T3.6)"
 
   @switches [batch_size: :integer]
 

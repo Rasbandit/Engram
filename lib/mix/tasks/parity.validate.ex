@@ -12,6 +12,8 @@ defmodule Mix.Tasks.Parity.Validate do
 
   use Mix.Task
 
+  alias Engram.Embedders.Voyage
+
   @test_collection "parity_test"
   @test_s3_prefix "parity-test"
   @pipeline_collection "parity_pipeline"
@@ -48,7 +50,7 @@ defmodule Mix.Tasks.Parity.Validate do
 
   defp validate_voyage do
     check("embed with doc model (voyage-4-large)", fn ->
-      {:ok, [vector]} = Engram.Embedders.Voyage.embed_texts(["parity test document"])
+      {:ok, [vector]} = Voyage.embed_texts(["parity test document"])
       dims = length(vector)
 
       if dims == 1024,
@@ -58,7 +60,7 @@ defmodule Mix.Tasks.Parity.Validate do
 
     check("embed with query model (voyage-4-lite)", fn ->
       {:ok, [vector]} =
-        Engram.Embedders.Voyage.embed_texts(["parity test query"], model: "voyage-4-lite")
+        Voyage.embed_texts(["parity test query"], model: "voyage-4-lite")
 
       dims = length(vector)
 
@@ -68,10 +70,10 @@ defmodule Mix.Tasks.Parity.Validate do
     end)
 
     check("asymmetric compatibility (cosine > 0.5)", fn ->
-      {:ok, [doc_vec]} = Engram.Embedders.Voyage.embed_texts(["elixir phoenix framework"])
+      {:ok, [doc_vec]} = Voyage.embed_texts(["elixir phoenix framework"])
 
       {:ok, [query_vec]} =
-        Engram.Embedders.Voyage.embed_texts(["elixir phoenix framework"],
+        Voyage.embed_texts(["elixir phoenix framework"],
           model: "voyage-4-lite"
         )
 
@@ -118,7 +120,7 @@ defmodule Mix.Tasks.Parity.Validate do
     end)
 
     check("upsert point with real embedding", fn ->
-      {:ok, [vector]} = Engram.Embedders.Voyage.embed_texts(["parity test point"])
+      {:ok, [vector]} = Voyage.embed_texts(["parity test point"])
 
       point = %{
         id: Ecto.UUID.generate(),
@@ -142,7 +144,7 @@ defmodule Mix.Tasks.Parity.Validate do
 
     check("search (asymmetric query → Qdrant)", fn ->
       {:ok, [query_vec]} =
-        Engram.Embedders.Voyage.embed_texts(["parity test"], model: "voyage-4-lite")
+        Voyage.embed_texts(["parity test"], model: "voyage-4-lite")
 
       # Search without rescore params — binary quant rescore crashes on tiny collections.
       # Production uses rescore via Qdrant.search/3; here we test the core vector search path.
@@ -166,7 +168,7 @@ defmodule Mix.Tasks.Parity.Validate do
       points = result["points"] || result
       points = if is_list(points), do: points, else: []
 
-      if length(points) >= 1 do
+      if points != [] do
         top = hd(points)
         {:pass, "found #{length(points)} result(s), top score=#{top["score"]}"}
       else
@@ -260,7 +262,7 @@ defmodule Mix.Tasks.Parity.Validate do
           Process.sleep(2500)
 
           {:ok, [query_vec]} =
-            Engram.Embedders.Voyage.embed_texts(["pipeline validation embedding"],
+            Voyage.embed_texts(["pipeline validation embedding"],
               model: "voyage-4-lite"
             )
 
@@ -282,7 +284,7 @@ defmodule Mix.Tasks.Parity.Validate do
           points = result["points"] || result
           points = if is_list(points), do: points, else: []
 
-          if length(points) >= 1 do
+          if points != [] do
             top = hd(points)
 
             {:pass,
@@ -392,7 +394,7 @@ defmodule Mix.Tasks.Parity.Validate do
           )
           |> Repo.all(skip_tenant_check: true)
 
-        if length(pending) >= 1,
+        if pending != [],
           do: {:pass, "#{length(pending)} pending note(s) detected"},
           else: {:fail, "expected >= 1 pending, got 0"}
       end)
@@ -412,7 +414,7 @@ defmodule Mix.Tasks.Parity.Validate do
         Process.sleep(2000)
 
         {:ok, [query_vec]} =
-          Engram.Embedders.Voyage.embed_texts(["embed hash re-embed"],
+          Voyage.embed_texts(["embed hash re-embed"],
             model: "voyage-4-lite"
           )
 
@@ -434,7 +436,7 @@ defmodule Mix.Tasks.Parity.Validate do
         points = result["points"] || result
         points = if is_list(points), do: points, else: []
 
-        if length(points) >= 1 do
+        if points != [] do
           top = hd(points)
           text = get_in(top, ["payload", "text"]) || ""
 

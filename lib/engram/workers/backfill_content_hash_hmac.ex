@@ -24,7 +24,6 @@ defmodule Engram.Workers.BackfillContentHashHmac do
     unique: [keys: [:user_id, :vault_id, :scope], states: [:available, :scheduled]]
 
   import Ecto.Query
-  require Logger
 
   alias Engram.Accounts.User
   alias Engram.Attachments.Attachment
@@ -34,6 +33,8 @@ defmodule Engram.Workers.BackfillContentHashHmac do
   alias Engram.Notes.Note
   alias Engram.Repo
   alias Engram.Storage
+
+  require Logger
 
   @batch_size 100
 

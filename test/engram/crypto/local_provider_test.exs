@@ -216,7 +216,7 @@ defmodule Engram.Crypto.KeyProvider.LocalTest do
 
   describe "rotate_dek/2" do
     setup do
-      ctx = %{user_id: 12345}
+      ctx = %{user_id: 12_345}
       {:ok, dek_old} = {:ok, :crypto.strong_rand_bytes(32)}
       {:ok, wrapped_old} = Local.wrap_dek(dek_old, ctx)
       {:ok, ctx: ctx, dek_old: dek_old, wrapped_old: wrapped_old}

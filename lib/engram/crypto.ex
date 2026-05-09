@@ -5,14 +5,14 @@ defmodule Engram.Crypto do
   Lazy DEK provisioning: users get a DEK only when encryption is first needed.
   """
 
-  require Logger
-
   import Ecto.Query, only: [from: 2]
 
   alias Engram.Accounts
   alias Engram.Accounts.User
   alias Engram.Crypto.{DekCache, Envelope, KeyProvider.Resolver}
   alias Engram.Repo
+
+  require Logger
 
   # T3.6 / H1 — per-row encryption format version.
   #   1 = legacy: ciphertext was written with empty AAD (`<<>>`).
@@ -259,9 +259,8 @@ defmodule Engram.Crypto do
     if needs_note_decrypt?(note) do
       with {:ok, dek} <- get_dek(user),
            {:ok, note} <- decrypt_phase_4_note_fields(note, dek),
-           {:ok, note} <- decrypt_phase_b_note_fields(note, dek),
-           {:ok, note} <- decrypt_phase_b_tags(note, dek) do
-        {:ok, note}
+           {:ok, note} <- decrypt_phase_b_note_fields(note, dek) do
+        decrypt_phase_b_tags(note, dek)
       end
     else
       {:ok, note}

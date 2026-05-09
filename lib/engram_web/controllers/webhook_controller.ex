@@ -1,9 +1,9 @@
 defmodule EngramWeb.WebhookController do
   use EngramWeb, :controller
 
-  require Logger
-
   alias Engram.Billing
+
+  require Logger
 
   @max_signature_age_seconds 300
 

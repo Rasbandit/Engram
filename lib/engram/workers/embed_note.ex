@@ -22,8 +22,6 @@ defmodule Engram.Workers.EmbedNote do
       states: [:available, :scheduled]
     ]
 
-  require Logger
-
   import Ecto.Query
 
   alias Engram.Accounts
@@ -33,6 +31,8 @@ defmodule Engram.Workers.EmbedNote do
   alias Engram.Notes.Note
   alias Engram.Repo
   alias Engram.Vaults.Vault
+
+  require Logger
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -45,11 +45,11 @@ defmodule Engram.Workers.EmbedNote do
       nil ->
         {:discard, "note #{note_id} not found"}
 
-      %Note{deleted_at: deleted_at} when not is_nil(deleted_at) ->
+      %Note{deleted_at: deleted_at} when deleted_at != nil ->
         {:discard, "note #{note_id} is soft-deleted"}
 
       %Note{content_hash: hash, embed_hash: hash}
-      when not is_nil(hash) and is_nil(old_path_hmac_b64) ->
+      when hash != nil and is_nil(old_path_hmac_b64) ->
         # Already embedded this exact content and no rename pending — skip
         :ok
 

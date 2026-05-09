@@ -11,8 +11,8 @@ defmodule EngramWeb.SyncChannel do
 
   use Phoenix.Channel
 
-  alias Engram.{Notes, Vaults}
   alias Engram.Crypto.RotationGate
+  alias Engram.{Notes, Vaults}
   alias EngramWeb.Presence
 
   # ---------------------------------------------------------------------------
@@ -221,8 +221,7 @@ defmodule EngramWeb.SyncChannel do
 
             reply = %{
               "changes" => serialized,
-              "server_time" =>
-                DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+              "server_time" => DateTime.utc_now(:second) |> DateTime.to_iso8601()
             }
 
             {:reply, {:ok, reply}, socket}

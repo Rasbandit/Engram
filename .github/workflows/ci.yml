@@ -606,8 +606,7 @@ jobs:
         run: mix compile --warnings-as-errors --force
 
       - name: Credo (strict)
-        run: mix credo --strict --mute-exit-status
-        continue-on-error: true
+        run: mix credo --strict
 
       - name: Sobelow
         run: mix sobelow --exit low --skip

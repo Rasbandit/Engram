@@ -3,8 +3,8 @@ defmodule EngramWeb.Plugs.RotationLockCheckTest do
 
   import Ecto.Query, only: [from: 2]
 
-  alias EngramWeb.Plugs.RotationLockCheck
   alias Engram.Accounts.User
+  alias EngramWeb.Plugs.RotationLockCheck
 
   test "passes through when current_user has no lock", %{conn: conn} do
     user = %User{id: 1, dek_rotation_locked_at: nil}

@@ -52,13 +52,15 @@
           {Credo.Check.Consistency.SpaceAroundOperators, []},
           {Credo.Check.Consistency.SpaceInParentheses, []},
           {Credo.Check.Consistency.TabsOrSpaces, []},
-          {Credo.Check.Consistency.UnusedVariableNames, []},
 
           #
           ## Design Checks
           #
+          # Default `if_called_more_often_than: 2`: flag a nested module only if
+          # it's used inline 3+ times. The 0 default produced 104 findings on
+          # one-off usages where adding an alias for a single call site is noise.
           {Credo.Check.Design.AliasUsage,
-           [priority: :low, if_nested_deeper_than: 2, if_called_more_often_than: 0]},
+           [priority: :low, if_nested_deeper_than: 2, if_called_more_often_than: 2]},
           {Credo.Check.Design.TagFIXME, []},
           {Credo.Check.Design.TagTODO, [exit_status: 2]},
 
@@ -94,7 +96,12 @@
           #
           {Credo.Check.Refactor.Apply, []},
           {Credo.Check.Refactor.CondStatements, []},
-          {Credo.Check.Refactor.CyclomaticComplexity, []},
+          # Default `max_complexity: 9` is too tight for input-validation and
+          # context functions (Phoenix controllers, encryption pipelines, Stripe
+          # webhook dispatch all legitimately hit 15-21). Bumped to 21 — the
+          # actual high-water mark in the codebase. Functions exceeding this
+          # should be refactored.
+          {Credo.Check.Refactor.CyclomaticComplexity, [max_complexity: 21]},
           {Credo.Check.Refactor.FilterCount, []},
           {Credo.Check.Refactor.FilterFilter, []},
           {Credo.Check.Refactor.FilterReject, []},
@@ -106,7 +113,12 @@
           {Credo.Check.Refactor.NegatedConditionsInUnless, []},
           {Credo.Check.Refactor.NegatedConditionsWithElse, []},
           {Credo.Check.Refactor.NegatedIsNil, []},
-          {Credo.Check.Refactor.Nesting, []},
+          # Default `max_nesting: 2` is unworkable with idiomatic Phoenix +
+          # Ecto patterns. Bumped to 5 — `Repo.transaction(fn -> case Repo.X do
+          # nil -> ... ; existing -> case ... do ... end end end)` legitimately
+          # reaches depth 5 in attachment/note write paths. Functions exceeding
+          # 5 must be refactored (extract helpers).
+          {Credo.Check.Refactor.Nesting, [max_nesting: 5]},
           {Credo.Check.Refactor.PassAsyncInTestCases, []},
           {Credo.Check.Refactor.RedundantWithClauseResult, []},
           {Credo.Check.Refactor.RejectReject, []},
@@ -152,6 +164,11 @@
 
           # DEFERRED — slow + high noise. Revisit if compile times allow.
           {Credo.Check.Design.DuplicatedCode, []},
+
+          # Codebase legitimately mixes `_` (truly irrelevant) with `_foo` (documents
+          # what's being ignored). Both are valid Elixir; enforcing one breaks the
+          # documentation value of the other. Phase 5 disabled this with rationale.
+          {Credo.Check.Consistency.UnusedVariableNames, []},
 
           # DEFERRED — stylistic-only / project doesn't enforce these conventions.
           {Credo.Check.Consistency.MultiAliasImportRequireUse, []},

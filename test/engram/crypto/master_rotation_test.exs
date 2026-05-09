@@ -1,6 +1,8 @@
 defmodule Engram.Crypto.MasterRotationTest do
   use Engram.DataCase, async: false
 
+  import Ecto.Query
+
   alias Engram.Crypto
   alias Engram.Crypto.{DekCache, MasterRotation}
   alias Engram.Crypto.KeyProvider.Local
@@ -205,6 +207,4 @@ defmodule Engram.Crypto.MasterRotationTest do
   end
 
   defp refute_in_counts(_counts, _id), do: :ok
-
-  import Ecto.Query
 end

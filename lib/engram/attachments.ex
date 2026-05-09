@@ -10,12 +10,12 @@ defmodule Engram.Attachments do
 
   import Ecto.Query
 
-  alias Engram.Repo
   alias Engram.Attachments.Attachment
-  alias Engram.Notes.PathSanitizer
-  alias Engram.Storage
   alias Engram.Crypto
   alias Engram.Crypto.Envelope
+  alias Engram.Notes.PathSanitizer
+  alias Engram.Repo
+  alias Engram.Storage
 
   @doc """
   Upserts an attachment. Decodes base64 content, detects MIME type, computes hash.
@@ -189,7 +189,7 @@ defmodule Engram.Attachments do
   def delete_attachment(user, vault, path) do
     path = PathSanitizer.sanitize(path)
     user = fresh_user(user)
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    now = DateTime.utc_now(:second)
 
     case Crypto.dek_filter_key(user) do
       {:ok, filter_key} ->

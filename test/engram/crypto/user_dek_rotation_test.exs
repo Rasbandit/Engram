@@ -6,8 +6,9 @@ defmodule Engram.Crypto.UserDekRotationTest do
 
   alias Engram.Attachments
   alias Engram.Crypto
-  alias Engram.Crypto.{DekCache, UserDekRotation}
+  alias Engram.Crypto.{DekCache, Envelope, UserDekRotation}
   alias Engram.Repo
+  alias Engram.Vector.Qdrant
 
   # Module-level Bypass: stubs Qdrant scroll with empty results so all existing
   # tests (which don't seed Qdrant points) pass through the sweep_qdrant phase
@@ -484,16 +485,16 @@ defmodule Engram.Crypto.UserDekRotationTest do
       # Build a synthetic Qdrant point whose payload fields are encrypted under
       # the user's current (old) DEK using real Envelope.encrypt + AAD.
       {:ok, old_dek} = Crypto.get_dek(user)
-      collection = Engram.Vector.Qdrant.collection_name()
+      collection = Qdrant.collection_name()
       qdrant_id = "00000000-0000-0000-0000-000000000001"
 
       text_aad = Crypto.aad_for_qdrant(collection, qdrant_id, :text)
       title_aad = Crypto.aad_for_qdrant(collection, qdrant_id, :title)
       hp_aad = Crypto.aad_for_qdrant(collection, qdrant_id, :heading_path)
 
-      {text_ct, text_nonce} = Engram.Crypto.Envelope.encrypt("hello world", old_dek, text_aad)
-      {title_ct, title_nonce} = Engram.Crypto.Envelope.encrypt("My Note", old_dek, title_aad)
-      {hp_ct, hp_nonce} = Engram.Crypto.Envelope.encrypt("My Note > Intro", old_dek, hp_aad)
+      {text_ct, text_nonce} = Envelope.encrypt("hello world", old_dek, text_aad)
+      {title_ct, title_nonce} = Envelope.encrypt("My Note", old_dek, title_aad)
+      {hp_ct, hp_nonce} = Envelope.encrypt("My Note > Intro", old_dek, hp_aad)
 
       point = %{
         "id" => qdrant_id,
@@ -565,19 +566,19 @@ defmodule Engram.Crypto.UserDekRotationTest do
       new_text_nonce = Base.decode64!(new_payload["text_nonce"])
 
       assert {:ok, "hello world"} =
-               Engram.Crypto.Envelope.decrypt(new_text_ct, new_text_nonce, new_dek, text_aad)
+               Envelope.decrypt(new_text_ct, new_text_nonce, new_dek, text_aad)
 
       new_title_ct = Base.decode64!(new_payload["title"])
       new_title_nonce = Base.decode64!(new_payload["title_nonce"])
 
       assert {:ok, "My Note"} =
-               Engram.Crypto.Envelope.decrypt(new_title_ct, new_title_nonce, new_dek, title_aad)
+               Envelope.decrypt(new_title_ct, new_title_nonce, new_dek, title_aad)
 
       new_hp_ct = Base.decode64!(new_payload["heading_path"])
       new_hp_nonce = Base.decode64!(new_payload["heading_path_nonce"])
 
       assert {:ok, "My Note > Intro"} =
-               Engram.Crypto.Envelope.decrypt(new_hp_ct, new_hp_nonce, new_dek, hp_aad)
+               Envelope.decrypt(new_hp_ct, new_hp_nonce, new_dek, hp_aad)
 
       :ets.delete(set_payload_calls)
     end
@@ -586,7 +587,7 @@ defmodule Engram.Crypto.UserDekRotationTest do
       user: user,
       bypass: bypass
     } do
-      collection = Engram.Vector.Qdrant.collection_name()
+      collection = Qdrant.collection_name()
 
       # Point has no encrypted text/title/heading_path
       point = %{
@@ -619,7 +620,7 @@ defmodule Engram.Crypto.UserDekRotationTest do
       # by a prior crashed run. We don't know the new DEK upfront, so we
       # test this via the orchestrator's idempotence: rotate once, then
       # verify the second rotation works cleanly.
-      collection = Engram.Vector.Qdrant.collection_name()
+      collection = Qdrant.collection_name()
 
       {:ok, old_dek} = Crypto.get_dek(user)
       qdrant_id = "resume-test-uuid-0001"
@@ -627,9 +628,9 @@ defmodule Engram.Crypto.UserDekRotationTest do
       title_aad = Crypto.aad_for_qdrant(collection, qdrant_id, :title)
       hp_aad = Crypto.aad_for_qdrant(collection, qdrant_id, :heading_path)
 
-      {text_ct, text_nonce} = Engram.Crypto.Envelope.encrypt("resume content", old_dek, text_aad)
-      {title_ct, title_nonce} = Engram.Crypto.Envelope.encrypt("Resume Title", old_dek, title_aad)
-      {hp_ct, hp_nonce} = Engram.Crypto.Envelope.encrypt("Resume Title > S1", old_dek, hp_aad)
+      {text_ct, text_nonce} = Envelope.encrypt("resume content", old_dek, text_aad)
+      {title_ct, title_nonce} = Envelope.encrypt("Resume Title", old_dek, title_aad)
+      {hp_ct, hp_nonce} = Envelope.encrypt("Resume Title > S1", old_dek, hp_aad)
 
       # ETS agent to let the Bypass handler return different payloads per call
       state = :ets.new(:sweep_resume_state, [:set, :public])
@@ -708,7 +709,7 @@ defmodule Engram.Crypto.UserDekRotationTest do
     end
 
     test "sweep returns error when scroll fails", %{user: user, bypass: bypass} do
-      collection = Engram.Vector.Qdrant.collection_name()
+      collection = Qdrant.collection_name()
 
       Bypass.stub(bypass, "POST", "/collections/#{collection}/points/scroll", fn conn ->
         conn
@@ -721,15 +722,15 @@ defmodule Engram.Crypto.UserDekRotationTest do
 
     test "sweep returns error when set_payload fails", %{user: user, bypass: bypass} do
       {:ok, old_dek} = Crypto.get_dek(user)
-      collection = Engram.Vector.Qdrant.collection_name()
+      collection = Qdrant.collection_name()
       qdrant_id = "fail-payload-uuid-0001"
 
       text_aad = Crypto.aad_for_qdrant(collection, qdrant_id, :text)
-      {text_ct, text_nonce} = Engram.Crypto.Envelope.encrypt("content", old_dek, text_aad)
+      {text_ct, text_nonce} = Envelope.encrypt("content", old_dek, text_aad)
       title_aad = Crypto.aad_for_qdrant(collection, qdrant_id, :title)
-      {title_ct, title_nonce} = Engram.Crypto.Envelope.encrypt("title", old_dek, title_aad)
+      {title_ct, title_nonce} = Envelope.encrypt("title", old_dek, title_aad)
       hp_aad = Crypto.aad_for_qdrant(collection, qdrant_id, :heading_path)
-      {hp_ct, hp_nonce} = Engram.Crypto.Envelope.encrypt("hp", old_dek, hp_aad)
+      {hp_ct, hp_nonce} = Envelope.encrypt("hp", old_dek, hp_aad)
 
       point = %{
         "id" => qdrant_id,
@@ -1184,7 +1185,7 @@ defmodule Engram.Crypto.UserDekRotationTest do
       Application.put_env(:engram, :qdrant_url, "http://localhost:#{bypass.port}")
       on_exit(fn -> Application.delete_env(:engram, :qdrant_url) end)
 
-      collection = Engram.Vector.Qdrant.collection_name()
+      collection = Qdrant.collection_name()
 
       Bypass.stub(bypass, "POST", "/collections/#{collection}/points/scroll", fn conn ->
         conn
@@ -1218,14 +1219,14 @@ defmodule Engram.Crypto.UserDekRotationTest do
       on_exit(fn -> Application.delete_env(:engram, :qdrant_url) end)
 
       {:ok, old_dek} = Crypto.get_dek(user)
-      collection = Engram.Vector.Qdrant.collection_name()
+      collection = Qdrant.collection_name()
       qdrant_id = "classify-set-payload-uuid"
       text_aad = Crypto.aad_for_qdrant(collection, qdrant_id, :text)
-      {text_ct, text_nonce} = Engram.Crypto.Envelope.encrypt("hi", old_dek, text_aad)
+      {text_ct, text_nonce} = Envelope.encrypt("hi", old_dek, text_aad)
       title_aad = Crypto.aad_for_qdrant(collection, qdrant_id, :title)
-      {title_ct, title_nonce} = Engram.Crypto.Envelope.encrypt("t", old_dek, title_aad)
+      {title_ct, title_nonce} = Envelope.encrypt("t", old_dek, title_aad)
       hp_aad = Crypto.aad_for_qdrant(collection, qdrant_id, :heading_path)
-      {hp_ct, hp_nonce} = Engram.Crypto.Envelope.encrypt("h", old_dek, hp_aad)
+      {hp_ct, hp_nonce} = Envelope.encrypt("h", old_dek, hp_aad)
 
       point = %{
         "id" => qdrant_id,

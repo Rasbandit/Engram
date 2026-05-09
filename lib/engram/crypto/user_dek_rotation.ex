@@ -36,6 +36,7 @@ defmodule Engram.Crypto.UserDekRotation do
   alias Engram.Crypto.{DekCache, Envelope, RotationLock}
   alias Engram.Crypto.KeyProvider.Resolver
   alias Engram.Repo
+  alias Engram.Vector.Qdrant
 
   require Logger
 
@@ -374,17 +375,15 @@ defmodule Engram.Crypto.UserDekRotation do
   defp rotate_one_attachment(att_id, new_dek_version, old_dek, new_dek, new_filter_key) do
     with {:ok, _} <- mark_pending(att_id, new_dek_version),
          {:ok, attachment, recrypt_result} <-
-           recrypt_blob(att_id, old_dek, new_dek, new_dek_version),
-         :ok <-
-           finalize_attachment(
-             attachment,
-             new_dek_version,
-             old_dek,
-             new_dek,
-             new_filter_key,
-             recrypt_result
-           ) do
-      :ok
+           recrypt_blob(att_id, old_dek, new_dek, new_dek_version) do
+      finalize_attachment(
+        attachment,
+        new_dek_version,
+        old_dek,
+        new_dek,
+        new_filter_key,
+        recrypt_result
+      )
     end
   end
 
@@ -642,13 +641,13 @@ defmodule Engram.Crypto.UserDekRotation do
   # :unchanged and skip the set_payload call entirely.
 
   defp sweep_qdrant(%User{id: user_id}, old_dek, new_dek) do
-    collection = Engram.Vector.Qdrant.collection_name()
+    collection = Qdrant.collection_name()
     filter = %{must: [%{key: "user_id", match: %{value: user_id}}]}
     sweep_qdrant_loop(collection, filter, user_id, old_dek, new_dek, nil)
   end
 
   defp sweep_qdrant_loop(collection, filter, user_id, old_dek, new_dek, offset) do
-    case Engram.Vector.Qdrant.scroll(collection,
+    case Qdrant.scroll(collection,
            filter: filter,
            with_payload: true,
            with_vector: false,
@@ -714,7 +713,7 @@ defmodule Engram.Crypto.UserDekRotation do
           {:cont, :ok}
 
         {:ok, new_payload} ->
-          case Engram.Vector.Qdrant.set_payload(collection, [qdrant_id], new_payload) do
+          case Qdrant.set_payload(collection, [qdrant_id], new_payload) do
             :ok ->
               {:cont, :ok}
 
@@ -746,10 +745,10 @@ defmodule Engram.Crypto.UserDekRotation do
         Map.has_key?(payload, Atom.to_string(f))
       end)
 
-    if not encrypted_fields_present? do
-      {:ok, :unchanged}
-    else
+    if encrypted_fields_present? do
       rewrap_qdrant_payload_fields(collection, qdrant_id, payload, old_dek, new_dek)
+    else
+      {:ok, :unchanged}
     end
   end
 

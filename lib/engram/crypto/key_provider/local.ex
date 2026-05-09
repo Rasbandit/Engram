@@ -29,8 +29,8 @@ defmodule Engram.Crypto.KeyProvider.Local do
 
   @behaviour Engram.Crypto.KeyProvider
 
-  alias Engram.Crypto.Envelope
   alias Engram.Crypto.Config
+  alias Engram.Crypto.Envelope
 
   require Logger
 
@@ -133,15 +133,13 @@ defmodule Engram.Crypto.KeyProvider.Local do
   end
 
   defp previous_fallback_allowed?(ctx) do
-    cond do
-      Map.get(ctx, :disable_previous_fallback) == true ->
-        false
+    if Map.get(ctx, :disable_previous_fallback) == true do
+      false
+    else
+      dek_version = Map.get(ctx, :dek_version)
+      master_key_version = Map.get(ctx, :master_key_version) || Config.master_key_version()
 
-      true ->
-        dek_version = Map.get(ctx, :dek_version)
-        master_key_version = Map.get(ctx, :master_key_version) || Config.master_key_version()
-
-        is_nil(dek_version) or dek_version < master_key_version
+      is_nil(dek_version) or dek_version < master_key_version
     end
   end
 

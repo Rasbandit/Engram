@@ -100,7 +100,7 @@ defmodule Engram.Crypto.RotationLock do
   # ── private ─────────────────────────────────────────────────────────────
 
   defp set_locked(%User{} = user) do
-    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    now = DateTime.utc_now(:microsecond)
 
     case from(u in User, where: u.id == ^user.id)
          |> Repo.update_all([set: [dek_rotation_locked_at: now]], skip_tenant_check: true) do

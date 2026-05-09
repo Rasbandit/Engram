@@ -1,9 +1,9 @@
 defmodule EngramWeb.BillingController do
   use EngramWeb, :controller
 
-  require Logger
-
   alias Engram.Billing
+
+  require Logger
 
   def status(conn, _params) do
     user = conn.assigns.current_user

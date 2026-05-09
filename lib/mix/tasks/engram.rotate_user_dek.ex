@@ -1,4 +1,6 @@
 defmodule Mix.Tasks.Engram.RotateUserDek do
+  @shortdoc "Rotate one user's DEK, re-encrypting all their data under a fresh key"
+
   @moduledoc """
   T3.7 — operator entry point for per-user DEK rotation.
 
@@ -44,8 +46,6 @@ defmodule Mix.Tasks.Engram.RotateUserDek do
   use Mix.Task
 
   alias Engram.Crypto.UserDekRotation
-
-  @shortdoc "Rotate one user's DEK, re-encrypting all their data under a fresh key"
 
   @switches [user_id: :integer]
 

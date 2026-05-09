@@ -1,4 +1,6 @@
 defmodule Mix.Tasks.Engram.ContentHashHmac do
+  @shortdoc "Enqueue content_hash MD5→HMAC backfill jobs"
+
   @moduledoc """
   Phase A — enqueue content_hash MD5 → HMAC-SHA256 backfill jobs.
 
@@ -23,8 +25,6 @@ defmodule Mix.Tasks.Engram.ContentHashHmac do
   alias Engram.Notes.Note
   alias Engram.Repo
   alias Engram.Workers.BackfillContentHashHmac
-
-  @shortdoc "Enqueue content_hash MD5→HMAC backfill jobs"
 
   @impl Mix.Task
   def run(_args) do

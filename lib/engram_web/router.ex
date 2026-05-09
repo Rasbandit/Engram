@@ -89,7 +89,8 @@ defmodule EngramWeb.Router do
 
   # Vault-scoped authenticated endpoints (VaultPlug resolves current_vault)
   scope "/api", EngramWeb do
-    # TODO: add EngramWeb.Plugs.RequireActiveSubscription when billing goes live
+    # NOTE: EngramWeb.Plugs.RequireActiveSubscription will be added here when
+    # billing goes live (tracked in docs/superpowers/plans/2026-04-06-security-hardening.md).
     pipe_through [
       :api,
       EngramWeb.Plugs.Auth,

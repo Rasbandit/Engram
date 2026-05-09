@@ -277,7 +277,7 @@ defmodule Engram.Vaults do
           result =
             vault
             |> Vault.changeset(%{
-              deleted_at: DateTime.utc_now() |> DateTime.truncate(:second),
+              deleted_at: DateTime.utc_now(:second),
               is_default: false
             })
             |> Repo.update()
@@ -443,13 +443,13 @@ defmodule Engram.Vaults do
 
     existing = Repo.all(query)
 
-    if base_slug not in existing do
-      base_slug
-    else
+    if base_slug in existing do
       Enum.find_value(2..1000, fn n ->
         candidate = "#{base_slug}-#{n}"
         if candidate not in existing, do: candidate
       end)
+    else
+      base_slug
     end
   end
 

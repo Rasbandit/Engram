@@ -32,10 +32,11 @@ defmodule Engram.Crypto.BootCanary do
   """
 
   import Ecto.Query, only: [from: 2]
-  require Logger
 
   alias Engram.Crypto.KeyProvider.Local
   alias Engram.Repo
+
+  require Logger
 
   @canary_dek_size 32
 
