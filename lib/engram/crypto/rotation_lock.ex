@@ -11,7 +11,7 @@ defmodule Engram.Crypto.RotationLock do
       release(user_id)    # clears locked_at
 
   Stale-lock takeover: if `locked_at` is older than `@stale_after_seconds`,
-  a new `acquire/2` overwrites the timestamp (assumes prior attempt crashed).
+  a new `acquire/1` overwrites the timestamp (assumes prior attempt crashed).
   The advisory lock is auto-released on transaction commit/rollback because
   we use `pg_advisory_xact_lock`.
 
@@ -40,7 +40,7 @@ defmodule Engram.Crypto.RotationLock do
   def acquire(user_id) when is_integer(user_id) do
     Repo.transaction(fn ->
       # Postgres advisory lock keyed on the user — serializes concurrent
-      # acquire/2 callers without holding a row-level lock that would
+      # acquire/1 callers without holding a row-level lock that would
       # also block the rotation worker's per-batch FOR UPDATE on the same row.
       key = :erlang.phash2({user_id, :dek_rotation}, 2_147_483_647)
       Repo.query!("SELECT pg_advisory_xact_lock($1)", [key])
@@ -109,7 +109,7 @@ defmodule Engram.Crypto.RotationLock do
 
       {0, _} ->
         # User was deleted between the SELECT and the UPDATE inside the advisory lock.
-        # Roll back so acquire/2 returns {:error, :not_found} to the caller.
+        # Roll back so acquire/1 returns {:error, :not_found} to the caller.
         Repo.rollback(:not_found)
     end
   end
