@@ -18,6 +18,19 @@ defmodule Engram.Crypto.KeyProvider do
   @callback supports_async_workers?() :: boolean()
   @callback rotate_wrapping(wrapped(), ctx()) :: {:ok, wrapped()} | {:error, term()}
 
+  @doc """
+  T3.7 — rotate the user's DEK to a brand-new key. Default impl: generate
+  a fresh DEK + wrap it. Returns both the new wrapped blob (for storage)
+  and the new plaintext DEK (so the rotation orchestrator can re-encrypt
+  ciphertext rows in the same pass without an extra unwrap call).
+
+  Distinct from `rotate_wrapping/2`, which keeps the same DEK and re-wraps
+  it under a new master key. `rotate_dek/2` changes the DEK identity itself,
+  invalidating every ciphertext row in the user's tenant until each is
+  re-encrypted under the new DEK.
+  """
+  @callback rotate_dek(wrapped(), ctx()) :: {:ok, wrapped(), dek()} | {:error, term()}
+
   @doc "Default DEK generator — providers may override."
   @spec default_generate_dek() :: dek()
   def default_generate_dek, do: :crypto.strong_rand_bytes(32)
