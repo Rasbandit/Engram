@@ -66,5 +66,20 @@ defmodule EngramWeb.TelemetryTest do
       assert "engram.indexing.encrypt_failed.count" in names,
              "Indexing encrypt failures (e.g. missing DEK) must be counted"
     end
+
+    # T3.7 — per-user DEK rotation telemetry
+    test "registers engram.crypto.rotate.dek counter (T3.7 per-user DEK rotation)", %{
+      names: names
+    } do
+      assert "engram.crypto.rotate.dek.count" in names,
+             "UserDekRotation per-DEK outcome must be counted (status, reason_label)"
+    end
+
+    test "registers engram.crypto.rotate.dek duration summary (T3.7 per-user DEK rotation)", %{
+      names: names
+    } do
+      assert "engram.crypto.rotate.dek.duration_us" in names,
+             "UserDekRotation per-DEK duration must be measured"
+    end
   end
 end

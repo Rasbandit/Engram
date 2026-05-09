@@ -105,6 +105,15 @@ defmodule EngramWeb.Telemetry do
         tags: [:status],
         description: "AadRebind per-user duration"
       ),
+      counter("engram.crypto.rotate.dek.count",
+        tags: [:status, :reason_label],
+        description: "UserDekRotation per-DEK outcome (T3.7 per-user DEK rotation)"
+      ),
+      summary("engram.crypto.rotate.dek.duration_us",
+        unit: {:native, :microsecond},
+        tags: [:status],
+        description: "UserDekRotation per-DEK duration"
+      ),
       counter("engram.crypto.aad_rebind.attachment_skipped.count",
         description:
           "Attachments NOT rebound by AadRebind (intentional — converge on next upload). Non-zero count means the user has unconverged S3 blobs that still read as legacy AAD."
