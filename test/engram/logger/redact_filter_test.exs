@@ -36,7 +36,14 @@ defmodule Engram.Logger.RedactFilterTest do
         :customer_email,
         :attachment_name,
         :filename,
-        :name
+        :name,
+        :code_challenge,
+        :code_verifier,
+        :access_token,
+        :refresh_token,
+        :authorization_header,
+        :client_secret,
+        :client_secret_hash
       ]
 
       meta = Map.new(sensitive, fn k -> {k, @sentinel} end)

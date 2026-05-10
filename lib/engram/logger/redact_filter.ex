@@ -43,7 +43,19 @@ defmodule Engram.Logger.RedactFilter do
                     # Filenames
                     :attachment_name,
                     :filename,
-                    :name
+                    :name,
+                    # OAuth 2.1 — PKCE secrets (Phase 7 prep). `code_challenge`
+                    # is an SHA-256 hash but it pairs with `code_verifier`,
+                    # which IS the raw secret. Logging either helps an
+                    # attacker replay an intercepted authorization code.
+                    :code_challenge,
+                    :code_verifier,
+                    # OAuth tokens — never log raw bearer values
+                    :access_token,
+                    :refresh_token,
+                    :authorization_header,
+                    :client_secret,
+                    :client_secret_hash
                   ])
 
   @doc """
