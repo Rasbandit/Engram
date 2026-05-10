@@ -346,6 +346,63 @@ defmodule Engram.OAuth do
   defp maybe_put(map, _k, nil), do: map
   defp maybe_put(map, k, v), do: Map.put(map, k, v)
 
+  # ── Revocation (Phase 6) ─────────────────────────────────────────
+
+  @doc """
+  Revokes a refresh token if `client_id` matches the token's owner.
+  Returns `:ok` always — leaks no info about token existence per
+  RFC 7009 §2.2.
+  """
+  def revoke_token(nil, _client_id, _hint), do: :ok
+  def revoke_token(_token, nil, _hint), do: :ok
+
+  def revoke_token(raw_token, client_id, _hint) when is_binary(raw_token) do
+    hash = hash_code(raw_token)
+
+    case Repo.one(from(rt in RefreshToken, where: rt.token_hash == ^hash),
+           skip_tenant_check: true
+         ) do
+      %RefreshToken{client_id: ^client_id} = rt ->
+        rt
+        |> Ecto.Changeset.change(%{revoked_at: DateTime.utc_now(:second)})
+        |> Repo.update!(skip_tenant_check: true)
+
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  def revoke_token(_, _, _), do: :ok
+
+  @doc """
+  Drops expired authorization codes and revoked refresh tokens past a
+  7-day grace window. Returns `{count_deleted, nil}`. Called by the
+  hourly Engram.Workers.CleanupDeviceAuthWorker job alongside DeviceFlow
+  cleanup so OAuth state doesn't leak.
+  """
+  def cleanup_expired do
+    code_cutoff = DateTime.utc_now(:second) |> DateTime.add(-3600, :second)
+    revoked_cutoff = DateTime.utc_now(:second) |> DateTime.add(-7 * 24 * 3600, :second)
+
+    {codes, _} =
+      from(ac in AuthorizationCode, where: ac.expires_at < ^code_cutoff)
+      |> Repo.delete_all(skip_tenant_check: true)
+
+    {revoked_tokens, _} =
+      from(rt in RefreshToken,
+        where: not is_nil(rt.revoked_at) and rt.revoked_at < ^revoked_cutoff
+      )
+      |> Repo.delete_all(skip_tenant_check: true)
+
+    {expired_tokens, _} =
+      from(rt in RefreshToken, where: rt.expires_at < ^revoked_cutoff)
+      |> Repo.delete_all(skip_tenant_check: true)
+
+    {codes + revoked_tokens + expired_tokens, nil}
+  end
+
   defp build_token_response(user, code_row, refresh_raw, _refresh_row) do
     %{
       access_token: issue_access_token(user, code_row.scope, code_row.vault_id),
