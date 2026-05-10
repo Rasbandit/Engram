@@ -10,12 +10,13 @@ Plan: `docs/superpowers/plans/2026-05-09-mcp-oauth-dcr.md`. Shipped in PRs #91-#
 1. GET  /.well-known/oauth-protected-resource    → {resource, authorization_servers}
 2. GET  /.well-known/oauth-authorization-server  → endpoints + grant_types + PKCE
 3. POST /oauth/register                          → mints client_id (DCR)
-4. GET  /oauth/authorize?client_id&redirect_uri  → consent UI (vault picker)
-5. POST /oauth/authorize {vault_choice}          → 302 redirect_uri?code&state
-6. POST /oauth/token grant=authorization_code    → access_token + refresh_token
-7. POST /api/mcp Authorization: Bearer ...       → tool calls (vault-locked)
-8. POST /oauth/token grant=refresh_token         → rotated tokens (RFC 6749 §10.4 family)
-9. POST /oauth/revoke                            → 200 always (RFC 7009)
+4. GET  /oauth/authorize?client_id&redirect_uri  → 302 to /app/oauth/authorize (SPA mediation, Phase 7.A)
+5. SPA reads URL params, fetches /api/oauth/clients/:id for client_name, renders consent
+6. POST /api/oauth/authorize/consent {vault_choice} → JSON {redirect_uri: "..."} (SPA window.location)
+7. POST /oauth/token grant=authorization_code    → access_token + refresh_token
+8. POST /api/mcp Authorization: Bearer ...       → tool calls (vault-locked)
+9. POST /oauth/token grant=refresh_token         → rotated tokens (RFC 6749 §10.4 family)
+10. POST /oauth/revoke                           → 200 always (RFC 7009)
 ```
 
 ## Endpoint reference
@@ -25,8 +26,9 @@ Plan: `docs/superpowers/plans/2026-05-09-mcp-oauth-dcr.md`. Shipped in PRs #91-#
 | `GET /.well-known/oauth-protected-resource` | none | RFC 9728 — points clients at `/api/mcp` + lists auth server |
 | `GET /.well-known/oauth-authorization-server` | none | RFC 8414 — server metadata (endpoints, grant types, PKCE S256, scopes) |
 | `POST /oauth/register` | none, rate-limited 10/IP/min | RFC 7591 DCR — public PKCE clients only (no `client_secret`) |
-| `GET /oauth/authorize` | Bearer JWT | Validates request, server-renders consent w/ vault picker |
-| `POST /oauth/authorize` | Bearer JWT | Mints code, 302s redirect_uri+code+state |
+| `GET /oauth/authorize` | none, rate-limited 10/IP/min | Validates request, 302s to `/app/oauth/authorize` (SPA mediation, Phase 7.A) |
+| `GET /api/oauth/clients/:client_id` | none, rate-limited 10/IP/min | Public client metadata — `{client_id, client_name}` only, for SPA consent UI |
+| `POST /api/oauth/authorize/consent` | Bearer JWT | SPA submits w/ `vault_choice`. Mints code. JSON `{redirect_uri: "..."}` for SPA `window.location` |
 | `POST /oauth/token` | none, rate-limited 10/IP/min | RFC 6749 §3.2 — auth code → tokens, refresh → rotated tokens |
 | `POST /oauth/revoke` | none, rate-limited 10/IP/min | RFC 7009 — 200 always |
 
@@ -83,7 +85,11 @@ Phases 7-9 of the plan are smoke/conformance tests against:
 - Real Claude desktop Connectors UI (`app.engram.page` + `engram.ax`)
 - Cursor / Continue / ChatGPT custom GPT (cross-client conformance)
 
-These need a live deployment after the PRs land. UX gap: today both `/oauth/authorize` verbs require a Bearer JWT (works in tests, doesn't work for a real browser without the SPA mediating). Phase 7 is when we wire the SPA path or a real cookie session.
+These need a live deployment after the PRs land.
+
+**Phase 7.A (shipped) — SPA mediation:** `GET /oauth/authorize` is now public. It validates client_id + redirect_uri + PKCE then 302s the browser to `/app/oauth/authorize?<all-params-preserved>`. The React SPA reads the URL params, fetches `/api/oauth/clients/:client_id` to display the client name, renders a consent UI under the user's existing Clerk JWT session, and POSTs `/api/oauth/authorize/consent` with `vault_choice` + the full param set. The backend mints the code and returns JSON `{redirect_uri: "..."}` so the SPA does `window.location.assign(json.redirect_uri)`.
+
+**Phase 7.B (in flight)** ships the actual React consent page. **7.C** is the live Connectors walk-through.
 
 ## Failed approaches (none yet)
 

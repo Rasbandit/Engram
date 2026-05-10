@@ -51,13 +51,15 @@ defmodule EngramWeb.Router do
     post "/revoke", OAuthRevokeController, :revoke
   end
 
-  # OAuth 2.1 user-facing authorize endpoint. Requires an authenticated
-  # session (Bearer JWT today; Phase 7 wires browser cookie session).
+  # OAuth 2.1 user-facing authorize endpoint (RFC 6749 §4.1.1).
+  # PUBLIC: browsers hit this via 302 from the OAuth client and do not
+  # carry Bearer headers on navigation. The controller validates client
+  # credentials + PKCE then 302s to the SPA at /app/oauth/authorize,
+  # which mediates consent under the user's existing JWT session.
   scope "/oauth", EngramWeb do
-    pipe_through [:api, EngramWeb.Plugs.Auth]
+    pipe_through :oauth_api
 
     get "/authorize", OAuthAuthorizeController, :show
-    post "/authorize", OAuthAuthorizeController, :submit
   end
 
   # All API routes under /api prefix
@@ -119,6 +121,21 @@ defmodule EngramWeb.Router do
     get "/billing/status", BillingController, :status
     post "/billing/checkout-session", BillingController, :create_checkout
     get "/billing/portal", BillingController, :customer_portal
+
+    # OAuth consent (Phase 7.A): SPA POSTs here with the user's Bearer
+    # JWT after the React consent UI is approved. Returns JSON
+    # `{redirect_uri: "..."}` so the SPA can `window.location.assign`.
+    post "/oauth/authorize/consent", OAuthAuthorizeController, :consent
+  end
+
+  # OAuth public client metadata — surfaces `client_name` to the SPA
+  # consent UI without exposing it in the redirect URL bar. Public
+  # because client_id is itself public (returned by DCR); client_name
+  # is non-secret. Rate-limited per IP to deter enumeration.
+  scope "/api/oauth", EngramWeb do
+    pipe_through [:api, :rate_limit_auth]
+
+    get "/clients/:client_id", OAuthClientsController, :show
   end
 
   # Vault-scoped authenticated endpoints (VaultPlug resolves current_vault)
