@@ -48,6 +48,7 @@ defmodule EngramWeb.Router do
 
     post "/register", OAuthRegisterController, :register
     post "/token", OAuthTokenController, :exchange
+    post "/revoke", OAuthRevokeController, :revoke
   end
 
   # OAuth 2.1 user-facing authorize endpoint. Requires an authenticated
