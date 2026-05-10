@@ -99,8 +99,8 @@ Four lints run on every push: `mix format`, `mix compile --warnings-as-errors`, 
 | 2 | `mix format` + `--warnings-as-errors` fatal | shipped |
 | 3 | Sobelow ratchet → zero | shipped |
 | 4 | Dialyzer ratchet → zero | shipped |
-| 5 | Credo ratchet → zero | **active** |
-| 6 | Strict-mode tightening | future |
+| 5 | Credo ratchet → zero | shipped |
+| 6 | Strict-mode closeout (Sobelow drop `--skip`, document deferred Specs/DuplicatedCode) | shipped |
 
 **Run locally:**
 
@@ -108,7 +108,7 @@ Four lints run on every push: `mix format`, `mix compile --warnings-as-errors`, 
 mix format --check-formatted              # fast, gates immediately
 mix compile --warnings-as-errors --force  # fast
 mix credo --strict --mute-exit-status     # ~3s, strict mode (default in this repo)
-mix sobelow --exit low --skip             # ~5s
+mix sobelow --exit low                    # ~5s (no --skip → annotations surface)
 mix dialyzer                              # slow first run (~5-10 min PLT build)
 ```
 

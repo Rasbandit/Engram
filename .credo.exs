@@ -9,9 +9,13 @@
 #   PassAsyncInTestCases, UtcNowTruncate. Code-quality signal is high.
 # - Readability.StrictModuleLayout + WithCustomTaggedTuple enabled for layout discipline.
 # - Consistency.UnusedVariableNames enabled (anonymous-only allowed).
-# - DEFERRED to Phase 6: Credo.Check.Readability.Specs (forces @spec everywhere — too
-#   much one-shot noise even under ratchet) and Credo.Check.Design.DuplicatedCode
-#   (slow + high-noise — revisit later).
+# - DEFERRED past Phase 6: Credo.Check.Readability.Specs (~225 public funs need
+#   real @spec — generic any/any defeats Dialyzer :underspecs, so each spec
+#   requires real type analysis; tracked as a future incremental ratchet)
+#   and Credo.Check.Design.DuplicatedCode (~13 findings at default mass=40,
+#   mostly Phoenix controller / Ecto setup repeats; bumping the threshold
+#   to suppress is an anti-pattern, revisit when worst lib/ offenders are
+#   extracted into helpers).
 # - DEFERRED stylistic-only: BlockPipe, OneArityFunctionInPipe, OnePipePerLine,
 #   SinglePipe, NestedFunctionCalls, MultiAlias, AliasAs, SeparateAliasRequire,
 #   SingleFunctionToBlockPipe, ImplTrue, IoPuts, PipeChainStart, RejectFilter,
@@ -159,10 +163,15 @@
           {Credo.Check.Warning.WrongTestFilename, []}
         ],
         disabled: [
-          # DEFERRED — Phase 6 / strict-mode promotion. Forces @spec everywhere.
+          # DEFERRED past Phase 6 — forces @spec on every public function.
+          # ~225 lib/ funs would need real type analysis (generic any/any
+          # defeats Dialyzer :underspecs flag). Future incremental ratchet PR.
           {Credo.Check.Readability.Specs, []},
 
-          # DEFERRED — slow + high noise. Revisit if compile times allow.
+          # DEFERRED past Phase 6 — ~13 findings at default mass=40, most are
+          # legit Phoenix/Ecto setup repeats or test fixtures. Real candidates:
+          # notes.ex upsert branches (Phase 5 split), mcp/handlers, master_rotation.
+          # Revisit once worst offenders are extracted into shared helpers.
           {Credo.Check.Design.DuplicatedCode, []},
 
           # Codebase legitimately mixes `_` (truly irrelevant) with `_foo` (documents

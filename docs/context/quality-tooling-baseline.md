@@ -10,7 +10,7 @@ Plan: `../../../engram-workspace/docs/superpowers/plans/2026-05-09-quality-tooli
 |------|----------|--------|----------------|
 | `mix format` | 0 | **gated** (Phase 2) | 0 (held) |
 | `mix compile --warnings-as-errors` | 0 | **gated** (Phase 2) | 0 (held) |
-| Sobelow (threshold low, exit low, --skip) | 0 | **gated** (Phase 3) | 0 (held) |
+| Sobelow (threshold low, exit low) | 0 | **gated** (Phase 3, tightened Phase 6: dropped `--skip`) | 0 (held) |
 | Dialyzer (with `:unmatched_returns`, `:error_handling`, `:underspecs`, `:missing_return`, `:extra_return`) | 0 (4 ignored) | **gated** (Phase 4) | 0 (held) |
 | Credo (`--strict`) | 0 | **gated** (Phase 5) | 0 (held) |
 
@@ -90,6 +90,35 @@ Phase 5 (this PR) burned the 676-finding baseline to **0 findings** across 230 f
 - 1× test/engram_web/endpoint_config_test.exs — `Module.concat/1` for unique handler module names. Same justification.
 - 1× test/engram_web/assets/marketing_css_test.exs — `System.cmd("mix", ["tailwind", "marketing"])` runs in CI under a controlled env.
 
+## Phase 6 — Strict-mode closeout
+
+Phase 6 (this PR) is a thin closeout because Phases 4 + 5 already exceeded the plan's strict-mode targets.
+
+**Plan task → actual outcome:**
+
+- **6.1 Credo `--strict`** — Already in place. Phase 5 set `strict: true` in `.credo.exs` AND wired `mix credo --strict` into both CI and pre-push. Zero findings under `--strict`. No change required.
+- **6.2 Tighten Dialyzer flags** — Already exceeded. Plan asked for `:unmatched_returns, :error_handling, :underspecs`. Phase 4 added all three plus `:missing_return` and `:extra_return`. No change required.
+- **6.3 Tighten Sobelow** — Plan said "drop `--skip`, lower threshold from `High` to `Medium`". Threshold already at the strictest level (`low`, lower than `Medium`). The `--skip` flag was a defensive no-op (no `# sobelow_skip` annotations existed in `lib/`); dropping it makes the gate stricter going forward — any future annotation gets surfaced as a finding rather than silently skipped. **Change applied** in this PR (CI + pre-push).
+- **6.4 Update baseline + open PR** — This document.
+
+**Deferred (not blocking Phase 6):**
+
+- `Credo.Check.Readability.Specs` — ~225 public functions in `lib/` lack `@spec`. Adding generic `@spec foo(any()) :: any()` defeats Dialyzer's `:underspecs` flag, so each `@spec` requires real type analysis. Tracked as a future ratchet PR (incremental, file-by-file or directory-by-directory). Currently in `.credo.exs` `disabled` list with a `DEFERRED — Phase 6 / strict-mode promotion` comment.
+- `Credo.Check.Design.DuplicatedCode` — 13 findings at default `mass_threshold: 40`. Most are legitimate Phoenix controller / Ecto schema patterns or test setup repeats; the few real candidates (notes.ex two-branch upsert, mcp/handlers, master_rotation) would need targeted helper extraction. Currently in `.credo.exs` `disabled` list. Bumping `mass_threshold` to suppress findings is an anti-pattern; revisit when the worst lib/ offenders are extracted.
+
+**Phase 6 acceptance:**
+
+```bash
+mix format --check-formatted          # exit 0
+mix compile --warnings-as-errors      # exit 0
+mix credo --strict                    # exit 0, 0 findings
+mix sobelow --exit low                # exit 0, 0 findings (no --skip)
+mix dialyzer                          # exit 0, 0 effective findings (4 ignored)
+mix test                              # 1046+ pass, 0 fail
+```
+
+All four lints gated, no `continue-on-error: true` anywhere in `lint` job.
+
 ## How to reproduce these counts
 
 ```bash
@@ -97,7 +126,7 @@ cd backend
 mix format --check-formatted          # exit-status only
 mix compile --warnings-as-errors --force
 mix credo --strict --mute-exit-status # full report
-mix sobelow --exit low --skip         # full report
+mix sobelow --exit low                # full report (no --skip — annotations surface)
 mix dialyzer                          # full report (PLT must be built first via mix dialyzer --plt)
 ```
 

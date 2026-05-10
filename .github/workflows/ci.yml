@@ -598,6 +598,15 @@ jobs:
       # Phase 3: sobelow → fatal.
       # Phase 4: dialyzer → fatal.
       # Phase 5: credo → fatal.
+      # Phase 6: sobelow drops `--skip` (any `#sobelow_skip` annotation in the
+      #         tree now surfaces as a finding); sobelow threshold already at
+      #         strictest (low). Dialyzer flags already exceed plan target
+      #         (Phase 4 added :missing_return + :extra_return on top of
+      #         :unmatched_returns, :error_handling, :underspecs). Credo
+      #         already strict (config + CLI). Deferred: Readability.Specs
+      #         (~225 public funs need real type info — separate ratchet PR)
+      #         and Design.DuplicatedCode (~13 findings, mostly Phoenix
+      #         controller setup repeats — high noise at default mass=40).
 
       - name: Format check
         run: mix format --check-formatted
@@ -609,7 +618,7 @@ jobs:
         run: mix credo --strict
 
       - name: Sobelow
-        run: mix sobelow --exit low --skip
+        run: mix sobelow --exit low
 
       - name: Dialyzer
         run: |
