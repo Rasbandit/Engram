@@ -44,7 +44,7 @@ export const router = createBrowserRouter(
           ],
         },
         { path: '/link', element: <DeviceLinkPage /> },
-        { path: '/oauth/authorize', element: <OAuthAuthorizePage /> },
+        { path: '/oauth/consent', element: <OAuthAuthorizePage /> },
       ],
     },
   ],

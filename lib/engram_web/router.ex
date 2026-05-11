@@ -49,8 +49,8 @@ defmodule EngramWeb.Router do
   # OAuth 2.1 user-facing authorize endpoint (RFC 6749 §4.1.1).
   # PUBLIC: browsers hit this via 302 from the OAuth client and do not
   # carry Bearer headers on navigation. The controller validates client
-  # credentials + PKCE then 302s to the SPA at /app/oauth/authorize,
-  # which mediates consent under the user's existing JWT session.
+  # credentials + PKCE then 302s to the SPA at /oauth/consent, which
+  # mediates consent under the user's existing JWT session.
   scope "/oauth", EngramWeb do
     pipe_through :oauth_api
 

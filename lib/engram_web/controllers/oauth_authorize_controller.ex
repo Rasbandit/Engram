@@ -6,7 +6,7 @@ defmodule EngramWeb.OAuthAuthorizeController do
 
     * `GET /oauth/authorize` is **public**. It validates client_id,
       redirect_uri, response_type, PKCE, and scope, then 302s to
-      `/app/oauth/authorize?<all-params>`. Browsers don't carry
+      `/oauth/consent?<all-params>` on the SPA. Browsers don't carry
       `Authorization: Bearer ...` on navigations, so the React SPA
       mediates consent under the user's existing JWT session.
 
@@ -75,7 +75,7 @@ defmodule EngramWeb.OAuthAuthorizeController do
       |> Map.take(@forwarded_params)
       |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
 
-    location = "/app/oauth/authorize?" <> URI.encode_query(forwarded)
+    location = "/oauth/consent?" <> URI.encode_query(forwarded)
 
     conn |> put_status(302) |> redirect(to: location)
   end

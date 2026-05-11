@@ -46,12 +46,12 @@ defmodule EngramWeb.OAuthAuthorizeControllerTest do
   # ──────────────────────────────────────────────────────────────────
   # GET /oauth/authorize — Phase 7.A: now PUBLIC (browser navigation,
   # no Bearer header on 302). Validates request, then 302s to the SPA
-  # at /app/oauth/authorize?<all-params>. Invalid client/redirect still
+  # at /oauth/consent?<all-params>. Invalid client/redirect still
   # returns 400 HTML (no redirect — code-leak prevention).
   # ──────────────────────────────────────────────────────────────────
 
   describe "GET /oauth/authorize — happy path (PUBLIC, no auth required)" do
-    test "redirects to /app/oauth/authorize with all params preserved", %{conn: conn} do
+    test "redirects to /oauth/consent with all params preserved", %{conn: conn} do
       client = register_client()
       redirect_uri = hd(client.redirect_uris)
       params = valid_params(client.client_id, redirect_uri)
@@ -62,7 +62,7 @@ defmodule EngramWeb.OAuthAuthorizeControllerTest do
       [location] = get_resp_header(conn, "location")
 
       uri = URI.parse(location)
-      assert uri.path == "/app/oauth/authorize"
+      assert uri.path == "/oauth/consent"
 
       query = URI.decode_query(uri.query)
       assert query["client_id"] == client.client_id

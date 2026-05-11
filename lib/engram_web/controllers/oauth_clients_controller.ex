@@ -2,7 +2,7 @@ defmodule EngramWeb.OAuthClientsController do
   @moduledoc """
   Public read-only metadata for registered OAuth clients.
 
-  The SPA consent UI (`/app/oauth/authorize`) calls this to render
+  The SPA consent UI (`/oauth/consent`) calls this to render
   *"Authorize **<client_name>** to access your Engram"* without
   exposing the human-readable name in the URL bar.
 
