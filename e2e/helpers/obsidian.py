@@ -167,10 +167,29 @@ class ObsidianInstance:
         logger.info("[%s] Config prepared at %s", self.name, self.config_dir)
 
     def _start_xvfb(self) -> None:
-        """Start Xvfb virtual framebuffer."""
-        # TEMP DIAGNOSTIC: capture stderr so a failed start surfaces the
-        # actual Xvfb error. Revert to DEVNULL once CI is stable.
-        stderr_path = f"/tmp/xvfb-stderr-{self.display.lstrip(':')}-{os.getpid()}.log"
+        """Start Xvfb virtual framebuffer.
+
+        Pre-flight kills any orphan Xvfb on this display + clears its lock.
+        A fixture whose setup raises after _start_xvfb (e.g., _start_obsidian
+        fails) doesn't run inst.stop(), so Xvfb leaks; pytest-rerunfailures
+        then recreates the fixture and the new Xvfb errors with "Server is
+        already active for display N". Cleaning unconditionally is safe: only
+        this test process should ever hold a display in this range.
+        """
+        display_num = self.display.lstrip(":")
+        subprocess.run(
+            ["pkill", "-9", "-f", f"Xvfb {self.display} "],
+            capture_output=True,
+        )
+        # Wait for the killed process to release the lock, then clean.
+        time.sleep(0.2)
+        for path in (f"/tmp/.X{display_num}-lock", f"/tmp/.X11-unix/X{display_num}"):
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+
+        stderr_path = f"/tmp/xvfb-stderr-{display_num}-{os.getpid()}.log"
         self._xvfb_stderr = open(stderr_path, "w+b")
         self._xvfb_proc = subprocess.Popen(
             ["Xvfb", self.display, "-screen", "0", "1024x768x24", "-ac"],
