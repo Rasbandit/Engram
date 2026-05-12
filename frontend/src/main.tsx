@@ -5,6 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { router } from './router'
 import { queryClient } from './api/query-client'
 import { config } from './config'
+import { ThemeProvider } from './theme/theme-provider'
 import './main.css'
 
 const isClerk = config.authProvider === 'clerk'
@@ -15,12 +16,14 @@ const AuthProvider = isClerk
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Suspense fallback={<p>Loading...</p>}>
-      <AuthProvider>
-        <QueryClientProvider client={queryClient}>
-          <RouterProvider router={router} />
-        </QueryClientProvider>
-      </AuthProvider>
-    </Suspense>
+    <ThemeProvider>
+      <Suspense fallback={<p>Loading...</p>}>
+        <AuthProvider>
+          <QueryClientProvider client={queryClient}>
+            <RouterProvider router={router} />
+          </QueryClientProvider>
+        </AuthProvider>
+      </Suspense>
+    </ThemeProvider>
   </StrictMode>,
 )
