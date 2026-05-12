@@ -59,7 +59,7 @@ jobs:
           echo "Version bumped: $MAIN_VERSION → $BRANCH_VERSION"
 
   e2e-clerk:
-    runs-on: [self-hosted, engram]
+    runs-on: [self-hosted, engram, isolated]
 
     env:
       CI_PROJECT: engram-ci-${{ github.run_id }}
@@ -478,7 +478,7 @@ jobs:
   unit-tests:
     # Skip on cross-repo plugin dispatch — plugin can't regress backend ExUnit.
     if: github.event_name != 'repository_dispatch'
-    runs-on: [self-hosted, engram]
+    runs-on: [self-hosted, engram, isolated]
 
     env:
       PG_CONTAINER: engram-unit-test-${{ github.run_id }}
@@ -565,7 +565,7 @@ jobs:
   lint:
     # Skip on cross-repo plugin dispatch — plugin can't regress backend lints.
     if: github.event_name != 'repository_dispatch'
-    runs-on: [self-hosted, engram]
+    runs-on: [self-hosted, engram, isolated]
 
     steps:
       - name: Reset sparse-checkout leaked from cross-repo jobs
@@ -632,7 +632,7 @@ jobs:
     # Skip on cross-repo plugin dispatch — plugin uses Clerk JWTs in production,
     # so the local-auth API path is backend-internal.
     if: github.event_name != 'repository_dispatch'
-    runs-on: [self-hosted, engram]
+    runs-on: [self-hosted, engram, isolated]
 
     env:
       CI_PROJECT: engram-ci-local-${{ github.run_id }}
@@ -757,7 +757,7 @@ jobs:
     # Skip on cross-repo plugin dispatch — Playwright targets backend's React
     # frontend, which the plugin (separate repo) cannot affect.
     if: github.event_name != 'repository_dispatch'
-    runs-on: [self-hosted, engram]
+    runs-on: [self-hosted, engram, isolated]
 
     env:
       PG_CONTAINER: engram-e2e-browser-${{ github.run_id }}
@@ -931,7 +931,7 @@ jobs:
   deploy-fastraid:
     if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.ci.result == 'success'
     needs: [ci]
-    runs-on: [self-hosted, engram]
+    runs-on: [self-hosted, engram, isolated]
     permissions:
       packages: write
       contents: read
