@@ -31,6 +31,27 @@ defmodule Engram.Crypto.KeyProvider do
   """
   @callback rotate_dek(wrapped(), ctx()) :: {:ok, wrapped(), dek()} | {:error, term()}
 
+  @doc """
+  Provider-specific pre-flight performed once at app boot, BEFORE the
+  boot canary unwrap. Implementations that need to validate connectivity
+  or credentials with their key source SHOULD do it here.
+
+  - `Local` returns `:ok` (no external state).
+  - `AwsKms` issues a single `DescribeKey` call against the configured
+    CMK — surfaces wrong-ARN, IAM-denied, wrong-region misconfiguration
+    before the first user request hits the hot path.
+  """
+  @callback boot_check() :: :ok | {:error, term()}
+
+  @doc """
+  Unwrap `wrapped` without any provider-internal fallback. Used by the
+  boot canary so that a misconfigured master key cannot be silently
+  rescued by a `_PREVIOUS` rotation slot. Providers without a fallback
+  concept (e.g. AwsKms) MAY delegate to `unwrap_dek/2`.
+  """
+  @callback unwrap_dek_no_fallback(wrapped(), ctx()) ::
+              {:ok, dek()} | {:error, term()}
+
   @doc "Default DEK generator — providers may override."
   @spec default_generate_dek() :: dek()
   def default_generate_dek, do: :crypto.strong_rand_bytes(32)
