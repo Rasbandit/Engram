@@ -24,7 +24,7 @@ The AWS KMS API docs show plaintext-first; ExAws inverts that.
 
 ### Base64 Encoding Not Automatic
 
-ExAws.KMS does **not** base64-encode plaintext/ciphertext. The AWS KMS JSON API requires base64. The production wrapper (`ExAws.AwsKms`) **must** explicitly encode:
+ExAws.KMS does **not** base64-encode plaintext/ciphertext. The AWS KMS JSON API requires base64. The production wrapper (`Engram.AwsKms.ExAws`) **must** explicitly encode:
 
 ```elixir
 def encrypt(plaintext, enc_ctx) do
