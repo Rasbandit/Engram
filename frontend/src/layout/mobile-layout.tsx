@@ -1,18 +1,20 @@
-import { Menu, PanelRightOpen } from 'lucide-react'
-import { lazy, Suspense, useState } from 'react'
+import { Menu, PanelRightOpen, X } from 'lucide-react'
+import { lazy, type MouseEvent, Suspense, useState } from 'react'
 import { Link, NavLink, Outlet } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Sheet,
+  SheetClose,
   SheetContent,
-  SheetHeader,
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { config } from '../config'
 import ThemeToggle from '../theme/theme-toggle'
 import FolderTree from '../viewer/folder-tree'
+import FolderActions from './folder-actions'
+import { FolderTreeProvider } from './folder-tree-context'
 import { useRightSidebar } from './right-sidebar-context'
 import VaultSwitcher from './vault-switcher'
 
@@ -37,6 +39,14 @@ function HeaderLink({ to, label }: { to: string; label: string }) {
   )
 }
 
+// Close the drawer only when the click originated on a navigation link.
+// Buttons (e.g. folder-expand toggles in FolderTree) must keep the drawer open.
+function closeOnLinkClick(close: () => void) {
+  return (event: MouseEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest('a')) close()
+  }
+}
+
 export default function MobileLayout() {
   const { content: rightContent } = useRightSidebar()
   const [leftOpen, setLeftOpen] = useState(false)
@@ -52,14 +62,29 @@ export default function MobileLayout() {
                 <Menu />
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-[85vw] max-w-sm p-0">
-              <SheetHeader className="border-b border-border px-3 py-2">
-                <SheetTitle>Files</SheetTitle>
-              </SheetHeader>
-              <ScrollArea className="h-[calc(100dvh-3rem)]" onClick={() => setLeftOpen(false)}>
+            <SheetContent
+              side="left"
+              showCloseButton={false}
+              className="flex flex-col gap-0 p-0 data-[side=left]:w-[85vw] sm:max-w-none"
+            >
+              <FolderTreeProvider>
+                <section className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
+                  <SheetTitle className="text-base font-medium">Files</SheetTitle>
+                  <SheetClose asChild>
+                    <Button variant="ghost" size="icon-sm" aria-label="Close">
+                      <X />
+                    </Button>
+                  </SheetClose>
+                </section>
+                <ScrollArea
+                  className="min-h-0 flex-1"
+                  onClick={closeOnLinkClick(() => setLeftOpen(false))}
+                >
+                  <FolderTree />
+                </ScrollArea>
+                <FolderActions />
                 <VaultSwitcher />
-                <FolderTree />
-              </ScrollArea>
+              </FolderTreeProvider>
             </SheetContent>
           </Sheet>
           <Link to="/" className="text-base font-semibold text-foreground">
@@ -85,11 +110,23 @@ export default function MobileLayout() {
                   <PanelRightOpen />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="right" className="w-[85vw] max-w-sm p-0">
-                <SheetHeader className="border-b border-border px-3 py-2">
-                  <SheetTitle>On this page</SheetTitle>
-                </SheetHeader>
-                <ScrollArea className="h-[calc(100dvh-3rem)]" onClick={() => setRightOpen(false)}>
+              <SheetContent
+                side="right"
+                showCloseButton={false}
+                className="flex flex-col gap-0 p-0 data-[side=right]:w-[85vw] sm:max-w-none"
+              >
+                <section className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
+                  <SheetTitle className="text-base font-medium">On this page</SheetTitle>
+                  <SheetClose asChild>
+                    <Button variant="ghost" size="icon-sm" aria-label="Close">
+                      <X />
+                    </Button>
+                  </SheetClose>
+                </section>
+                <ScrollArea
+                  className="min-h-0 flex-1"
+                  onClick={closeOnLinkClick(() => setRightOpen(false))}
+                >
                   {rightContent}
                 </ScrollArea>
               </SheetContent>
