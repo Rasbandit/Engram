@@ -217,7 +217,7 @@ defmodule Engram.AwsKms.ExAwsTest do
 
       try do
         assert {:ok, "ct"} =
-                 Engram.AwsKms.ExAws.encrypt("pt", %{"user_id" => "1", "purpose" => "dek_wrap"})
+                 KmsExAws.encrypt("pt", %{"user_id" => "1", "purpose" => "dek_wrap"})
 
         assert_received {:tel_req, %{duration_us: dur}, %{op: :encrypt, status: :ok}}
         assert is_integer(dur) and dur >= 0
@@ -247,7 +247,7 @@ defmodule Engram.AwsKms.ExAwsTest do
 
       try do
         assert {:error, :access_denied} =
-                 Engram.AwsKms.ExAws.encrypt("pt", %{"user_id" => "1", "purpose" => "dek_wrap"})
+                 KmsExAws.encrypt("pt", %{"user_id" => "1", "purpose" => "dek_wrap"})
 
         assert_received {[:engram, :crypto, :kms, :request],
                          %{op: :encrypt, status: :error, error_class: :access_denied}}
@@ -275,7 +275,7 @@ defmodule Engram.AwsKms.ExAwsTest do
 
       try do
         assert_raise ArgumentError, fn ->
-          Engram.AwsKms.ExAws.encrypt("pt", %{"user_id" => "1", "purpose" => "dek_wrap"})
+          KmsExAws.encrypt("pt", %{"user_id" => "1", "purpose" => "dek_wrap"})
         end
 
         assert_received {[:engram, :crypto, :kms, :request],

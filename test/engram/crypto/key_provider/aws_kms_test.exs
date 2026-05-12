@@ -142,14 +142,14 @@ defmodule Engram.Crypto.KeyProvider.AwsKmsTest do
   describe "boot_check/0" do
     test "returns :ok when describe_key succeeds" do
       expect(Engram.AwsKmsMock, :describe_key, fn -> :ok end)
-      assert :ok = Engram.Crypto.KeyProvider.AwsKms.boot_check()
+      assert :ok = AwsKms.boot_check()
     end
 
     test "propagates an error tuple when describe_key fails" do
       expect(Engram.AwsKmsMock, :describe_key, fn -> {:error, :access_denied} end)
 
       assert {:error, :access_denied} =
-               Engram.Crypto.KeyProvider.AwsKms.boot_check()
+               AwsKms.boot_check()
     end
   end
 
@@ -164,7 +164,7 @@ defmodule Engram.Crypto.KeyProvider.AwsKmsTest do
       blob = <<0xAA, 0x01, :crypto.strong_rand_bytes(48)::binary>>
 
       assert {:ok, ^dek} =
-               Engram.Crypto.KeyProvider.AwsKms.unwrap_dek_no_fallback(
+               AwsKms.unwrap_dek_no_fallback(
                  blob,
                  %{user_id: 7}
                )
@@ -174,7 +174,7 @@ defmodule Engram.Crypto.KeyProvider.AwsKmsTest do
       blob = <<0x42, 0x01, :crypto.strong_rand_bytes(48)::binary>>
 
       assert {:error, :malformed_wrapped_blob} =
-               Engram.Crypto.KeyProvider.AwsKms.unwrap_dek_no_fallback(
+               AwsKms.unwrap_dek_no_fallback(
                  blob,
                  %{user_id: 7}
                )
