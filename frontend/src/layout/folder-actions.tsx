@@ -1,4 +1,5 @@
 import { ArrowUpDown, FilePlus, FolderPlus, FoldVertical } from 'lucide-react'
+import { Fragment } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -65,7 +66,10 @@ export default function FolderActions() {
         <DropdownMenuContent align="end" className="w-[min(95vw,20rem)]">
           <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as SortKey)}>
             {SORT_SECTIONS.map((section, i) => (
-              <section key={section.label}>
+              // Fragment (not <section>) so Radix's roving keyboard nav across
+              // DropdownMenuRadioItem siblings keeps working — wrapping them in
+              // a real DOM element breaks the radio group.
+              <Fragment key={section.label}>
                 {i > 0 && <DropdownMenuSeparator />}
                 <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   {section.label}
@@ -75,7 +79,7 @@ export default function FolderActions() {
                     {opt.label}
                   </DropdownMenuRadioItem>
                 ))}
-              </section>
+              </Fragment>
             ))}
           </DropdownMenuRadioGroup>
         </DropdownMenuContent>

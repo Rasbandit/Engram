@@ -121,6 +121,9 @@ interface FolderNodeProps {
 
 function FolderNode({ node, depth, selectedNotePath }: FolderNodeProps) {
   const { isOpen: getIsOpen, toggle } = useFolderTreeState()
+  // Force-open the chain leading to the active note so the user can always see
+  // where they are. Side effect: "Collapse all" leaves the active-note chain
+  // open, which matches Obsidian's behaviour — intentional, not a bug.
   const containsSelected = selectedNotePath?.startsWith(`${node.fullPath}/`) ?? false
   const isOpen = getIsOpen(node.fullPath) || containsSelected
 
@@ -240,15 +243,41 @@ function NoteLeaf({
 function noteLabel(note: NoteSummary): string {
   if (note.title) return note.title
   const last = note.path.split('/').pop() ?? note.path
-  return last.replace(/\.[^.]+$/, '')
+  // Only strip recognized extensions, otherwise "archive.tar.gz" loses ".gz"
+  // and the row reads "archive.tar" + "GZ" chip — confusing.
+  const ext = recognizedExtension(last)
+  return ext ? last.slice(0, -(ext.length + 1)) : last
+}
+
+const KNOWN_EXTENSIONS = new Set([
+  'md',
+  'pdf',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'svg',
+  'mp3',
+  'mp4',
+  'webm',
+  'mov',
+  'csv',
+  'json',
+  'txt',
+])
+
+function recognizedExtension(filename: string): string | null {
+  const dot = filename.lastIndexOf('.')
+  if (dot <= 0) return null
+  const ext = filename.slice(dot + 1).toLowerCase()
+  return KNOWN_EXTENSIONS.has(ext) ? ext : null
 }
 
 function nonMdExtension(path: string): string | null {
   const last = path.split('/').pop() ?? path
-  const dot = last.lastIndexOf('.')
-  if (dot <= 0) return null
-  const ext = last.slice(dot + 1).toLowerCase()
-  return ext === 'md' ? null : ext
+  const ext = recognizedExtension(last)
+  return ext && ext !== 'md' ? ext : null
 }
 
 function encodePathForRouter(path: string): string {

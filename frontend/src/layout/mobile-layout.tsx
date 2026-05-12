@@ -7,6 +7,7 @@ import {
   Sheet,
   SheetClose,
   SheetContent,
+  SheetDescription,
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
@@ -70,6 +71,7 @@ export default function MobileLayout() {
               <FolderTreeProvider>
                 <section className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
                   <SheetTitle className="text-base font-medium">Files</SheetTitle>
+                  <SheetDescription className="sr-only">Folder navigation</SheetDescription>
                   <SheetClose asChild>
                     <Button variant="ghost" size="icon-sm" aria-label="Close">
                       <X />
@@ -117,6 +119,7 @@ export default function MobileLayout() {
               >
                 <section className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
                   <SheetTitle className="text-base font-medium">On this page</SheetTitle>
+                  <SheetDescription className="sr-only">Headings on the current note</SheetDescription>
                   <SheetClose asChild>
                     <Button variant="ghost" size="icon-sm" aria-label="Close">
                       <X />
