@@ -92,15 +92,19 @@ defmodule Engram.AwsKms.ExAws do
   # ExAws decodes 4xx JSON bodies and returns {type_string, message_string}.
   # ThrottlingException is retried internally; after retries exhausted it
   # arrives as {:error, {"ThrottlingException", msg}}.
-  defp classify({type, _msg}) when is_binary(type), do: classify_type(type)
+  defp classify({type, msg}) when is_binary(type) and is_binary(msg),
+    do: classify_type(type, msg)
 
   # Raw :http_error shapes (e.g. non-JSON bodies, network-level 4xx/5xx).
-  defp classify({:http_error, _status, %{"__type" => type}}), do: classify_type(type)
+  defp classify({:http_error, _status, %{"__type" => type}}), do: classify_type(type, "")
 
   defp classify({:http_error, _status, %{body: body}}) when is_binary(body) do
     case Jason.decode(body) do
-      {:ok, %{"__type" => type}} -> classify_type(type)
-      _ -> :network_error
+      {:ok, %{"__type" => type} = parsed} ->
+        classify_type(type, Map.get(parsed, "message", ""))
+
+      _ ->
+        :network_error
     end
   end
 
@@ -109,14 +113,14 @@ defmodule Engram.AwsKms.ExAws do
   defp classify({:socket_error, _}), do: :network_error
   defp classify(other), do: {:aws, "Unknown", inspect(other)}
 
-  defp classify_type(type) do
+  defp classify_type(type, msg) do
     case String.split(type, "#", parts: 2) |> List.last() do
       "AccessDeniedException" -> :access_denied
       "ThrottlingException" -> :throttled
       "LimitExceededException" -> :throttled
       "InvalidCiphertextException" -> :context_mismatch
       "NotFoundException" -> :key_not_found
-      other -> {:aws, other, ""}
+      other -> {:aws, other, msg}
     end
   end
 end
