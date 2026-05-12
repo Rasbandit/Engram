@@ -14,5 +14,14 @@
   # return type that no real call path produces — every internal helper is
   # guarded with `is_binary/1`. Widening the spec to include the phantom would
   # mislead callers; ignoring the missing_range warning here is safe.
-  {"lib/engram/notes/helpers.ex", :missing_range, 13}
+  {"lib/engram/notes/helpers.ex", :missing_range, 13},
+
+  # `identify_from_blob/1` is intentionally specced as `term()` because callers
+  # pass values straight from DB columns (which may be nil) or from arbitrary
+  # external input — the function gracefully handles every shape via the
+  # `_other` catch-all clause. Dialyzer's success typing infers a narrower
+  # binary-shape union from the leading three pattern matches, but the spec
+  # has to remain `term()` so future callers don't fail type-check at the
+  # boundary. Same pattern as the AAD helpers above.
+  {"lib/engram/crypto/key_provider.ex", :contract_supertype, 48}
 ]
