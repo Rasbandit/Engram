@@ -13,6 +13,9 @@ on:
         required: false
         default: "main"
 
+permissions:
+  contents: read
+
 # Serialize all backend CI runs on the self-hosted runner pool. Two parallel
 # `docker compose build` invocations collide on the shared buildkit cache
 # mounts (`id=mix-deps`, `id=mix-build`) and intermittently abort with
@@ -33,7 +36,7 @@ env:
   # so the key does not protect persistent data. Production deploys must override
   # with a secret via `fly secrets set ENCRYPTION_MASTER_KEY=...`.
   KEY_PROVIDER: "local"
-  ENCRYPTION_MASTER_KEY: "vZ+e130Hffn5T1ljBb3FH1rFIKc42kTK86jmUEusLio="
+  ENCRYPTION_MASTER_KEY: ${{ secrets.CI_ENCRYPTION_MASTER_KEY }}
 
 jobs:
   version-check:
