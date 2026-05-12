@@ -76,6 +76,13 @@ jobs:
         run: |
           docker compose -f docker-compose.ci.yml -p "$CI_PROJECT" down -v --remove-orphans 2>/dev/null || true
           pkill -9 -f "$E2E_CONFIG_PREFIX" 2>/dev/null || true
+          # Orphan Xvfb from prior aborted runs holds the display + leaves
+          # /tmp/.X{N}-lock, which makes subsequent runs error with
+          # "Xvfb failed to start on display :N". Clean the display range
+          # this workflow uses (110-129; E2E_DISPLAY_BASE=110 × 6 instances).
+          pkill -9 -f "Xvfb :1[12][0-9]" 2>/dev/null || true
+          sleep 1
+          rm -f /tmp/.X1[12][0-9]-lock /tmp/.X11-unix/X1[12][0-9] 2>/dev/null || true
           rm -rf ${E2E_VAULT_PREFIX}-* ${E2E_CONFIG_PREFIX}-* ${MARKER_PREFIX}-*
           # Sparse-checkout leak recovery. Cross-repo plugin checkouts and the
           # obsidian-update workflow can leave `core.sparseCheckout=true` and
@@ -459,8 +466,14 @@ jobs:
           curl -sf -X DELETE "http://10.0.20.201:6333/collections/${QDRANT_COLLECTION}" > /dev/null 2>&1 || true
           # Kill only this run's Obsidian/Xvfb processes (scoped by config dir)
           pkill -9 -f "$E2E_CONFIG_PREFIX" 2>/dev/null || true
+          # Xvfb command line doesn't contain $E2E_CONFIG_PREFIX, so kill
+          # them by display range and clean their lock files. Without this,
+          # `/tmp/.X{N}-lock` survives, blocks the next run on the same
+          # display number, and surfaces as `Xvfb failed to start on display :N`.
+          pkill -9 -f "Xvfb :1[12][0-9]" 2>/dev/null || true
           # Wait for processes to die before removing their dirs
           sleep 1
+          rm -f /tmp/.X1[12][0-9]-lock /tmp/.X11-unix/X1[12][0-9] 2>/dev/null || true
           # Remove only this run's temp dirs + marker files
           rm -rf ${E2E_VAULT_PREFIX}-* ${E2E_CONFIG_PREFIX}-* ${MARKER_PREFIX}-*
           # Tear down only this run's Docker stack
