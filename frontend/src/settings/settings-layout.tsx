@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router'
 
 const SECTIONS = [
+  { to: 'appearance', label: 'Appearance' },
   { to: 'api-keys', label: 'API Keys' },
   { to: 'encryption', label: 'Encryption' },
   { to: 'billing', label: 'Billing' },

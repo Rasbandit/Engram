@@ -6,6 +6,7 @@ import BillingPage from './billing/billing-page'
 import DeviceLinkPage from './device/device-link-page'
 import AppLayout from './layout/app-layout'
 import NotFoundPage from './not-found'
+import AppearancePage from './settings/appearance-page'
 import ApiKeysPage from './settings/api-keys-page'
 import BillingPlaceholder from './settings/billing-placeholder'
 import EncryptionPage from './settings/encryption-page'
@@ -37,7 +38,8 @@ export const router = createBrowserRouter(
               path: '/settings',
               element: <SettingsLayout />,
               children: [
-                { index: true, element: <Navigate to="api-keys" replace /> },
+                { index: true, element: <Navigate to="appearance" replace /> },
+                { path: 'appearance', element: <AppearancePage /> },
                 { path: 'api-keys', element: <ApiKeysPage /> },
                 { path: 'encryption', element: <EncryptionPage /> },
                 { path: 'billing', element: <BillingPlaceholder /> },
