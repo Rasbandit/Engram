@@ -1,7 +1,14 @@
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useRef, useState } from 'react'
+import type { ImperativePanelHandle } from 'react-resizable-panels'
 import { Link, NavLink, Outlet } from 'react-router'
 import { Button } from '@/components/ui/button'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@/components/ui/resizable'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { config } from '../config'
 
 const isClerk = config.authProvider === 'clerk'
@@ -31,9 +38,17 @@ function HeaderLink({ to, label }: { to: string; label: string }) {
 }
 
 export default function AppLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const sidebarRef = useRef<ImperativePanelHandle>(null)
+  const [collapsed, setCollapsed] = useState(false)
   useChannel()
   const { data: billing } = useBillingStatus()
+
+  const toggleSidebar = () => {
+    const panel = sidebarRef.current
+    if (!panel) return
+    if (panel.isCollapsed()) panel.expand()
+    else panel.collapse()
+  }
 
   return (
     <>
@@ -48,12 +63,12 @@ export default function AppLayout() {
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => setSidebarOpen((o) => !o)}
-              aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-              aria-expanded={sidebarOpen}
+              onClick={toggleSidebar}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!collapsed}
               aria-controls="sidebar"
             >
-              {sidebarOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
+              {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
             </Button>
             <Link to="/" className="text-lg font-semibold text-foreground hover:text-foreground/80">
               Engram
@@ -70,26 +85,36 @@ export default function AppLayout() {
           </nav>
         </header>
 
-        <section className="flex flex-1 overflow-hidden">
-          <aside
+        <ResizablePanelGroup
+          direction="horizontal"
+          autoSaveId="engram:app-layout"
+          className="flex-1"
+        >
+          <ResizablePanel
             id="sidebar"
-            aria-label="Folder navigation"
-            className={`${
-              sidebarOpen ? 'w-64' : 'w-0'
-            } shrink-0 overflow-y-auto border-r border-border bg-card transition-all duration-200`}
+            order={1}
+            ref={sidebarRef}
+            defaultSize={18}
+            minSize={12}
+            maxSize={40}
+            collapsible
+            collapsedSize={0}
+            onCollapse={() => setCollapsed(true)}
+            onExpand={() => setCollapsed(false)}
+            className="border-r border-border bg-card"
           >
-            {sidebarOpen && (
-              <>
-                <VaultSwitcher />
-                <FolderTree />
-              </>
-            )}
-          </aside>
-
-          <main className="flex-1 overflow-hidden bg-muted/40 p-6 text-foreground">
-            <Outlet />
-          </main>
-        </section>
+            <ScrollArea className="h-full">
+              <VaultSwitcher />
+              <FolderTree />
+            </ScrollArea>
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel id="main" order={2} defaultSize={82} minSize={40}>
+            <main className="h-full overflow-hidden bg-muted/40 p-6 text-foreground">
+              <Outlet />
+            </main>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </section>
     </>
   )
