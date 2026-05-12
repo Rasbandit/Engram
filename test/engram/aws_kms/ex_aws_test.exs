@@ -38,7 +38,9 @@ defmodule Engram.AwsKms.ExAwsTest do
       Application.put_env(:ex_aws, :kms, prev_ex_aws_kms)
 
       for {k, v} <- prev_ex_aws do
-        if is_nil(v), do: Application.delete_env(:ex_aws, k), else: Application.put_env(:ex_aws, k, v)
+        if is_nil(v),
+          do: Application.delete_env(:ex_aws, k),
+          else: Application.put_env(:ex_aws, k, v)
       end
     end)
 
@@ -179,6 +181,9 @@ defmodule Engram.AwsKms.ExAwsTest do
                "user_id" => "5",
                "purpose" => "dek_wrap"
              }
+
+      assert decoded["DestinationKeyId"] ==
+               "arn:aws:kms:us-east-1:000000000000:key/fixture-key-id"
 
       Plug.Conn.resp(
         conn,

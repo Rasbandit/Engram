@@ -31,7 +31,14 @@ defmodule Engram.AwsKms.ExAws do
 
   # Do not retry client errors at the ExAws level — let callers (Oban) handle
   # retry scheduling. Server errors (5xx) retain the ExAws default retry.
-  @ex_aws_opts [retries: [client_error_max_attempts: 1, max_attempts: 3, base_backoff_in_ms: 10, max_backoff_in_ms: 1_000]]
+  @ex_aws_opts [
+    retries: [
+      client_error_max_attempts: 1,
+      max_attempts: 3,
+      base_backoff_in_ms: 10,
+      max_backoff_in_ms: 1_000
+    ]
+  ]
 
   @impl true
   def encrypt(plaintext, enc_ctx) when is_binary(plaintext) and is_map(enc_ctx) do
@@ -118,6 +125,7 @@ defmodule Engram.AwsKms.ExAws do
       "AccessDeniedException" -> :access_denied
       "ThrottlingException" -> :throttled
       "LimitExceededException" -> :throttled
+      "TooManyRequestsException" -> :throttled
       "InvalidCiphertextException" -> :context_mismatch
       "NotFoundException" -> :key_not_found
       other -> {:aws, other, msg}
