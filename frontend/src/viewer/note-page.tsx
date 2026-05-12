@@ -1,6 +1,16 @@
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router'
-import { useNote } from '../api/queries'
+import { toast } from 'sonner'
+import { useNote, useUpdateNote } from '../api/queries'
+import { useRightSidebar } from '../layout/right-sidebar-context'
+import { Button } from '@/components/ui/button'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import NoteEditor from './note-editor'
+import NoteToc from './note-toc'
 import NoteView from './note-view'
+
+type Mode = 'preview' | 'edit'
 
 export default function NotePage() {
   // React Router v7 uses "*" for catch-all params
@@ -8,29 +18,112 @@ export default function NotePage() {
   const path = params['*'] ?? ''
 
   const { data: note, isLoading, error } = useNote(path)
+  const update = useUpdateNote()
+  const { setContent: setRightContent } = useRightSidebar()
+
+  const [mode, setMode] = useState<Mode>('preview')
+  const [draft, setDraft] = useState('')
+
+  // Sync draft only when the user navigates to a different note. Re-syncing
+  // on every `note.content` change would clobber in-progress edits whenever
+  // React Query refetched (window focus, channel-driven invalidation, etc.).
+  useEffect(() => {
+    if (note) setDraft(note.content)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note?.path])
+
+  // Push the ToC into the app-shell right sidebar while we're in preview;
+  // clear it when leaving the page or switching to edit mode.
+  useEffect(() => {
+    if (!note || mode !== 'preview') {
+      setRightContent(null)
+      return
+    }
+    setRightContent(<NoteToc content={note.content} />)
+    return () => setRightContent(null)
+  }, [note?.path, note?.content, mode, setRightContent])
 
   if (!path) {
-    return <p>No note selected</p>
+    return <p className="p-6 text-muted-foreground">No note selected</p>
   }
-
   if (isLoading) {
-    return <p>Loading note...</p>
+    return <p className="p-6 text-muted-foreground">Loading note…</p>
   }
-
   if (error) {
-    return <p className="text-red-600 dark:text-red-400">Failed to load note: {error.message}</p>
+    return <p className="p-6 text-destructive">Failed to load note: {error.message}</p>
+  }
+  if (!note) {
+    return <p className="p-6 text-muted-foreground">Note not found</p>
   }
 
-  if (!note) {
-    return <p>Note not found</p>
+  const dirty = draft !== note.content
+  const saving = update.isPending
+
+  const handleSave = async () => {
+    try {
+      await update.mutateAsync({ path: note.path, content: draft, version: note.version })
+      toast.success('Note saved')
+      setMode('preview')
+    } catch (err) {
+      toast.error('Failed to save note', {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
   return (
-    <NoteView
-      content={note.content}
-      title={note.title}
-      tags={note.tags}
-      updatedAt={note.updated_at}
-    />
+    <Tabs
+      value={mode}
+      onValueChange={(v) => setMode(v as Mode)}
+      className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl bg-card text-card-foreground shadow-sm ring-1 ring-border/60"
+    >
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2">
+        <TabsList variant="line">
+          <TabsTrigger value="preview">Preview</TabsTrigger>
+          <TabsTrigger value="edit">Edit</TabsTrigger>
+        </TabsList>
+        {mode === 'edit' && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDraft(note.content)}
+              disabled={!dirty || saving}
+            >
+              Revert
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={!dirty || saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <TabsContent
+        value="preview"
+        forceMount
+        className="min-h-0 flex-1 data-[state=inactive]:hidden"
+      >
+        <ScrollArea className="h-full">
+          <NoteView
+            content={note.content}
+            title={note.title}
+            tags={note.tags}
+            updatedAt={note.updated_at}
+          />
+        </ScrollArea>
+      </TabsContent>
+      <TabsContent
+        value="edit"
+        forceMount
+        className="min-h-0 flex-1 data-[state=inactive]:hidden"
+      >
+        <ScrollArea className="h-full">
+          <div className="px-6 py-6 lg:px-8 lg:py-8">
+            <NoteEditor value={draft} onChange={setDraft} />
+          </div>
+        </ScrollArea>
+      </TabsContent>
+    </Tabs>
   )
 }

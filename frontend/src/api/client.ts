@@ -55,4 +55,9 @@ export const api = {
     const res = await authFetch(path, { method: 'DELETE' })
     return res.json()
   },
+
+  async getBlob(path: string): Promise<Blob> {
+    const res = await authFetch(path)
+    return res.blob()
+  },
 }

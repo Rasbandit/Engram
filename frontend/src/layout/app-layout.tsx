@@ -1,5 +1,19 @@
-import { lazy, Suspense, useState } from 'react'
-import { Link, Outlet } from 'react-router'
+import {
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+} from 'lucide-react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import type { ImperativePanelHandle } from 'react-resizable-panels'
+import { Link, NavLink, Outlet } from 'react-router'
+import { Button } from '@/components/ui/button'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '@/components/ui/resizable'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { config } from '../config'
 
 const isClerk = config.authProvider === 'clerk'
@@ -7,58 +21,80 @@ const ClerkUserButton = isClerk
   ? lazy(() => import('@clerk/clerk-react').then((mod) => ({ default: mod.UserButton })))
   : null
 const LocalUserMenu = lazy(() => import('../auth/local-user-menu'))
-import { useChannel } from '../api/use-channel'
 import { useBillingStatus } from '../api/queries'
+import { useChannel } from '../api/use-channel'
 import ThemeToggle from '../theme/theme-toggle'
 import FolderTree from '../viewer/folder-tree'
+import { RightSidebarProvider, useRightSidebar } from './right-sidebar-context'
 import VaultSwitcher from './vault-switcher'
 
-export default function AppLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+function HeaderLink({ to, label }: { to: string; label: string }) {
+  return (
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        `text-sm transition hover:text-foreground ${
+          isActive ? 'font-medium text-foreground' : 'text-muted-foreground'
+        }`
+      }
+    >
+      {label}
+    </NavLink>
+  )
+}
+
+function AppLayoutInner() {
+  const leftRef = useRef<ImperativePanelHandle>(null)
+  const rightRef = useRef<ImperativePanelHandle>(null)
+  const [leftCollapsed, setLeftCollapsed] = useState(false)
+  const { content: rightContent, collapsed: rightCollapsed, setCollapsed: setRightCollapsed } =
+    useRightSidebar()
+
   useChannel()
   const { data: billing } = useBillingStatus()
 
+  const toggleLeft = () => {
+    const p = leftRef.current
+    if (!p) return
+    if (p.isCollapsed()) p.expand()
+    else p.collapse()
+  }
+
+  const toggleRight = () => {
+    const p = rightRef.current
+    if (!p) return
+    if (p.isCollapsed()) p.expand()
+    else p.collapse()
+  }
+
+  // When a page stops contributing right-sidebar content, force the panel
+  // closed so it doesn't sit empty taking up space on the next route.
+  useEffect(() => {
+    if (rightContent == null) {
+      rightRef.current?.collapse()
+    } else if (rightRef.current?.isCollapsed()) {
+      rightRef.current?.expand()
+    }
+  }, [rightContent])
+
+  const hasRight = rightContent != null
+
   return (
     <>
-      {billing?.tier === 'none' && (
-        <aside className="bg-blue-50 px-4 py-2 text-center text-sm text-blue-800 dark:bg-blue-950 dark:text-blue-200" role="alert">
-          Start a free trial to sync your notes.{' '}
-          <Link to="/billing" className="font-medium underline">
-            Choose a plan
-          </Link>
-        </aside>
-      )}
       {billing?.subscription?.status === 'trialing' && billing.trial_days_remaining > 0 && billing.trial_days_remaining <= 3 && (
-        <aside className="bg-amber-50 px-4 py-2 text-center text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200" role="alert">
+        <aside className="bg-amber-50 px-4 py-2 text-center text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100" role="alert">
           {billing.trial_days_remaining} days left in your trial.
         </aside>
       )}
-      <section className="flex h-screen flex-col">
-        <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-800 dark:bg-gray-900">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSidebarOpen((o) => !o)}
-              aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-              aria-expanded={sidebarOpen}
-              aria-controls="sidebar"
-              className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-            >
-              {sidebarOpen ? '◀' : '▶'}
-            </button>
-            <Link to="/" className="text-lg font-semibold text-gray-900 hover:text-gray-700 dark:text-gray-100 dark:hover:text-gray-200">
-              Engram
-            </Link>
-          </div>
-          <nav className="flex items-center gap-4" aria-label="Main navigation">
-            <Link to="/search" className="text-sm text-gray-600 hover:text-gray-900 hover:underline dark:text-gray-300 dark:hover:text-gray-100">
-              Search
-            </Link>
-            <Link to="/billing" className="text-sm text-gray-600 hover:text-gray-900 hover:underline dark:text-gray-300 dark:hover:text-gray-100">
-              Billing
-            </Link>
-            <Link to="/settings" className="text-sm text-gray-600 hover:text-gray-900 hover:underline dark:text-gray-300 dark:hover:text-gray-100">
-              Settings
-            </Link>
+      <section className="flex h-screen flex-col bg-background text-foreground">
+        <header className="flex items-center justify-between border-b border-border bg-card px-4 py-2">
+          <Link to="/" className="text-lg font-semibold text-foreground hover:text-foreground/80">
+            Engram
+          </Link>
+          <nav className="flex items-center gap-3" aria-label="Main navigation">
+            <HeaderLink to="/search" label="Search" />
+            <HeaderLink to="/billing" label="Billing" />
+            <HeaderLink to="/settings" label="Settings" />
             <ThemeToggle />
             <Suspense fallback={null}>
               {ClerkUserButton ? <ClerkUserButton /> : <LocalUserMenu />}
@@ -66,27 +102,111 @@ export default function AppLayout() {
           </nav>
         </header>
 
-        <section className="flex flex-1 overflow-hidden bg-white dark:bg-gray-900">
-          <aside
+        <ResizablePanelGroup
+          direction="horizontal"
+          autoSaveId="engram:app-layout"
+          className="flex-1"
+        >
+          <ResizablePanel
             id="sidebar"
-            aria-label="Folder navigation"
-            className={`${
-              sidebarOpen ? 'w-64' : 'w-0'
-            } shrink-0 overflow-y-auto border-r border-gray-200 bg-gray-50 transition-all duration-200 dark:border-gray-800 dark:bg-gray-950`}
+            order={1}
+            ref={leftRef}
+            defaultSize={18}
+            minSize={12}
+            maxSize={40}
+            collapsible
+            collapsedSize={0}
+            onCollapse={() => setLeftCollapsed(true)}
+            onExpand={() => setLeftCollapsed(false)}
+            className="border-r border-border bg-card"
           >
-            {sidebarOpen && (
-              <>
+            <div className="flex h-full flex-col">
+              <div className="flex shrink-0 items-center justify-end border-b border-border px-1 py-1">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={toggleLeft}
+                  aria-label="Collapse sidebar"
+                  title="Collapse sidebar"
+                >
+                  <PanelLeftClose />
+                </Button>
+              </div>
+              <ScrollArea className="flex-1">
                 <VaultSwitcher />
                 <FolderTree />
-              </>
-            )}
-          </aside>
-
-          <main className="flex-1 overflow-y-auto p-6 text-gray-900 dark:text-gray-100">
-            <Outlet />
-          </main>
-        </section>
+              </ScrollArea>
+            </div>
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel id="main" order={2} defaultSize={60} minSize={30}>
+            <main className="relative h-full overflow-hidden bg-muted/40 p-6 text-foreground">
+              {leftCollapsed && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={toggleLeft}
+                  aria-label="Expand sidebar"
+                  title="Expand sidebar"
+                  className="absolute left-2 top-2 z-10 bg-card/80 backdrop-blur"
+                >
+                  <PanelLeftOpen />
+                </Button>
+              )}
+              {hasRight && rightCollapsed && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={toggleRight}
+                  aria-label="Expand outline"
+                  title="Expand outline"
+                  className="absolute right-2 top-2 z-10 bg-card/80 backdrop-blur"
+                >
+                  <PanelRightOpen />
+                </Button>
+              )}
+              <Outlet />
+            </main>
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel
+            id="right-sidebar"
+            order={3}
+            ref={rightRef}
+            defaultSize={22}
+            minSize={12}
+            maxSize={40}
+            collapsible
+            collapsedSize={0}
+            onCollapse={() => setRightCollapsed(true)}
+            onExpand={() => setRightCollapsed(false)}
+            className="border-l border-border bg-card"
+          >
+            <div className="flex h-full flex-col">
+              <div className="flex shrink-0 items-center justify-start border-b border-border px-1 py-1">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={toggleRight}
+                  aria-label="Collapse outline"
+                  title="Collapse outline"
+                >
+                  <PanelRightClose />
+                </Button>
+              </div>
+              <ScrollArea className="flex-1">{rightContent}</ScrollArea>
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </section>
     </>
+  )
+}
+
+export default function AppLayout() {
+  return (
+    <RightSidebarProvider>
+      <AppLayoutInner />
+    </RightSidebarProvider>
   )
 }
