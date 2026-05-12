@@ -113,5 +113,23 @@ defmodule Engram.Crypto.ProviderConformanceTest do
       assert new_wrapped != old_wrapped
       assert {:ok, ^new_dek} = unquote(provider).unwrap_dek(new_wrapped, ctx)
     end
+
+    test "#{inspect(provider)}: boot_check returns :ok in happy path" do
+      if unquote(provider) == Engram.Crypto.KeyProvider.AwsKms do
+        stub_aws_kms_roundtrip()
+        stub(Engram.AwsKmsMock, :describe_key, fn -> :ok end)
+      end
+
+      assert :ok = unquote(provider).boot_check()
+    end
+
+    test "#{inspect(provider)}: unwrap_dek_no_fallback round-trips wrapped DEK" do
+      if unquote(provider) == Engram.Crypto.KeyProvider.AwsKms, do: stub_aws_kms_roundtrip()
+
+      dek = unquote(provider).generate_dek()
+      ctx = %{user_id: 1}
+      {:ok, wrapped} = unquote(provider).wrap_dek(dek, ctx)
+      assert {:ok, ^dek} = unquote(provider).unwrap_dek_no_fallback(wrapped, ctx)
+    end
   end
 end
