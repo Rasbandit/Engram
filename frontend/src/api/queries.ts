@@ -75,6 +75,24 @@ export function useNote(path: string) {
   })
 }
 
+export function useUpdateNote() {
+  const qc = useQueryClient()
+  const vaultId = useActiveVaultId()
+  return useMutation({
+    mutationFn: ({ path, content, version }: { path: string; content: string; version?: number }) =>
+      api.post<{ note: Note }>('/notes', {
+        path,
+        content,
+        version,
+        mtime: Date.now() / 1000,
+      }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['note', vaultId, vars.path] })
+      qc.invalidateQueries({ queryKey: ['folderNotes', vaultId] })
+    },
+  })
+}
+
 export function useSearch(query: string) {
   const vaultId = useActiveVaultId()
   return useQuery({
