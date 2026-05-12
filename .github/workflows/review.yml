@@ -4,6 +4,9 @@ on:
   pull_request:
     types: [ready_for_review]
 
+permissions:
+  contents: read
+
 jobs:
   claude-review:
     runs-on: ubuntu-latest
