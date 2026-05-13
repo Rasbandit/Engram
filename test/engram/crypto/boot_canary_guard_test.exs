@@ -2,6 +2,7 @@ defmodule Engram.Crypto.BootCanaryGuardTest do
   use Engram.DataCase, async: false
 
   alias Engram.Crypto.{BootCanary, BootCanaryGuard}
+  alias Engram.Repo
 
   setup do
     Repo.delete_all("system_canaries")

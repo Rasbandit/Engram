@@ -2,7 +2,9 @@ defmodule Engram.Billing.LimitsTest do
   use Engram.DataCase, async: true
 
   alias Engram.Billing
+  alias Engram.Billing.Plan
   alias Engram.Billing.UserOverride
+  alias Engram.Repo
 
   # ── Helpers ──────────────────────────────────────────────────────
 

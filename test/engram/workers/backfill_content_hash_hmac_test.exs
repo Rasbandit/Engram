@@ -5,7 +5,10 @@ defmodule Engram.Workers.BackfillContentHashHmacTest do
   import Ecto.Query, only: [from: 2]
   import Engram.Fixtures
 
+  alias Engram.Accounts.User
   alias Engram.Crypto
+  alias Engram.Notes.Note
+  alias Engram.Repo
   alias Engram.Workers.BackfillContentHashHmac
 
   setup do

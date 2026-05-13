@@ -10,6 +10,7 @@ defmodule Engram.Workers.CleanupVaultTest do
 
   alias Engram.Attachments.Attachment
   alias Engram.Notes.{Chunk, Note}
+  alias Engram.Repo
   alias Engram.Vaults
   alias Engram.Vaults.Vault
   alias Engram.Workers.CleanupVault
