@@ -960,6 +960,7 @@ jobs:
     permissions:
       packages: write
       contents: read
+      id-token: write   # required by actions/github-script to mint OIDC JWTs for engram-deployer
 
     steps:
       - name: Reset sparse-checkout leaked from cross-repo jobs
@@ -1031,13 +1032,69 @@ jobs:
             ${{ steps.version.outputs.image }}:${{ steps.version.outputs.version }}
             ${{ steps.version.outputs.image }}:${{ steps.version.outputs.sha_short }}
 
-      - name: Deploy to FastRaid
+      # ── Pull-based deploy via engram-deployer on FastRaid ────────────────
+      # Replaces the old "SSH as root + run a shell script" pattern. Runner
+      # mints a per-job OIDC JWT (aud=engram-deploy) and POSTs to the
+      # daemon, which validates the signature against GitHub's JWKS, pins
+      # repository/ref/workflow_ref, and runs the deploy locally on
+      # FastRaid. Runner holds zero long-lived credentials.
+      #
+      # Requires repo secret DEPLOYER_CERT_PEM (capture from FastRaid post
+      # plugin install: `openssl x509 -in /boot/config/plugins/
+      # engram-deployer/cert.pem`). Cert is self-signed ed25519, 10-year
+      # validity — won't churn.
+      - name: Mint GitHub OIDC token (aud=engram-deploy)
+        id: oidc
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const token = await core.getIDToken('engram-deploy');
+            core.setSecret(token);
+            core.setOutput('token', token);
+
+      - name: Write pinned deployer cert
         env:
-          SSH_OPTS: "-o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+          DEPLOYER_CERT_PEM: ${{ secrets.DEPLOYER_CERT_PEM }}
+        run: |
+          if [ -z "$DEPLOYER_CERT_PEM" ]; then
+            echo "ERROR: DEPLOYER_CERT_PEM secret not set" >&2
+            echo "Capture from FastRaid: ssh root@10.0.20.214 'cat /boot/config/plugins/engram-deployer/cert.pem'" >&2
+            exit 1
+          fi
+          printf '%s\n' "$DEPLOYER_CERT_PEM" > /tmp/deployer-cert.pem
+          # Sanity-check it parses as a cert before we use it for TLS.
+          openssl x509 -in /tmp/deployer-cert.pem -noout -subject -fingerprint -sha256
+
+      - name: Deploy via engram-deployer
+        env:
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          scp $SSH_OPTS deploy/fastraid-deploy.sh root@10.0.20.214:/opt/engram/deploy.sh
-          ssh $SSH_OPTS root@10.0.20.214 "chmod +x /opt/engram/deploy.sh && bash /opt/engram/deploy.sh ${VERSION}"
+          SHA_SHORT="${{ steps.version.outputs.sha_short }}"
+
+          # tee lets us stream events to the CI log AND capture the body
+          # for terminal-line status parsing.
+          set -o pipefail
+          curl -sS -X POST \
+            --cacert /tmp/deployer-cert.pem \
+            --max-time 600 \
+            -H "Authorization: Bearer ${OIDC_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"version\":\"${VERSION}\",\"sha\":\"${SHA_SHORT}\"}" \
+            https://10.0.20.214:8443/deploy \
+            | tee /tmp/deploy-stream.ndjson
+
+          # Last non-empty line is the DeployResult.
+          RESULT=$(grep -v '^$' /tmp/deploy-stream.ndjson | tail -n 1)
+          STATUS=$(printf '%s' "$RESULT" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("status",""))')
+
+          if [ "$STATUS" != "ok" ]; then
+            echo ""
+            echo "::error::Deploy failed; terminal line:"
+            echo "$RESULT"
+            exit 1
+          fi
+          echo "Deploy reported ok by engram-deployer"
 
       - name: Verify deployment from CI runner
         run: |
