@@ -100,8 +100,6 @@ defmodule Engram.Billing do
   # No transformation needed — just return as-is.
   defp decode_json_value(value), do: value
 
-  @trial_days 7
-
   # ── Tier & Status Queries ──────────────────────────────────────
 
   @doc """
@@ -154,28 +152,15 @@ defmodule Engram.Billing do
 
   # ── Checkout Session ───────────────────────────────────────────
 
-  @doc """
-  Creates a Stripe Checkout Session. Includes a 7-day trial with card collection
-  so the user can try before being charged.
-  """
-  def create_checkout_session(user, tier) when tier in ~w(starter pro) do
-    price_id = price_id_for(tier)
-
-    params = %{
-      mode: :subscription,
-      line_items: [%{price: price_id, quantity: 1}],
-      customer_email: user.email,
-      client_reference_id: to_string(user.id),
-      metadata: %{"tier" => tier},
-      subscription_data: %{trial_period_days: @trial_days},
-      payment_method_collection: :always,
-      success_url: success_url(),
-      cancel_url: cancel_url()
-    }
-
-    case Stripe.Checkout.Session.create(params) do
-      {:ok, session} -> {:ok, session.url}
-      {:error, error} -> {:error, error}
+  # Paddle migration in progress — checkout + portal are temporarily disabled.
+  # Both helpers return `{:error, :not_implemented}` until the Paddle client
+  # lands. Branch on a runtime config flag so the compiler can't narrow the
+  # return type to a single tuple shape.
+  def create_checkout_session(_user, tier) when tier in ~w(starter pro) do
+    if Application.get_env(:engram, :paddle_enabled, false) do
+      {:ok, ""}
+    else
+      {:error, :not_implemented}
     end
   end
 
@@ -183,13 +168,11 @@ defmodule Engram.Billing do
 
   def create_portal_session(user) do
     case get_subscription(user) do
-      %Subscription{stripe_customer_id: customer_id} ->
-        case Stripe.BillingPortal.Session.create(%{
-               customer: customer_id,
-               return_url: return_url()
-             }) do
-          {:ok, session} -> {:ok, session.url}
-          {:error, error} -> {:error, error}
+      %Subscription{} ->
+        if Application.get_env(:engram, :paddle_enabled, false) do
+          {:ok, ""}
+        else
+          {:error, :not_implemented}
         end
 
       nil ->
@@ -263,18 +246,5 @@ defmodule Engram.Billing do
 
   # ── Helpers ────────────────────────────────────────────────────
 
-  defp price_id_for("starter"), do: Application.get_env(:engram, :stripe_starter_price_id)
-  defp price_id_for("pro"), do: Application.get_env(:engram, :stripe_pro_price_id)
-
-  defp tier_from_price_id(price_id) do
-    cond do
-      price_id == Application.get_env(:engram, :stripe_starter_price_id) -> "starter"
-      price_id == Application.get_env(:engram, :stripe_pro_price_id) -> "pro"
-      true -> "starter"
-    end
-  end
-
-  defp success_url, do: EngramWeb.Endpoint.url() <> "/billing?success=true"
-  defp cancel_url, do: EngramWeb.Endpoint.url() <> "/billing?canceled=true"
-  defp return_url, do: EngramWeb.Endpoint.url() <> "/billing"
+  defp tier_from_price_id(_price_id), do: "starter"
 end

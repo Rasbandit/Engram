@@ -75,9 +75,6 @@ defmodule Engram.MixProject do
       {:joken_jwks, "~> 1.7"},
       {:bcrypt_elixir, "~> 3.0"},
 
-      # Payments
-      {:stripity_stripe, "~> 3.2"},
-
       # Job queue
       {:oban, "~> 2.18"},
 

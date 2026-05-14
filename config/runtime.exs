@@ -156,20 +156,6 @@ if auth_provider == :clerk do
   config :engram, :clerk_publishable_key, clerk_pub_key
 end
 
-# Stripe billing
-if stripe_key = System.get_env("STRIPE_SECRET_KEY") do
-  config :stripity_stripe, api_key: stripe_key
-end
-
-if stripe_webhook_secret = System.get_env("STRIPE_WEBHOOK_SECRET") do
-  config :engram, :stripe_webhook_secret, stripe_webhook_secret
-end
-
-if config_env() != :test do
-  config :engram, :stripe_starter_price_id, System.get_env("STRIPE_STARTER_PRICE_ID")
-  config :engram, :stripe_pro_price_id, System.get_env("STRIPE_PRO_PRICE_ID")
-end
-
 # Key provider — skip in :test so test.exs stable key is not overwritten by a nil env read.
 # Dev and prod (including Docker CI containers) read from KEY_PROVIDER / ENCRYPTION_MASTER_KEY.
 if config_env() != :test do

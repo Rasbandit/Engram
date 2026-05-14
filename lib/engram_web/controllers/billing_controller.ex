@@ -31,8 +31,8 @@ defmodule EngramWeb.BillingController do
       {:ok, url} ->
         json(conn, %{url: url})
 
-      {:error, error} ->
-        Logger.error("Stripe checkout error", stripe_error_meta(error))
+      {:error, reason} ->
+        Logger.error("Checkout provider error", reason_label: inspect(reason))
         conn |> put_status(502) |> json(%{error: "payment provider error"})
     end
   end
@@ -51,15 +51,9 @@ defmodule EngramWeb.BillingController do
       {:error, :no_subscription} ->
         conn |> put_status(404) |> json(%{error: "no subscription"})
 
-      {:error, error} ->
-        Logger.error("Stripe portal error", stripe_error_meta(error))
+      {:error, reason} ->
+        Logger.error("Portal provider error", reason_label: inspect(reason))
         conn |> put_status(502) |> json(%{error: "payment provider error"})
     end
-  end
-
-  # Extract safe fields from a Stripe.Error — skip `:extra` which can contain
-  # the raw response body (and with it, echoed user input).
-  defp stripe_error_meta(%Stripe.Error{} = e) do
-    [code: e.code, message: e.message, request_id: e.request_id]
   end
 end

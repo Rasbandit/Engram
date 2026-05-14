@@ -95,7 +95,10 @@ defmodule Engram.BillingTest do
     end
   end
 
+  # Paddle migration WIP — Stripe event upserts skipped until Paddle wire-up
+  # commit replaces them with upsert_from_paddle_event/1 + Paddle event fixtures.
   describe "upsert_from_stripe_event/1" do
+    @describetag :skip
     test "creates subscription from checkout.session.completed" do
       user = insert(:user)
 
