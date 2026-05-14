@@ -159,6 +159,39 @@ defmodule Engram.BillingTest do
       assert sub.custom_data == %{"user_id" => user.id, "affiliate_ref" => "ref_abc"}
     end
 
+    test "retried subscription.created preserves original custom_data (affiliate attribution)" do
+      user = insert(:user)
+
+      first_event = %{
+        "event_type" => "subscription.created",
+        "data" => %{
+          "id" => "sub_retry_1",
+          "status" => "trialing",
+          "customer_id" => "ctm_retry_1",
+          "items" => [%{"price" => %{"id" => "pri_starter_test"}}],
+          "current_billing_period" => %{"ends_at" => "2026-05-20T00:00:00Z"},
+          "custom_data" => %{"user_id" => user.id, "affiliate_ref" => "rf_original"}
+        }
+      }
+
+      assert {:ok, _} = Billing.upsert_from_paddle_event(first_event)
+
+      # Paddle redelivers. The replay arrives with different (or empty)
+      # custom_data — e.g. an operator-replayed event from the dashboard.
+      retry_event =
+        put_in(first_event, ["data", "custom_data"], %{
+          "user_id" => user.id,
+          "affiliate_ref" => "rf_replay"
+        })
+
+      assert {:ok, _} = Billing.upsert_from_paddle_event(retry_event)
+
+      # Re-fetch — Ecto's on_conflict struct return reflects the changeset, not
+      # the DB. The DB row is what we care about.
+      reloaded = Billing.get_subscription(user)
+      assert reloaded.custom_data["affiliate_ref"] == "rf_original"
+    end
+
     test "subscription.created accepts user_id as string in custom_data" do
       user = insert(:user)
 

@@ -187,6 +187,9 @@ defmodule Engram.Billing do
           custom_data: data["custom_data"] || %{}
         }
 
+        # Omit :custom_data from the replace list. Paddle delivers at-least-once,
+        # so a retried subscription.created must NOT clobber the affiliate /
+        # utm attribution captured on first delivery.
         %Subscription{}
         |> Subscription.changeset(attrs)
         |> Repo.insert(
@@ -198,7 +201,6 @@ defmodule Engram.Billing do
                :tier,
                :status,
                :current_period_end,
-               :custom_data,
                :updated_at
              ]},
           conflict_target: :user_id,
