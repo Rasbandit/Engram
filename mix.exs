@@ -84,6 +84,10 @@ defmodule Engram.MixProject do
       # HTTP client (Qdrant, Voyage AI)
       {:req, "~> 0.5"},
 
+      # HTTP transport for ex_aws (S3 + KMS). ex_aws's default adapter is
+      # hackney; it was previously a transitive dep of stripity_stripe.
+      {:hackney, "~> 1.20"},
+
       # Rate limiting
       {:hammer, "~> 6.2"},
 
