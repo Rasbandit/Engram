@@ -65,42 +65,106 @@ jobs:
   # fingerprint, same cache key.
   fingerprint:
     # Runs on every trigger (push, repository_dispatch, workflow_dispatch).
+    # Emits TWO hashes:
+    #   - backend-hash: pure backend tree. Gates unit-tests/lint/e2e-local/e2e-browser/deploy.
+    #   - e2e-hash:     backend-hash + plugin SHA. Gates e2e-clerk only (the plugin↔backend contract).
+    # This lets a plugin-only change (same backend, different plugin SHA) miss the
+    # e2e cache and re-run integration, while still hitting the backend cache so
+    # pure backend jobs skip.
     runs-on: [self-hosted, engram, isolated]
     outputs:
-      hash: ${{ steps.compute.outputs.hash }}
-      cache-hit: ${{ steps.lookup.outputs.cache-hit }}
+      backend-hash: ${{ steps.compute.outputs.backend-hash }}
+      e2e-hash: ${{ steps.compute.outputs.e2e-hash }}
+      backend-cache-hit: ${{ steps.backend-lookup.outputs.cache-hit }}
+      e2e-cache-hit: ${{ steps.e2e-lookup.outputs.cache-hit }}
+      plugin-sha: ${{ steps.plugin-sha.outputs.sha }}
     steps:
       - uses: actions/checkout@v6
-      - name: Compute content fingerprint
+
+      - name: Resolve plugin SHA
+        id: plugin-sha
+        env:
+          DISPATCH_REF: ${{ github.event.client_payload.plugin_ref }}
+          EXPLICIT_BRANCH: ${{ inputs.plugin_branch || '' }}
+          CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT }}
+        run: |
+          # Pin exact plugin commit that downstream e2e-clerk will checkout.
+          # Priority matches e2e-clerk's "Checkout plugin" step:
+          #   dispatch payload SHA > workflow_dispatch branch > matching branch > main HEAD
+          # Failing to resolve a SHA is fatal — cache key would be empty and
+          # every run would force a miss, masking the bug.
+          if [ -n "$DISPATCH_REF" ]; then
+            SHA=$(gh api "repos/Rasbandit/Engram-obsidian-sync/commits/$DISPATCH_REF" --jq '.sha')
+            SRC="dispatch payload"
+          elif [ -n "$EXPLICIT_BRANCH" ] && [ "$EXPLICIT_BRANCH" != "main" ]; then
+            SHA=$(gh api "repos/Rasbandit/Engram-obsidian-sync/commits/$EXPLICIT_BRANCH" --jq '.sha')
+            SRC="workflow_dispatch input ($EXPLICIT_BRANCH)"
+          elif gh api "repos/Rasbandit/Engram-obsidian-sync/branches/$CURRENT_BRANCH" --silent 2>/dev/null; then
+            SHA=$(gh api "repos/Rasbandit/Engram-obsidian-sync/commits/$CURRENT_BRANCH" --jq '.sha')
+            SRC="matching branch ($CURRENT_BRANCH)"
+          else
+            SHA=$(gh api "repos/Rasbandit/Engram-obsidian-sync/commits/main" --jq '.sha')
+            SRC="plugin main HEAD"
+          fi
+          if [ -z "$SHA" ]; then
+            echo "::error::Could not resolve plugin SHA ($SRC)"
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Plugin SHA pinned for this run: $SHA (source: $SRC)"
+
+      - name: Compute content fingerprints
         id: compute
+        env:
+          PLUGIN_SHA: ${{ steps.plugin-sha.outputs.sha }}
         run: |
           # `git ls-tree -r HEAD -- <paths>` emits `<mode> <type> <sha>\t<path>`
           # per file. Hashing this is content-stable across rebases/squashes.
           # Includes the workflow itself so any CI change forces a full run.
-          HASH=$(git ls-tree -r HEAD -- \
+          BACKEND_HASH=$(git ls-tree -r HEAD -- \
             lib priv config test frontend \
             Dockerfile entrypoint.sh \
             mix.exs mix.lock \
             docker-compose.ci.yml docker-compose.ci-local.yml \
             .github/workflows/ci.yml \
             | sha256sum | cut -d' ' -f1)
-          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
-          echo "Fingerprint: $HASH"
+          # E2E hash mixes plugin SHA so that a plugin-only change invalidates
+          # the integration cache without touching the pure-backend cache.
+          E2E_HASH=$(printf '%s:%s' "$BACKEND_HASH" "$PLUGIN_SHA" | sha256sum | cut -d' ' -f1)
+          echo "backend-hash=$BACKEND_HASH" >> "$GITHUB_OUTPUT"
+          echo "e2e-hash=$E2E_HASH" >> "$GITHUB_OUTPUT"
+          echo "Backend fingerprint: $BACKEND_HASH"
+          echo "E2E fingerprint:     $E2E_HASH (backend + plugin $PLUGIN_SHA)"
 
-      - name: Look up prior pass for this fingerprint
-        id: lookup
+      - name: Look up prior backend pass
+        id: backend-lookup
         uses: actions/cache/restore@v5
         with:
           path: .ci-fingerprint.marker
-          key: ci-pass-${{ steps.compute.outputs.hash }}
+          key: ci-pass-${{ steps.compute.outputs.backend-hash }}
+          lookup-only: true
+
+      - name: Look up prior e2e pass
+        id: e2e-lookup
+        uses: actions/cache/restore@v5
+        with:
+          path: .ci-e2e-fingerprint.marker
+          key: ci-e2e-pass-${{ steps.compute.outputs.e2e-hash }}
           lookup-only: true
 
       - name: Report decision
         run: |
-          if [ "${{ steps.lookup.outputs.cache-hit }}" = "true" ]; then
-            echo "::notice::Fingerprint ${{ steps.compute.outputs.hash }} already proved green — test jobs will skip"
+          echo "Backend cache-hit: ${{ steps.backend-lookup.outputs.cache-hit }} (hash ${{ steps.compute.outputs.backend-hash }})"
+          echo "E2E cache-hit:     ${{ steps.e2e-lookup.outputs.cache-hit }} (hash ${{ steps.compute.outputs.e2e-hash }})"
+          if [ "${{ steps.backend-lookup.outputs.cache-hit }}" = "true" ] && [ "${{ steps.e2e-lookup.outputs.cache-hit }}" = "true" ]; then
+            echo "::notice::Both fingerprints already proved green — all test jobs will skip"
+          elif [ "${{ steps.backend-lookup.outputs.cache-hit }}" = "true" ]; then
+            echo "::notice::Backend already green; only e2e-clerk will run (plugin SHA changed)"
+          elif [ "${{ steps.e2e-lookup.outputs.cache-hit }}" = "true" ]; then
+            echo "::notice::E2E pairing already green; backend-only jobs will run"
           else
-            echo "Fingerprint ${{ steps.compute.outputs.hash }} not previously proven — running full test suite"
+            echo "Neither fingerprint cached — running full test suite"
           fi
 
   # Build the CI engram image ONCE per CI run. All e2e-* jobs share the
@@ -110,7 +174,12 @@ jobs:
   # short-circuit via `docker image inspect`.
   prebuild-ci-image:
     needs: fingerprint
-    if: github.event_name != 'repository_dispatch' && needs.fingerprint.outputs.cache-hit != 'true'
+    # Image consumed by e2e-clerk (any trigger, gated on e2e-cache-hit) and
+    # e2e-local (push/workflow_dispatch only, gated on backend-cache-hit).
+    # Build whenever at least one consumer will run.
+    if: |
+      needs.fingerprint.outputs.e2e-cache-hit != 'true'
+      || (github.event_name != 'repository_dispatch' && needs.fingerprint.outputs.backend-cache-hit != 'true')
     runs-on: [self-hosted, engram, isolated]
     outputs:
       image: ${{ steps.tag.outputs.image }}
@@ -150,7 +219,9 @@ jobs:
   # command, making compile incremental (or instant on cache hit).
   prebuild-mix:
     needs: fingerprint
-    if: github.event_name != 'repository_dispatch' && needs.fingerprint.outputs.cache-hit != 'true'
+    # Consumed by unit-tests, lint, e2e-browser — all backend-only and skipped
+    # on plugin dispatch.
+    if: github.event_name != 'repository_dispatch' && needs.fingerprint.outputs.backend-cache-hit != 'true'
     runs-on: [self-hosted, engram, isolated]
     outputs:
       beam-tag: ${{ steps.beam.outputs.tag }}
@@ -254,7 +325,9 @@ jobs:
 
   e2e-clerk:
     needs: [fingerprint, prebuild-ci-image]
-    if: needs.fingerprint.outputs.cache-hit != 'true'
+    # e2e-clerk is the plugin↔backend contract test. Skip only when this
+    # exact (backend, plugin) pair has already passed.
+    if: needs.fingerprint.outputs.e2e-cache-hit != 'true'
     runs-on: [self-hosted, engram, isolated]
 
     env:
@@ -305,9 +378,13 @@ jobs:
         env:
           EXPLICIT_BRANCH: ${{ inputs.plugin_branch || github.event.client_payload.plugin_branch || '' }}
           CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
+          PLUGIN_SHA: ${{ needs.fingerprint.outputs.plugin-sha }}
           GH_TOKEN: ${{ secrets.CROSS_REPO_PAT }}
         run: |
-          # Priority: explicit input > matching branch name > main
+          # Branch is used only to scope the fetch; the final checkout pins
+          # the exact PLUGIN_SHA resolved by the `fingerprint` job. This
+          # guarantees the tested commit matches the e2e cache key even if
+          # the upstream branch moves between fingerprint and this step.
           if [ -n "$EXPLICIT_BRANCH" ] && [ "$EXPLICIT_BRANCH" != "main" ]; then
             BRANCH="$EXPLICIT_BRANCH"
           elif gh api "repos/Rasbandit/Engram-obsidian-sync/branches/$CURRENT_BRANCH" --silent 2>/dev/null; then
@@ -316,16 +393,18 @@ jobs:
           else
             BRANCH="main"
           fi
-          echo "Plugin branch: $BRANCH"
+          echo "Plugin: $BRANCH @ $PLUGIN_SHA"
           if [ -d plugin-src/.git ]; then
             cd plugin-src
             git checkout -- .
             git clean -fd
             git fetch origin "$BRANCH"
-            git checkout -B "$BRANCH" FETCH_HEAD
+            git checkout -B "$BRANCH" "$PLUGIN_SHA"
           else
             git clone --branch "$BRANCH" --single-branch \
               "https://x-access-token:${GH_TOKEN}@github.com/Rasbandit/Engram-obsidian-sync.git" plugin-src
+            cd plugin-src
+            git checkout "$PLUGIN_SHA"
           fi
 
       # ------------------------------------------------------------------
@@ -679,7 +758,7 @@ jobs:
     needs: [fingerprint, prebuild-mix]
     # Skip on cross-repo plugin dispatch — plugin can't regress backend ExUnit.
     # Also skip when fingerprint already proved green for this content.
-    if: github.event_name != 'repository_dispatch' && needs.fingerprint.outputs.cache-hit != 'true'
+    if: github.event_name != 'repository_dispatch' && needs.fingerprint.outputs.backend-cache-hit != 'true'
     runs-on: [self-hosted, engram, isolated]
 
     env:
@@ -805,7 +884,7 @@ jobs:
     needs: [fingerprint, prebuild-mix]
     # Skip on cross-repo plugin dispatch — plugin can't regress backend lints.
     # Also skip when fingerprint already proved green.
-    if: github.event_name != 'repository_dispatch' && needs.fingerprint.outputs.cache-hit != 'true'
+    if: github.event_name != 'repository_dispatch' && needs.fingerprint.outputs.backend-cache-hit != 'true'
     runs-on: [self-hosted, engram, isolated]
 
     steps:
@@ -896,7 +975,7 @@ jobs:
     # Skip on cross-repo plugin dispatch — plugin uses Clerk JWTs in production,
     # so the local-auth API path is backend-internal.
     # Also skip when fingerprint already proved green.
-    if: github.event_name != 'repository_dispatch' && needs.fingerprint.outputs.cache-hit != 'true'
+    if: github.event_name != 'repository_dispatch' && needs.fingerprint.outputs.backend-cache-hit != 'true'
     runs-on: [self-hosted, engram, isolated]
 
     env:
@@ -1011,7 +1090,7 @@ jobs:
     # Skip on cross-repo plugin dispatch — Playwright targets backend's React
     # frontend, which the plugin (separate repo) cannot affect.
     # Also skip when fingerprint already proved green.
-    if: github.event_name != 'repository_dispatch' && needs.fingerprint.outputs.cache-hit != 'true'
+    if: github.event_name != 'repository_dispatch' && needs.fingerprint.outputs.backend-cache-hit != 'true'
     runs-on: [self-hosted, engram, isolated]
 
     env:
@@ -1182,7 +1261,7 @@ jobs:
           find /tmp -maxdepth 1 -name '.ff*.node' -mmin +60 -delete 2>/dev/null || true
 
   ci:
-    if: always() && needs.fingerprint.outputs.cache-hit != 'true'
+    if: always() && (needs.fingerprint.outputs.backend-cache-hit != 'true' || needs.fingerprint.outputs.e2e-cache-hit != 'true')
     needs: [fingerprint, version-check, unit-tests, lint, e2e-clerk, e2e-local, e2e-browser]
     runs-on: ubuntu-latest
     steps:
@@ -1219,31 +1298,72 @@ jobs:
             fi
           done
 
-  # Cache the green-CI fingerprint so the *next* run with the same tree
-  # (typically the squash-merge to main) can skip the full test suite.
+  # Cache BOTH green-CI fingerprints so the next run with the same content
+  # (typically the squash-merge to main) can skip the relevant slice.
+  #   - backend-hash cache:  unit-tests / lint / e2e-local / e2e-browser
+  #   - e2e-hash cache:      e2e-clerk (the (backend, plugin) pairing)
+  # On plugin dispatch, ONLY e2e-clerk ran — skip backend marker save in
+  # that case to avoid recording a green for jobs that didn't execute.
   record-pass:
     if: always() && needs.ci.result == 'success'
     needs: [fingerprint, ci]
     runs-on: [self-hosted, engram, isolated]
     steps:
-      - name: Write fingerprint marker
+      - name: Write backend fingerprint marker
+        if: github.event_name != 'repository_dispatch'
         run: echo "passed at $(date -u +%FT%TZ) on ${GITHUB_SHA}" > .ci-fingerprint.marker
-      - name: Save to cache
+      - name: Save backend marker to cache
+        if: github.event_name != 'repository_dispatch'
         uses: actions/cache/save@v5
         with:
           path: .ci-fingerprint.marker
-          key: ci-pass-${{ needs.fingerprint.outputs.hash }}
+          key: ci-pass-${{ needs.fingerprint.outputs.backend-hash }}
+
+      - name: Write e2e fingerprint marker
+        run: echo "passed at $(date -u +%FT%TZ) on ${GITHUB_SHA} (plugin ${{ needs.fingerprint.outputs.plugin-sha }})" > .ci-e2e-fingerprint.marker
+      - name: Save e2e marker to cache
+        uses: actions/cache/save@v5
+        with:
+          path: .ci-e2e-fingerprint.marker
+          key: ci-e2e-pass-${{ needs.fingerprint.outputs.e2e-hash }}
+
+  # When plugin dispatch arrives and the (backend, plugin) pair is already
+  # cached green, e2e-clerk is skipped — its in-job "Report E2E status to
+  # plugin repo" step therefore does NOT run, leaving the plugin PR with no
+  # commit status. This job posts that success directly from the cached pass.
+  report-cached-pass-to-plugin:
+    if: github.event_name == 'repository_dispatch' && needs.fingerprint.outputs.e2e-cache-hit == 'true'
+    needs: fingerprint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report cached e2e pass to plugin repo
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_PAT }}
+          SHORT_SHA: ${{ github.event.client_payload.plugin_ref }}
+        run: |
+          if [ -z "$SHORT_SHA" ]; then
+            echo "No plugin_ref in payload, skipping status report"
+            exit 0
+          fi
+          PLUGIN_SHA=$(gh api "repos/Rasbandit/Engram-obsidian-sync/commits/${SHORT_SHA}" --jq '.sha')
+          gh api "repos/Rasbandit/Engram-obsidian-sync/statuses/${PLUGIN_SHA}" \
+            -f state="success" \
+            -f context="backend/e2e" \
+            -f description="E2E tests passed (cached fingerprint match)" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   deploy-fastraid:
-    # Deploy when EITHER (a) full CI just succeeded OR (b) fingerprint
-    # already proved green for this tree. Branch protection should still
+    # Deploy when EITHER (a) full CI just succeeded OR (b) BOTH fingerprints
+    # already proved green for this content. Both must be cached, because
+    # backend-only validation is insufficient — we also need the (backend,
+    # plugin) integration to be known green. Branch protection should still
     # require the `ci` check on PRs; this only kicks in on the main push
     # whose tree has been validated upstream.
     if: |
       always()
       && github.ref == 'refs/heads/main'
       && github.event_name == 'push'
-      && (needs.ci.result == 'success' || needs.fingerprint.outputs.cache-hit == 'true')
+      && (needs.ci.result == 'success' || (needs.fingerprint.outputs.backend-cache-hit == 'true' && needs.fingerprint.outputs.e2e-cache-hit == 'true'))
     needs: [fingerprint, ci]
     runs-on: [self-hosted, engram, isolated]
     permissions:
