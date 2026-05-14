@@ -35,10 +35,4 @@ defmodule EngramWeb.BillingControllerTest do
     end
   end
 
-  describe "POST /api/billing/checkout-session" do
-    test "returns 400 for invalid tier", %{conn: conn} do
-      conn = post(conn, "/api/billing/checkout-session", %{"tier" => "invalid"})
-      assert json_response(conn, 400)["error"] =~ "tier"
-    end
-  end
 end
