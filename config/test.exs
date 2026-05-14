@@ -93,6 +93,7 @@ config :engram, :paddle_client_token, "live_token_test_fake"
 config :engram, :paddle_starter_price_id, "pri_starter_test"
 config :engram, :paddle_pro_price_id, "pri_pro_test"
 config :engram, :paddle_env, "sandbox"
+config :engram, :paddle_client, Engram.Paddle.ClientMock
 
 # Default to local auth provider in tests
 config :engram, :auth_provider, :local
