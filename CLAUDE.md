@@ -140,7 +140,7 @@ mix dialyzer                              # slow first run (~5-10 min PLT build)
 | **Starter** | $5/mo ($50/yr) | Text search, MCP, WebSocket sync, 5 devices, 10GB storage |
 | **Pro** | $10/mo ($100/yr) | + unlimited devices, 50GB, 2x rate limit, multimodal (future) |
 
-14-day free trial (card required). See `docs/context/pricing-strategy.md`.
+7-day free trial (card required). See `docs/context/paddle-integration.md`.
 
 ## Context Docs
 
