@@ -159,6 +159,7 @@ export function useOnboardingStatus() {
     queryKey: ['onboarding', 'status'],
     queryFn: () => api.get<OnboardingStatus>('/onboarding/status'),
     staleTime: Infinity,
+    refetchOnWindowFocus: true,
   })
 }
 
