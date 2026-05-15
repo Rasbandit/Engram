@@ -40,6 +40,20 @@ defmodule Engram.OnboardingTest do
       user = insert(:user)
       assert {:error, %Ecto.Changeset{}} = Onboarding.accept_terms(user, "", %{})
     end
+
+    test "re-accepting the same version updates the row instead of duplicating" do
+      user = insert(:user)
+      {:ok, _} = Onboarding.accept_terms(user, "2026-05-15", %{ip_address: "1.1.1.1"})
+      {:ok, _} = Onboarding.accept_terms(user, "2026-05-15", %{ip_address: "2.2.2.2"})
+
+      {:ok, rows} =
+        Engram.Repo.with_tenant(user.id, fn ->
+          Engram.Repo.all(Agreement)
+        end)
+
+      assert length(rows) == 1
+      assert hd(rows).ip_address == "2.2.2.2"
+    end
   end
 
   describe "status/1 when billing is disabled (self-host)" do

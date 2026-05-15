@@ -28,9 +28,17 @@ defmodule Engram.Onboarding do
       user_agent: Map.get(meta, :user_agent)
     }
 
+    # Upsert on (user_id, document, version) so re-accepts of the same version
+    # refresh the audit fields instead of inserting duplicate rows. Unique
+    # index `user_agreements_user_document_version_unique` enforces this at DB.
     %Agreement{}
     |> Agreement.changeset(attrs)
-    |> Repo.insert(skip_tenant_check: true)
+    |> Repo.insert(
+      on_conflict: {:replace, [:accepted_at, :ip_address, :user_agent]},
+      conflict_target: [:user_id, :document, :version],
+      returning: true,
+      skip_tenant_check: true
+    )
   end
 
   @doc """
