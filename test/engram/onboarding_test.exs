@@ -48,10 +48,12 @@ defmodule Engram.OnboardingTest do
       prev_version = Application.get_env(:engram, :current_tos_version)
       Application.put_env(:engram, :billing_enabled, false)
       Application.put_env(:engram, :current_tos_version, "2026-05-15")
+
       on_exit(fn ->
         Application.put_env(:engram, :billing_enabled, prev_enabled)
         Application.put_env(:engram, :current_tos_version, prev_version)
       end)
+
       :ok
     end
 
@@ -67,10 +69,12 @@ defmodule Engram.OnboardingTest do
       prev_version = Application.get_env(:engram, :current_tos_version)
       Application.put_env(:engram, :billing_enabled, true)
       Application.put_env(:engram, :current_tos_version, "2026-05-15")
+
       on_exit(fn ->
         Application.put_env(:engram, :billing_enabled, prev_enabled)
         Application.put_env(:engram, :current_tos_version, prev_version)
       end)
+
       :ok
     end
 
