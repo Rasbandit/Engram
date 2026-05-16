@@ -9,10 +9,19 @@ Clerk Backend API docs: https://clerk.com/docs/reference/backend-api
 from __future__ import annotations
 
 import logging
+import time
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+# Clerk's POST /sessions endpoint exhibits eventual-consistency 404s vs the
+# user store: a user_id that GET /users/{id} returns happily can still
+# 404 from POST /sessions for a few hundred ms after creation. Retry
+# resource_not_found errors with exponential backoff. 5 attempts span
+# ~6s total, well above Clerk's observed lag window (<1s in practice).
+_SESSION_CREATE_MAX_ATTEMPTS = 5
+_SESSION_CREATE_INITIAL_BACKOFF = 0.2
 
 
 class ClerkClient:
@@ -94,19 +103,14 @@ class ClerkClient:
         Uses Clerk's Backend API to create a session, then mints a
         session token (valid ~60s). This JWT can be used as a Bearer
         token or injected as Clerk's __session cookie.
-        """
-        # Create session
-        resp = self.session.post(
-            f"{self.base_url}/sessions",
-            json={"user_id": user_id},
-            timeout=10,
-        )
-        if not resp.ok:
-            logger.error("Clerk create_session failed: %s %s", resp.status_code, resp.text)
-        resp.raise_for_status()
-        session_id = resp.json()["id"]
 
-        # Mint session token
+        Retries POST /sessions on transient 404 resource_not_found
+        (Clerk eventual-consistency lag between user create/lookup and
+        session endpoint visibility). See `_create_session_with_retry`.
+        """
+        session_id = self._create_session_with_retry(user_id)
+
+        # Mint session token (no retry needed — session is fresh)
         resp = self.session.post(
             f"{self.base_url}/sessions/{session_id}/tokens",
             timeout=10,
@@ -117,6 +121,52 @@ class ClerkClient:
         token = resp.json()["jwt"]
         logger.info("Created session token for user %s (session %s)", user_id, session_id)
         return token
+
+    def _create_session_with_retry(self, user_id: str) -> str:
+        """POST /sessions with exponential-backoff retry on 404 resource_not_found.
+
+        Returns the session_id. Raises on non-404 errors immediately, or after
+        exhausting retries on persistent 404.
+        """
+        backoff = _SESSION_CREATE_INITIAL_BACKOFF
+        last_resp: requests.Response | None = None
+        for attempt in range(1, _SESSION_CREATE_MAX_ATTEMPTS + 1):
+            resp = self.session.post(
+                f"{self.base_url}/sessions",
+                json={"user_id": user_id},
+                timeout=10,
+            )
+            last_resp = resp
+            if resp.ok:
+                return resp.json()["id"]
+            if resp.status_code == 404 and self._is_resource_not_found(resp):
+                if attempt < _SESSION_CREATE_MAX_ATTEMPTS:
+                    logger.warning(
+                        "Clerk create_session 404 for user %s (attempt %d/%d, sleeping %.2fs)",
+                        user_id, attempt, _SESSION_CREATE_MAX_ATTEMPTS, backoff,
+                    )
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                logger.error(
+                    "Clerk create_session 404 for user %s exhausted %d retries: %s",
+                    user_id, _SESSION_CREATE_MAX_ATTEMPTS, resp.text,
+                )
+            else:
+                logger.error("Clerk create_session failed: %s %s", resp.status_code, resp.text)
+            resp.raise_for_status()
+        # Defensive — raise_for_status above should always raise on the final attempt.
+        assert last_resp is not None
+        last_resp.raise_for_status()
+        raise RuntimeError("unreachable")  # pragma: no cover
+
+    @staticmethod
+    def _is_resource_not_found(resp: requests.Response) -> bool:
+        try:
+            errors = resp.json().get("errors", [])
+        except ValueError:
+            return False
+        return any(e.get("code") == "resource_not_found" for e in errors)
 
     def get_testing_token(self) -> str:
         """Get a Testing Token to bypass bot detection in Clerk's Frontend API."""
