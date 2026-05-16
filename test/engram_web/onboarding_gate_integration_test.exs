@@ -42,4 +42,40 @@ defmodule EngramWeb.OnboardingGateIntegrationTest do
     conn = get(conn, "/api/folders")
     assert conn.status == 200
   end
+
+  # Coverage matrix: prove RequireOnboarding halts every request shape on
+  # the vault pipeline (verbs, splat routes, MCP scope). Without these,
+  # a future route added to the vault scope could silently bypass the
+  # gate if the test only covered GET /api/folders.
+
+  test "POST /api/notes is gated (mutation halts BEFORE write)", %{conn: conn} do
+    body = %{path: "Test/note.md", content: "x", mtime: 1_700_000_000.0}
+    resp = post(conn, "/api/notes", body)
+    assert json_response(resp, 403)["error"] == "onboarding_required"
+    refute Engram.Repo.exists?(Engram.Notes.Note, skip_tenant_check: true)
+  end
+
+  test "DELETE /api/notes/*path (splat route) is gated", %{conn: conn} do
+    resp = delete(conn, "/api/notes/Some/Path.md")
+    assert json_response(resp, 403)["error"] == "onboarding_required"
+  end
+
+  test "POST /api/search is gated", %{conn: conn} do
+    resp = post(conn, "/api/search", %{query: "anything"})
+    assert json_response(resp, 403)["error"] == "onboarding_required"
+  end
+
+  test "POST /api/mcp (nested scope) is gated", %{conn: conn} do
+    resp =
+      post(conn, "/api/mcp", %{jsonrpc: "2.0", id: 1, method: "tools/list", params: %{}})
+
+    assert json_response(resp, 403)["error"] == "onboarding_required"
+  end
+
+  test "self-host mode lets POST /api/notes through (gate is no-op)", %{conn: conn} do
+    Application.put_env(:engram, :billing_enabled, false)
+    body = %{path: "Test/note.md", content: "# Hi", mtime: 1_700_000_000.0}
+    resp = post(conn, "/api/notes", body)
+    assert resp.status in [200, 201]
+  end
 end
