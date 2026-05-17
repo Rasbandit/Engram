@@ -7,6 +7,7 @@ defmodule Mix.Tasks.Engram.MigrateProviderTest do
   import Ecto.Query, only: [from: 2]
 
   alias Engram.Crypto
+  alias Mix.Tasks.Engram.MigrateProvider
 
   setup :verify_on_exit!
 
@@ -65,7 +66,7 @@ defmodule Mix.Tasks.Engram.MigrateProviderTest do
 
       out =
         capture_io(fn ->
-          Mix.Tasks.Engram.MigrateProvider.run(["--target", "aws_kms"])
+          MigrateProvider.run(["--target", "aws_kms"])
         end)
 
       assert out =~ "migration complete"
@@ -79,7 +80,7 @@ defmodule Mix.Tasks.Engram.MigrateProviderTest do
 
       out =
         capture_io(fn ->
-          Mix.Tasks.Engram.MigrateProvider.run(["--target", "aws_kms", "--enqueue"])
+          MigrateProvider.run(["--target", "aws_kms", "--enqueue"])
         end)
 
       assert out =~ "enqueued"
@@ -101,7 +102,7 @@ defmodule Mix.Tasks.Engram.MigrateProviderTest do
 
       out =
         capture_io(fn ->
-          Mix.Tasks.Engram.MigrateProvider.run(["--status"])
+          MigrateProvider.run(["--status"])
         end)
 
       assert out =~ "local="
@@ -115,7 +116,7 @@ defmodule Mix.Tasks.Engram.MigrateProviderTest do
       exit_result =
         catch_exit(
           capture_io(:stderr, fn ->
-            Mix.Tasks.Engram.MigrateProvider.run(["--target", "passphrase"])
+            MigrateProvider.run(["--target", "passphrase"])
           end)
         )
 
@@ -126,7 +127,7 @@ defmodule Mix.Tasks.Engram.MigrateProviderTest do
       exit_result =
         catch_exit(
           capture_io(:stderr, fn ->
-            Mix.Tasks.Engram.MigrateProvider.run([])
+            MigrateProvider.run([])
           end)
         )
 

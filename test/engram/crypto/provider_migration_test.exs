@@ -142,7 +142,8 @@ defmodule Engram.Crypto.ProviderMigrationTest do
       assert reloaded.encrypted_dek == original_blob
       assert reloaded.key_provider == "local"
 
-      assert_receive {:telemetry, %{count: 1}, %{status: :failed, reason_label: "kms_encrypt_failed"}}
+      assert_receive {:telemetry, %{count: 1},
+                      %{status: :failed, reason_label: "kms_encrypt_failed"}}
     end
 
     test ":kms_throttled surfaces verbatim" do
@@ -178,6 +179,7 @@ defmodule Engram.Crypto.ProviderMigrationTest do
       attach_telemetry_capture(self())
 
       assert :ok = ProviderMigration.migrate_user(user.id, :aws_kms)
+
       assert_receive {:telemetry, %{count: 1, duration_us: dur},
                       %{user_id: uid, target_provider: :aws_kms, status: :ok}}
                      when is_integer(dur) and dur >= 0
@@ -209,7 +211,9 @@ defmodule Engram.Crypto.ProviderMigrationTest do
       ok_count = Enum.count(results, &(&1 == :ok))
       skipped_count = Enum.count(results, &(&1 == :skipped))
 
-      assert ok_count == 1, "expected exactly one :ok, got #{ok_count} (results=#{inspect(results)})"
+      assert ok_count == 1,
+             "expected exactly one :ok, got #{ok_count} (results=#{inspect(results)})"
+
       assert skipped_count == 3, "expected three :skipped, got #{skipped_count}"
 
       reloaded = Repo.one!(from(u in User, where: u.id == ^uid), skip_tenant_check: true)

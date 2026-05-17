@@ -129,7 +129,9 @@ defmodule Engram.Crypto.ProviderMigration do
 
     rows
     |> Enum.reduce(base, fn {provider, n}, acc ->
-      key = if provider in ["local", "aws_kms"], do: String.to_atom(provider), else: :other
+      key =
+        if provider in ["local", "aws_kms"], do: String.to_existing_atom(provider), else: :other
+
       Map.update(acc, key, n, &(&1 + n))
     end)
     |> then(fn counts -> Map.put(counts, :total, counts.local + counts.aws_kms) end)
@@ -315,7 +317,13 @@ defmodule Engram.Crypto.ProviderMigration do
           |> Oban.insert_all(:migrate_provider_jobs, jobs)
           |> Repo.transaction()
 
-        enqueue_loop(target_provider, target_name, List.last(ids), batch_size, total + length(jobs))
+        enqueue_loop(
+          target_provider,
+          target_name,
+          List.last(ids),
+          batch_size,
+          total + length(jobs)
+        )
     end
   end
 end
