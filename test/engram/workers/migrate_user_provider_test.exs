@@ -64,7 +64,8 @@ defmodule Engram.Workers.MigrateUserProviderTest do
   test "perform/1 skipped (already at target) returns :ok" do
     user = user_with_local_dek!()
 
-    :ok = perform_job(MigrateUserProvider, %{"user_id" => user.id, "target_provider" => "aws_kms"})
+    :ok =
+      perform_job(MigrateUserProvider, %{"user_id" => user.id, "target_provider" => "aws_kms"})
 
     assert :ok =
              perform_job(MigrateUserProvider, %{
