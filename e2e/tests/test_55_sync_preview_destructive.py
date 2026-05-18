@@ -33,18 +33,50 @@ async def _dismiss_via_escape(cdp) -> None:
     )
 
 
-async def _seed_local_only(cdp, vault, path: str, content: str) -> None:
-    """Create a divergent file that stays local (gate re-blocked after write)."""
+async def _seed_divergent(
+    cdp, vault, api_sync, local_path: str, remote_path: str
+) -> None:
+    """Produce a plan with BOTH a local-only and a remote-only file.
+
+    Why both sides:
+      - "Push all + delete remote" only renders meaningfully when the plan has
+        a non-zero ``deleteRemoteCount`` (i.e. at least one path lives ONLY on
+        the server).
+      - "Pull all + delete local" only renders meaningfully when the plan has
+        a non-zero ``deleteLocalCount`` (i.e. at least one path lives ONLY in
+        the vault).
+
+    Without both sides one or the other destructive option may rely on a zero
+    count and the modal can elide / disable it.  Seeding both guarantees every
+    destructive option is shown with a non-zero action count.
+
+    Steps:
+      1. Pause outgoing sync so the local write stays off-server.
+      2. Write ``local_path`` to the vault — local-only.
+      3. Create ``remote_path`` on the server directly via the REST API —
+         remote-only (plugin won't pull because gate is then re-blocked).
+      4. Reset the sync gate so SyncPreviewModal opens on next dispatch.
+    """
     await cdp.pause_outgoing_sync()
-    write_note(vault, path, content)
+    write_note(vault, local_path, "# local-only\nseed for sync-preview test\n")
+    api_sync.create_note(remote_path, "# remote-only\nseed for sync-preview test\n")
     await cdp.reset_sync_gate()
 
 
-async def _restore_clean(cdp, vault, path: str) -> None:
-    """Undo _seed_local_only: delete the seeded file, resume push, re-accept."""
-    file_path = vault / path
+async def _restore_divergent(
+    cdp, vault, api_sync, local_path: str, remote_path: str
+) -> None:
+    """Undo ``_seed_divergent``: delete both seeds, resume push, re-accept gate."""
+    file_path = vault / local_path
     if file_path.exists():
         file_path.unlink()
+    # The remote-only file should be torn down server-side so it does not
+    # bleed into other tests' plans.
+    try:
+        api_sync.delete_note(remote_path)
+    except Exception:
+        # Idempotent — ignore 404 / already-deleted etc.
+        pass
     await cdp.resume_outgoing_sync()
     await cdp.accept_sync_gate()
 
@@ -57,19 +89,25 @@ async def _restore_clean(cdp, vault, path: str) -> None:
     ],
 )
 @pytest.mark.asyncio
-async def test_destructive_submit_locked_until_typed(vault_a, cdp_a, label):
+async def test_destructive_submit_locked_until_typed(
+    vault_a, cdp_a, api_sync, label
+):
     """Submit button stays disabled until "delete" is typed exactly.
 
     Flow:
-      1. Open modal with a divergent file so options are rendered.
+      1. Open modal with BOTH a local-only and a remote-only file so the plan
+         is unambiguously non-empty AND every destructive option has a
+         non-zero action count (deleteRemoteCount > 0 for push-delete-remote,
+         deleteLocalCount > 0 for pull-delete-local).
       2. Pick the destructive option — confirm view appears.
       3. Assert button disabled before any text.
       4. Type partial word "delet" — still disabled.
       5. Type full word "delete" — enabled.
       6. Escape to cancel — gate stays closed.
     """
-    path = f"{SEED_DIR}/Lock.md"
-    await _seed_local_only(cdp_a, vault_a, path, "# seed")
+    local_path = f"{SEED_DIR}/Lock-local.md"
+    remote_path = f"{SEED_DIR}/Lock-remote.md"
+    await _seed_divergent(cdp_a, vault_a, api_sync, local_path, remote_path)
     try:
         await cdp_a.open_sync_preview_modal()
         await cdp_a.wait_for_sync_preview_modal()
@@ -96,18 +134,19 @@ async def test_destructive_submit_locked_until_typed(vault_a, cdp_a, label):
             "Sync gate must remain blocked after cancel via Escape"
         )
     finally:
-        await _restore_clean(cdp_a, vault_a, path)
+        await _restore_divergent(cdp_a, vault_a, api_sync, local_path, remote_path)
 
 
 @pytest.mark.asyncio
-async def test_destructive_confirm_dispatches_choice(vault_a, cdp_a):
+async def test_destructive_confirm_dispatches_choice(vault_a, cdp_a, api_sync):
     """Full flow: pick destructive option → type "delete" → submit → choice recorded.
 
     Uses the choice spy (swallow=True) so no real sync runs.
     Asserts the dispatched choice is "push-all-delete-remote".
     """
-    path = f"{SEED_DIR}/Dispatch.md"
-    await _seed_local_only(cdp_a, vault_a, path, "# seed")
+    local_path = f"{SEED_DIR}/Dispatch-local.md"
+    remote_path = f"{SEED_DIR}/Dispatch-remote.md"
+    await _seed_divergent(cdp_a, vault_a, api_sync, local_path, remote_path)
     await cdp_a.install_choice_spy(swallow=True)
     try:
         await cdp_a.open_sync_preview_modal()
@@ -125,4 +164,4 @@ async def test_destructive_confirm_dispatches_choice(vault_a, cdp_a):
         )
     finally:
         await cdp_a.uninstall_choice_spy()
-        await _restore_clean(cdp_a, vault_a, path)
+        await _restore_divergent(cdp_a, vault_a, api_sync, local_path, remote_path)

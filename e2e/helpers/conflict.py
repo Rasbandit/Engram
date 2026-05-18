@@ -86,36 +86,66 @@ async def setup_conflict_for_a(
     *,
     local: str,
     remote: str,
+    base: str | None = None,
 ) -> None:
-    """Seed a conflict that opens ConflictModal on Vault A.
+    """Seed a 3-way conflict that opens ConflictModal on Vault A.
 
-    Steps:
-    1. Write ``remote`` content to vault B and trigger a full sync so the server
-       stores B's version.
-    2. Pause outgoing sync on A so A's local write cannot auto-push and override.
-    3. Write ``local`` content to vault A.
-    4. Resume outgoing sync on A and trigger a pull — the engine detects
-       divergence (server has B's version; A has a local edit it hasn't pushed)
-       and, because ``conflictResolution`` is already ``'modal'``, opens the
-       ConflictModal.
+    The plugin only treats a divergent pull as a *real* conflict when both:
+
+      - it has a recorded ``syncedHash`` for the file (so the local edit is
+        provably user-modified, not first-sync staleness), AND
+      - ``localContent != remoteContent``.
+
+    Without a recorded sync state the engine falls into its first-sync staleness
+    heuristic (``STALE_THRESHOLD_S = 3600`` s; see src/sync.ts ~1330) and may
+    silently accept the remote, never opening ConflictModal.
+
+    So we establish a synced *base* first:
+
+    1. A writes ``base`` content and triggers a full sync — server now has the
+       base AND ``syncState`` on A records its hash.
+    2. B also fully syncs so B has the same base recorded locally.
+    3. Pause A's outgoing sync so A's divergent edit stays off-server.
+    4. A writes ``local`` (diverges from base).
+    5. B writes ``remote`` (diverges from base) and full-syncs — server now
+       carries B's divergent version.
+    6. Resume A's outgoing sync, then trigger a pull — A sees server content
+       that differs from its local content AND its recorded base hash; with
+       ``conflictResolution == 'modal'`` set, ConflictModal opens.
+
+    If ``base`` is None, a deterministic placeholder is derived from ``path``.
 
     The caller MUST set ``conflictResolution = 'modal'`` on A before calling
-    (e.g. via the ``_set_modal_mode`` autouse fixture in test_54).
+    (the ``_set_modal_mode`` autouse fixture in test_54 does this).
 
-    Waits up to 10 s for the modal DOM node to appear.  Raises TimeoutError if
-    the modal never mounts.
+    Waits up to 10 s for the modal DOM node to appear; raises TimeoutError if
+    it never mounts.
     """
-    # 1. B writes remote content and syncs to server.
+    if base is None:
+        base = f"# base\nseed for {path}\n"
+
+    # 1. A writes the base content and syncs — establishes syncedHash on A
+    #    and base content on the server.
+    write_note(vault_a, path, base)
+    await cdp_a.trigger_full_sync()
+
+    # 2. B pulls so it also records the same base in its syncState. Not strictly
+    #    required for ConflictModal on A, but keeps both sides consistent for
+    #    test_54's eventual restore.
+    await cdp_b.trigger_full_sync()
+
+    # 3. Pause A's outgoing sync so the local divergent write stays off-server.
+    await cdp_a.pause_outgoing_sync()
+
+    # 4. A writes local divergence (now: localHash != lastSyncedHash → modified).
+    write_note(vault_a, path, local)
+
+    # 5. B writes remote divergence and syncs so the server carries B's version.
     write_note(vault_b, path, remote)
     await cdp_b.trigger_full_sync()
 
-    # 2. Pause A's outgoing sync so the local write stays off-server.
-    await cdp_a.pause_outgoing_sync()
-
-    # 3. Write local content to vault A.
-    write_note(vault_a, path, local)
-
-    # 4. Resume A's outgoing sync, then pull so divergence is detected.
+    # 6. Resume A's outgoing sync, then pull — divergence is detected and
+    #    ConflictModal opens.
     await cdp_a.resume_outgoing_sync()
     await cdp_a.trigger_pull()
 

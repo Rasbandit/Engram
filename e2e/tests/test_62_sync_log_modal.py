@@ -60,6 +60,13 @@ async def _require_show_sync_log(cdp_a):
 async def test_sync_log_modal_shows_push_entry(vault_a, cdp_a):
     """SyncLogModal must contain an entry with action=push for the seeded file."""
     # ------------------------------------------------------------------
+    # Accept the sync gate so the plugin's handleModify push isn't blocked.
+    # Without this the engine swallows the push and the SyncLog stays empty,
+    # surfacing as a 30 s timeout that masks the real (gate-state) cause.
+    # ------------------------------------------------------------------
+    await cdp_a.accept_sync_gate()
+
+    # ------------------------------------------------------------------
     # Write the note — the plugin's vault watcher fires handleModify which
     # enqueues a push and eventually records a SyncLog entry.
     # ------------------------------------------------------------------

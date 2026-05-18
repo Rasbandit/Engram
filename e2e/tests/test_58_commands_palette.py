@@ -62,15 +62,19 @@ async def test_push_all_invokes_handler(cdp_a):
     if not await cdp_a.has_command("push-all"):
         pytest.skip("Plugin lacks push-all command")
 
-    # Install spy — capture original so we can restore exactly
+    # Install spy — capture original so we can restore exactly.
+    # Wrap in IIFE so `const` declarations don't leak into the shared
+    # renderer execution context (would clash on re-runs / sequential evals).
     await cdp_a.evaluate(
-        "window.__e2e_pushAll_count = 0;"
-        "const _p = app.plugins.plugins['engram-vault-sync'];"
-        "window.__e2e_pushAll_orig = _p.syncEngine.pushAll.bind(_p.syncEngine);"
-        "_p.syncEngine.pushAll = async (...a) => {"
-        "  window.__e2e_pushAll_count++;"
-        "  return window.__e2e_pushAll_orig(...a);"
-        "};"
+        "(() => {"
+        "  window.__e2e_pushAll_count = 0;"
+        "  const _p = app.plugins.plugins['engram-vault-sync'];"
+        "  window.__e2e_pushAll_orig = _p.syncEngine.pushAll.bind(_p.syncEngine);"
+        "  _p.syncEngine.pushAll = async (...a) => {"
+        "    window.__e2e_pushAll_count++;"
+        "    return window.__e2e_pushAll_orig(...a);"
+        "  };"
+        "})()"
     )
     try:
         await cdp_a.run_command("push-all")
@@ -84,12 +88,14 @@ async def test_push_all_invokes_handler(cdp_a):
         assert called >= 1, f"pushAll was not called (count={called})"
     finally:
         await cdp_a.evaluate(
-            "const _p = app.plugins.plugins['engram-vault-sync'];"
-            "if (window.__e2e_pushAll_orig) {"
-            "  _p.syncEngine.pushAll = window.__e2e_pushAll_orig;"
-            "}"
-            "delete window.__e2e_pushAll_count;"
-            "delete window.__e2e_pushAll_orig;"
+            "(() => {"
+            "  const _p = app.plugins.plugins['engram-vault-sync'];"
+            "  if (window.__e2e_pushAll_orig) {"
+            "    _p.syncEngine.pushAll = window.__e2e_pushAll_orig;"
+            "  }"
+            "  delete window.__e2e_pushAll_count;"
+            "  delete window.__e2e_pushAll_orig;"
+            "})()"
         )
 
 
@@ -103,15 +109,18 @@ async def test_pull_all_invokes_handler(cdp_a):
     if not await cdp_a.has_command("pull-all"):
         pytest.skip("Plugin lacks pull-all command")
 
-    # Install spy — capture original so we can restore exactly
+    # Install spy — capture original so we can restore exactly.
+    # IIFE wrap avoids `const` leaks in the shared renderer execution context.
     await cdp_a.evaluate(
-        "window.__e2e_pullAll_count = 0;"
-        "const _p = app.plugins.plugins['engram-vault-sync'];"
-        "window.__e2e_pullAll_orig = _p.syncEngine.pullAll.bind(_p.syncEngine);"
-        "_p.syncEngine.pullAll = async (...a) => {"
-        "  window.__e2e_pullAll_count++;"
-        "  return window.__e2e_pullAll_orig(...a);"
-        "};"
+        "(() => {"
+        "  window.__e2e_pullAll_count = 0;"
+        "  const _p = app.plugins.plugins['engram-vault-sync'];"
+        "  window.__e2e_pullAll_orig = _p.syncEngine.pullAll.bind(_p.syncEngine);"
+        "  _p.syncEngine.pullAll = async (...a) => {"
+        "    window.__e2e_pullAll_count++;"
+        "    return window.__e2e_pullAll_orig(...a);"
+        "  };"
+        "})()"
     )
     try:
         await cdp_a.run_command("pull-all")
@@ -124,12 +133,14 @@ async def test_pull_all_invokes_handler(cdp_a):
         assert called >= 1, f"pullAll was not called (count={called})"
     finally:
         await cdp_a.evaluate(
-            "const _p = app.plugins.plugins['engram-vault-sync'];"
-            "if (window.__e2e_pullAll_orig) {"
-            "  _p.syncEngine.pullAll = window.__e2e_pullAll_orig;"
-            "}"
-            "delete window.__e2e_pullAll_count;"
-            "delete window.__e2e_pullAll_orig;"
+            "(() => {"
+            "  const _p = app.plugins.plugins['engram-vault-sync'];"
+            "  if (window.__e2e_pullAll_orig) {"
+            "    _p.syncEngine.pullAll = window.__e2e_pullAll_orig;"
+            "  }"
+            "  delete window.__e2e_pullAll_count;"
+            "  delete window.__e2e_pullAll_orig;"
+            "})()"
         )
 
 
@@ -148,13 +159,15 @@ async def test_check_sync_emits_notice(cdp_a):
     # our wrapper. The original is captured before patching and restored in
     # the finally block unconditionally.
     await cdp_a.evaluate(
-        "window.__e2e_notices = [];"
-        "const _obsidian = require('obsidian');"
-        "window.__e2e_notice_orig = _obsidian.Notice;"
-        "_obsidian.Notice = function(msg, ms) {"
-        "  window.__e2e_notices.push(String(msg));"
-        "  return new window.__e2e_notice_orig(msg, ms);"
-        "};"
+        "(() => {"
+        "  window.__e2e_notices = [];"
+        "  const _obsidian = require('obsidian');"
+        "  window.__e2e_notice_orig = _obsidian.Notice;"
+        "  _obsidian.Notice = function(msg, ms) {"
+        "    window.__e2e_notices.push(String(msg));"
+        "    return new window.__e2e_notice_orig(msg, ms);"
+        "  };"
+        "})()"
     )
     try:
         await cdp_a.run_command("check-sync")
@@ -170,12 +183,14 @@ async def test_check_sync_emits_notice(cdp_a):
         )
     finally:
         await cdp_a.evaluate(
-            "const _obsidian = require('obsidian');"
-            "if (window.__e2e_notice_orig) {"
-            "  _obsidian.Notice = window.__e2e_notice_orig;"
-            "}"
-            "delete window.__e2e_notices;"
-            "delete window.__e2e_notice_orig;"
+            "(() => {"
+            "  const _obsidian = require('obsidian');"
+            "  if (window.__e2e_notice_orig) {"
+            "    _obsidian.Notice = window.__e2e_notice_orig;"
+            "  }"
+            "  delete window.__e2e_notices;"
+            "  delete window.__e2e_notice_orig;"
+            "})()"
         )
 
 

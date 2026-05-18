@@ -102,7 +102,7 @@ async def _cdp_ignore_file(cdp, path: str) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_activity_log_records_push_then_clears(vault_a, cdp_a):
+async def test_activity_log_records_push_then_clears(vault_a, cdp_a, api_sync):
     """Push a note → confirm 'push' entry in activity log → Clear → empty."""
     path = f"{SEED_DIR}/Logged.md"
     wrote = False
@@ -111,8 +111,25 @@ async def test_activity_log_records_push_then_clears(vault_a, cdp_a):
         write_note(vault_a, path, "# activity log test")
         wrote = True
 
-        # ── 2. Full sync — engine pushes note and appends a log entry ────────
+        # ── 2. Accept the sync gate so trigger_full_sync actually pushes.
+        #      Without this the engine remains blocked, no push happens, and
+        #      the activity log entry never lands — surfacing as a 20 s timeout
+        #      that masks the real (gate-state) cause.
+        await cdp_a.accept_sync_gate()
+
+        # ── 3. Full sync — engine pushes note and appends a log entry ────────
         await cdp_a.trigger_full_sync()
+
+        # Confirm the push actually reached the server before polling for the
+        # activity-log entry. If it didn't, fail fast with a clear message
+        # instead of waiting 20 s for an entry that will never appear.
+        try:
+            api_sync.wait_for_note(path, timeout=15)
+        except TimeoutError as e:
+            pytest.fail(
+                f"Note {path!r} never reached server after trigger_full_sync — "
+                f"sync engine isn't pushing (gate / auth issue): {e}"
+            )
 
         # ── 3. Open Sync Center and assert push entry present ────────────────
         await cdp_a.open_sync_center()
@@ -177,6 +194,8 @@ async def test_restore_ignored_resyncs_file(vault_a, cdp_a, api_sync):
         # ── 1. Write note and push to server ─────────────────────────────────
         write_note(vault_a, path, "# restore test")
         wrote = True
+        # Accept the gate so trigger_full_sync actually pushes.
+        await cdp_a.accept_sync_gate()
         await cdp_a.trigger_full_sync()
 
         # Confirm note is on server before we ignore it.
@@ -218,6 +237,8 @@ async def test_restore_ignored_resyncs_file(vault_a, cdp_a, api_sync):
         await asyncio.sleep(0.4)
 
         # ── 6. Full sync — engine should now push the note ───────────────────
+        # Accept the gate again (Restore may not re-accept it on its own).
+        await cdp_a.accept_sync_gate()
         await cdp_a.trigger_full_sync()
 
         # ── 7. Confirm note is back on server ────────────────────────────────
