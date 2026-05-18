@@ -1668,3 +1668,142 @@ jobs:
           done
 
           echo "FastRaid deploy verified — both engram containers running ${VERSION}"
+
+  # Auto-open a PR in engram-app/engram-infra bumping the staging-fastraid
+  # image tags to the just-deployed version. This is the third leg of the
+  # TF-via-daemon control plane: release → /deploy (live container bumped)
+  # → infra PR → eventual TF apply (state catches up via daemon's /tf-apply).
+  #
+  # Once the TF apply pipeline is end-to-end live, the deploy-fastraid job
+  # above can be retired and TF apply becomes the sole image-bump path.
+  # Until then, both paths coexist: /deploy bumps the live container, this
+  # job bumps the TF source of truth so they don't drift.
+  bump-infra-tfvars:
+    needs: deploy-fastraid
+    if: |
+      always()
+      && needs.deploy-fastraid.result == 'success'
+      && github.ref == 'refs/heads/main'
+      && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # Generates a short-lived installation token for the engram-infra-tf
+      # GitHub App, scoped to engram-app/engram-infra only. The App's PEM
+      # already lives in this repo's secrets (set manually — chicken-egg
+      # with TF authenticating using it).
+      #
+      # Required App permissions on engram-infra:
+      #   - contents: read & write  (push branch)
+      #   - pull-requests: read & write  (open PR)
+      # Adjust at https://github.com/organizations/engram-app/settings/apps/engram-infra-tf
+      # if this step 403s.
+      - name: Generate engram-infra App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: engram-app
+          repositories: engram-infra
+
+      - name: Re-extract version (job-isolated)
+        id: version
+        run: |
+          # deploy-fastraid produces VERSION as a job output, but jobs can
+          # only pass outputs through `needs.<job>.outputs.*` — which means
+          # the source job has to declare them upstream. Easier to re-read
+          # mix.exs here; we know the deploy already succeeded with this
+          # exact version.
+          git clone --depth 1 https://github.com/${{ github.repository }} repo
+          cd repo
+          git fetch --depth 1 origin ${{ github.sha }}
+          git checkout ${{ github.sha }}
+          VERSION=$(grep 'version:' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "ERROR: Invalid semver in mix.exs: '$VERSION'" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Bumping engram-infra to ${VERSION}"
+
+      - name: Checkout engram-infra
+        uses: actions/checkout@v6
+        with:
+          repository: engram-app/engram-infra
+          token: ${{ steps.app-token.outputs.token }}
+          path: engram-infra
+          ref: main
+
+      - name: Rewrite image_tag defaults in variables.tf
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Python rewrite anchored on the variable block names — robust
+          # against other `default = ` lines being added later in the file.
+          # Matches BOTH engram_saas_image_tag and engram_selfhost_image_tag
+          # since they share the same image and always move together; if a
+          # canary pattern is added later, drop the |selfhost branch and
+          # add a separate workflow for selfhost promotion.
+          python3 - <<'PY'
+          import os
+          import re
+
+          path = "engram-infra/main/envs/staging-fastraid/variables.tf"
+          version = os.environ["VERSION"]
+          text = open(path).read()
+          pattern = re.compile(
+              r'(variable\s+"engram_(?:saas|selfhost)_image_tag"[^}]*?default\s*=\s*)"[^"]+"',
+              re.DOTALL,
+          )
+          new, count = pattern.subn(rf'\g<1>"{version}"', text)
+          if count != 2:
+              raise SystemExit(
+                  f"expected 2 variable blocks to update, got {count}; "
+                  "variables.tf shape changed — adjust the regex"
+              )
+          open(path, "w").write(new)
+          print(f"rewrote {count} blocks to {version}")
+          PY
+
+          echo "::group::variables.tf after rewrite"
+          cat engram-infra/main/envs/staging-fastraid/variables.tf
+          echo "::endgroup::"
+
+      - name: Open / update PR in engram-infra
+        uses: peter-evans/create-pull-request@v6
+        with:
+          path: engram-infra
+          token: ${{ steps.app-token.outputs.token }}
+          branch: bot/bump-engram-staging-fastraid
+          delete-branch: true
+          commit-message: |
+            chore(staging-fastraid): bump engram image to ${{ steps.version.outputs.version }}
+
+            Automated bump from engram-app/Engram release.
+          title: "chore(staging-fastraid): bump engram image to ${{ steps.version.outputs.version }}"
+          body: |
+            Automated bump from engram-app/Engram release.
+
+            Source commit: ${{ github.repository }}@${{ github.sha }}
+
+            Bumps both:
+            - `engram_saas_image_tag`
+            - `engram_selfhost_image_tag`
+
+            from current default to **${{ steps.version.outputs.version }}**.
+
+            ## What this triggers
+
+            On merge, `.github/workflows/tf-apply.yml` POSTs the merge SHA to engram-deployer's `/tf-apply` endpoint on FastRaid. The daemon runs `terraform apply` against the local Docker socket, recreating both engram containers with the new image.
+
+            Until the TF apply pipeline is end-to-end live, this PR is informational — the `/deploy` POST from the source release already moved the live containers. This PR just brings TF state into sync.
+
+            ## Review
+
+            Auto-generated; if `variables.tf` has any non-image diff, treat as a regex regression and investigate before merging.
+          labels: |
+            automated
+            tf-image-bump
