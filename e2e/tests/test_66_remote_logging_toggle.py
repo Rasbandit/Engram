@@ -63,16 +63,20 @@ async def test_disable_stops_flush(vault_a, cdp_a, api_sync):
         # server so we know the pipeline is working, not just suppressed.
         # ------------------------------------------------------------------ #
         before_marker = "test66-before-disable"
-        # Push a real note to generate rlog entries via the normal sync path.
-        write_note(vault_a, "E2E/Logging66/before.md", f"# {before_marker}\nbefore content")
-        await cdp_a.trigger_full_sync()
-        # Force flush (simulate page hide).
+        # Deterministically push a note via the engine — generates rlog
+        # entries on the push code path. push_file_now bypasses the watcher
+        # debounce so the rlog calls land synchronously.
+        await cdp_a.push_file_now(
+            "E2E/Logging66/before.md",
+            f"# {before_marker}\nbefore content",
+        )
+        # Force flush (simulate page hide) and wait for the HTTP POST to /logs.
         await cdp_a.flush_remote_logs()
         await asyncio.sleep(1)
 
-        # Wait for the before-marker entries to arrive on the server (up to 10 s).
+        # Wait for the before-marker entries to arrive on the server (up to 15 s).
         before_logs: list = []
-        deadline_before = asyncio.get_event_loop().time() + 10
+        deadline_before = asyncio.get_event_loop().time() + 15
         while asyncio.get_event_loop().time() < deadline_before:
             before_logs = api_sync.list_logs(limit=200, query="E2E/Logging66/before.md")
             if before_logs:
@@ -80,13 +84,13 @@ async def test_disable_stops_flush(vault_a, cdp_a, api_sync):
             await cdp_a.flush_remote_logs()
             await asyncio.sleep(1)
 
-        # If no before-entries arrived, the pipeline may be broken or the rlog
-        # threshold wasn't crossed — skip rather than generating a false failure.
-        if not before_logs:
-            pytest.skip(
-                "No pre-disable log entries arrived on the server within 10 s — "
-                "remote logging pipeline may not be functioning in this environment."
-            )
+        assert before_logs, (
+            "No pre-disable log entries reached the server within 15 s after "
+            "push_file_now + flush_remote_logs. This means rlog().info(...) "
+            "calls inside pushFile() either didn't fire (engine code change) "
+            "or the visibilitychange flush handler isn't POSTing to /logs. "
+            "Inspect src/remote-log.ts flush() and the rlog calls in sync.ts."
+        )
 
         # ------------------------------------------------------------------ #
         # Phase 2: disable remote logging.

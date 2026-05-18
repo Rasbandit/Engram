@@ -149,7 +149,8 @@ async def test_device_flow_expired_and_close(cdp_a):
         # DeviceFlowModal.onOpen() renders <h2>Link Obsidian to Engram</h2>
         # synchronously before the async beginDeviceFlow() runs.
         # ------------------------------------------------------------------
-        for _ in range(50):
+        modal_present = False
+        for _ in range(100):  # 10 s — opening a modal is fast on warm CI
             present = await cdp_a.evaluate(
                 """
                 Boolean(Array.from(
@@ -158,13 +159,16 @@ async def test_device_flow_expired_and_close(cdp_a):
                 """
             )
             if present:
+                modal_present = True
                 break
             await asyncio.sleep(0.1)
-        else:
-            pytest.skip(
-                "DeviceFlowModal h2 did not appear within 5 s — "
-                "Modal.prototype.open patch may not have fired."
-            )
+        assert modal_present, (
+            "DeviceFlowModal h2 did not appear within 10 s after startDeviceFlow() "
+            "fired. The Modal.prototype.open patch was confirmed installed above; "
+            "if the h2 is missing, either startDeviceFlow failed at the network "
+            "request (check Obsidian devtools) or DeviceFlowModal.onOpen no "
+            "longer renders the h2."
+        )
 
         # Let beginDeviceFlow() settle (will fail fast if /auth/device returns
         # an error, leaving the 'Failed to start device flow' paragraph; or it
@@ -187,16 +191,18 @@ async def test_device_flow_expired_and_close(cdp_a):
             })()
             """
         )
-        if rendered == "no-instance":
-            pytest.skip(
-                "Modal instance was not captured — "
-                "Modal.prototype.open patch may not have executed before open()."
-            )
-        if rendered == "no-method":
-            pytest.skip(
-                "renderExpired() not present on DeviceFlowModal instance — "
-                "method may be renamed or minified in this build."
-            )
+        assert rendered != "no-instance", (
+            "DeviceFlowModal instance was not captured by the "
+            "Modal.prototype.open spy. The h2 rendered above, so a modal "
+            "did open — check that the spy fires for the FIRST open() call "
+            "and that no earlier modal stole the spy slot."
+        )
+        assert rendered != "no-method", (
+            "renderExpired() is missing on the captured DeviceFlowModal "
+            "instance. Source defines it as a private method; if the build "
+            "renamed or minified it, update the assertion to match the new "
+            "method name."
+        )
         assert rendered == "ok", f"renderExpired() returned unexpected: {rendered!r}"
 
         # ------------------------------------------------------------------

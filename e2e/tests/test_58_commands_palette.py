@@ -154,46 +154,82 @@ async def test_pull_all_invokes_handler(cdp_a):
 async def test_check_sync_emits_notice(cdp_a):
     """check-sync: a Notice containing 'engram sync' text is emitted.
 
-    Notices in Obsidian render into ``.notice`` div elements at the document
-    root.  We poll those elements after dispatching the command — this is the
-    user-visible observable and works without needing CDP to access the
-    ``obsidian`` CommonJS module (which is not in scope for Runtime.evaluate).
+    Instead of polling the DOM (Notice elements vanish after ~5 s, racing the
+    test), we hook the ``Notice`` constructor on Obsidian's CommonJS module
+    via ``require('obsidian')``. Every ``new Notice(text)`` call records its
+    argument into a window-scoped array, which we read after the command
+    finishes. This captures the Notice even if Obsidian has already removed
+    the DOM node.
     """
     if not await cdp_a.has_command("check-sync"):
         pytest.skip("Plugin lacks check-sync command")
 
-    # Snapshot existing notices so we only count ones produced by the command.
-    pre_count = await cdp_a.evaluate(
-        "document.querySelectorAll('.notice-container .notice, .notice').length"
+    # Patch the Notice constructor to record every invocation. require()
+    # returns the live module — patching Notice on the module export means
+    # every call inside any plugin file (which all import { Notice } from
+    # 'obsidian') hits the spy.
+    await cdp_a.evaluate(
+        """
+        (() => {
+            const obsidian = require('obsidian');
+            if (obsidian.__e2e_origNotice) return 'already-patched';
+            obsidian.__e2e_origNotice = obsidian.Notice;
+            window.__e2e_noticeTexts = [];
+            obsidian.Notice = function PatchedNotice(text, timeout) {
+                window.__e2e_noticeTexts.push(String(text));
+                return new obsidian.__e2e_origNotice(text, timeout);
+            };
+            // Preserve prototype so instanceof checks still pass.
+            obsidian.Notice.prototype = obsidian.__e2e_origNotice.prototype;
+            return 'patched';
+        })()
+        """
     )
-
-    await cdp_a.run_command("check-sync")
-    # check-sync calls reconcile() which is async — wait up to 10 s.
-    matched = False
-    seen_texts: list[str] = []
-    for _ in range(40):
-        # Read text of every current ``.notice`` element; case-insensitive
-        # substring match against "engram sync".  We accept either selector
-        # because Obsidian's DOM has shifted between versions.
-        seen_texts = await cdp_a.evaluate(
-            "Array.from(document.querySelectorAll("
-            "'.notice-container .notice, .notice')).map("
-            "el => el.textContent || '')"
-        ) or []
-        if any("engram sync" in (t or "").lower() for t in seen_texts):
-            matched = True
-            break
-        await asyncio.sleep(0.25)
-    if not matched:
-        # Indeterminate observation — could be that the command emitted a
-        # Notice but it timed-out (Obsidian removes ``.notice`` after a short
-        # interval). Don't fail loudly; ensure the command at least exists.
-        # TODO: replace with a hook into plugin.checkSync()'s explicit return
-        # value once that is exposed for testing.
-        pytest.skip(
-            "No 'engram sync' notice observed in DOM within 10s. "
-            f"pre_count={pre_count}, seen={seen_texts!r}. "
-            "Notice DOM lifetime may be shorter than poll interval."
+    try:
+        await cdp_a.run_command("check-sync")
+        # check-sync calls reconcile() asynchronously; await up to 10 s for
+        # the second Notice (the "checking..." one fires synchronously, then
+        # the result Notice fires after reconcile resolves).
+        result_text = ""
+        for _ in range(40):
+            texts = await cdp_a.evaluate(
+                "JSON.stringify(window.__e2e_noticeTexts || [])"
+            )
+            import json as _json
+            seen = _json.loads(texts) if isinstance(texts, str) else []
+            # Look for the result Notice — the handler emits exactly two
+            # Notices: "Engram sync: checking..." then the result message.
+            # Either of "everything in sync", "missing on server", "diverged",
+            # or "only on server" counts as a result Notice.
+            for t in seen:
+                lower = t.lower()
+                if "engram sync" in lower and "checking" not in lower:
+                    result_text = t
+                    break
+                if "engram sync: everything in sync" in lower:
+                    result_text = t
+                    break
+            if result_text:
+                break
+            await asyncio.sleep(0.25)
+        assert result_text, (
+            "check-sync did not emit a result Notice within 10 s. "
+            "The reconcile() promise may have rejected silently. "
+            "Inspect plugin.checkSync handler in src/main.ts."
+        )
+    finally:
+        # Restore the original Notice constructor.
+        await cdp_a.evaluate(
+            """
+            (() => {
+                const obsidian = require('obsidian');
+                if (obsidian.__e2e_origNotice) {
+                    obsidian.Notice = obsidian.__e2e_origNotice;
+                    delete obsidian.__e2e_origNotice;
+                }
+                delete window.__e2e_noticeTexts;
+            })()
+            """
         )
 
 

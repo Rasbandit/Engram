@@ -85,18 +85,21 @@ async def test_node_modules_detected_and_addable(vault_a, cdp_a):
             """
         )
         # Wait for the settings modal to appear.
-        for _ in range(50):
+        settings_open = False
+        for _ in range(100):  # 10 s
             modal_open = await cdp_a.evaluate(
                 "Boolean(document.querySelector('.modal-container .modal.mod-settings'))"
             )
             if modal_open:
+                settings_open = True
                 break
             await asyncio.sleep(0.1)
-        else:
-            pytest.skip(
-                "Obsidian settings modal did not open within 5 s — "
-                "cannot drive problem-dir scanner via UI"
-            )
+        assert settings_open, (
+            "Obsidian settings modal did not open within 10 s. "
+            "app.setting.open() + openTabById() should be synchronous; "
+            "if the modal is missing, Obsidian's setting registry may have "
+            "stopped accepting the engram tab id."
+        )
 
         # Click the Advanced tab button (data-tab="advanced").
         clicked_tab = await cdp_a.evaluate(
@@ -118,17 +121,21 @@ async def test_node_modules_detected_and_addable(vault_a, cdp_a):
 
         # Wait for the .engram-status-warning row to appear (renderIgnoreWarnings
         # detects the vault folder and renders the warning on tab render).
-        # Give the vault index a moment to catch up with the filesystem write.
-        for _ in range(60):
-            warning_visible = await cdp_a.evaluate(
-                "Boolean(document.querySelector('.engram-status-warning'))"
-            )
+        # Give the vault index time to catch up with the filesystem write;
+        # if it's slow, redisplay the tab to retrigger the scanner.
+        warning_visible = False
+        for attempt in range(3):  # 3 redisplay attempts × 15 s each = 45 s total
+            for _ in range(75):
+                warning_visible = await cdp_a.evaluate(
+                    "Boolean(document.querySelector('.engram-status-warning'))"
+                )
+                if warning_visible:
+                    break
+                await asyncio.sleep(0.2)
             if warning_visible:
                 break
-            await asyncio.sleep(0.2)
-        else:
-            # Vault index may not have picked up the new folder yet; try a
-            # redisplay by clicking the tab button again.
+            # Retrigger the tab render — vault index may not have caught up
+            # the first time.
             await cdp_a.evaluate(
                 """
                 (() => {
@@ -140,15 +147,13 @@ async def test_node_modules_detected_and_addable(vault_a, cdp_a):
                 """
             )
             await asyncio.sleep(1)
-            warning_visible = await cdp_a.evaluate(
-                "Boolean(document.querySelector('.engram-status-warning'))"
-            )
-            if not warning_visible:
-                pytest.skip(
-                    "node_modules/ warning row (.engram-status-warning) did not appear — "
-                    "vault index may not have indexed the directory, or the scanner "
-                    "logic changed in this plugin build."
-                )
+        assert warning_visible, (
+            "node_modules/ warning row (.engram-status-warning) did not appear "
+            "after 45 s and 3 tab redisplays. Either the problem-dir scanner "
+            "stopped detecting node_modules/, or renderIgnoreWarnings no "
+            "longer emits .engram-status-warning. Inspect settings.ts "
+            "renderIgnoreWarnings() against current source."
+        )
 
         # Click "Add to ignores" inside the warning row for node_modules/.
         clicked_btn = await cdp_a.evaluate(

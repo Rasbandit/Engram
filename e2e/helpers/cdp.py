@@ -414,6 +414,74 @@ class CdpClient:
             return json.loads(result)
         return result or {}
 
+    async def push_file_now(self, path: str, content: str) -> bool:
+        """Deterministically seed a note: write via vault API, then await pushFile.
+
+        Replaces the racy ``write_note + sleep + trigger_full_sync`` pattern.
+        Steps performed inside the renderer (atomically from the test's POV):
+
+          1. Accept the sync gate if it's closed — required for handleModify /
+             pushFile to do real work.
+          2. Use ``app.vault.create()`` so Obsidian's index sees the file
+             immediately (raw filesystem writes don't show in ``getFiles()``
+             until the watcher fires). If the file already exists, fall back
+             to ``app.vault.modify()`` so the helper is idempotent.
+          3. Call ``syncEngine.pushFile(file, true)`` directly — bypasses the
+             handleModify debounce timer and returns a real promise we can
+             await. The ``true`` argument forces the push (skips echo
+             suppression for fresh files).
+
+        Returns the resolved push result. Raises CdpError on push failure.
+        """
+        # Step 1: accept the gate so pushFile isn't short-circuited.
+        await self.accept_sync_gate()
+
+        escaped_path = json.dumps(path)
+        escaped_content = json.dumps(content)
+        result = await self.evaluate(
+            f"""
+            (async () => {{
+                const p = {PLUGIN_PATH};
+                const se = p.syncEngine;
+                let file = app.vault.getFileByPath({escaped_path});
+                if (file) {{
+                    await app.vault.modify(file, {escaped_content});
+                }} else {{
+                    // Ensure parent folders exist (vault.create won't auto-mkdir).
+                    const slash = {escaped_path}.lastIndexOf('/');
+                    if (slash > 0) {{
+                        const dir = {escaped_path}.slice(0, slash);
+                        if (!app.vault.getAbstractFileByPath(dir)) {{
+                            try {{ await app.vault.createFolder(dir); }} catch (_) {{}}
+                        }}
+                    }}
+                    file = await app.vault.create({escaped_path}, {escaped_content});
+                }}
+                // Cancel any pending debounce so we own the push deterministically.
+                const pending = se.debounceTimers.get(file.path);
+                if (pending) {{
+                    clearTimeout(pending);
+                    se.debounceTimers.delete(file.path);
+                }}
+                const ok = await se.pushFile(file, true);
+                // pushFile() itself doesn't log success entries — pushAll does
+                // (see sync.ts:2033). Mirror that here so tests that inspect
+                // syncLog / activity log can find a 'push' entry for this path.
+                try {{
+                    p.syncLog?.append({{
+                        timestamp: new Date(),
+                        action: 'push',
+                        path: file.path,
+                        result: ok ? 'ok' : 'skipped',
+                    }});
+                }} catch (_) {{}}
+                return ok;
+            }})()
+            """,
+            await_promise=True,
+        )
+        return bool(result)
+
     async def trigger_pull(self) -> int:
         """Call syncEngine.pull() and return count of pulled notes."""
         result = await self.evaluate(

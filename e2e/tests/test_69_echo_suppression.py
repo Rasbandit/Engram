@@ -42,7 +42,7 @@ import asyncio
 
 import pytest
 
-from helpers.vault import write_note, delete_note
+from helpers.vault import delete_note
 
 
 PLUGIN_ID = "engram-vault-sync"
@@ -72,24 +72,25 @@ async def test_echo_suppressed_within_cooldown(vault_a, cdp_a):
 
     # ------------------------------------------------------------------ #
     # Seed: push a file from vault A so the server has a version and     #
-    # recentlyPushed gets populated for this path.                       #
+    # recentlyPushed gets populated for this path. push_file_now() awaits #
+    # pushFile() directly; markRecentlyPushed() runs in its finally       #
+    # block, so by the time push_file_now() resolves, recentlyPushed is  #
+    # guaranteed set (until ECHO_COOLDOWN_MS elapses).                   #
     # ------------------------------------------------------------------ #
-    write_note(vault_a, path, "# echo seed")
-    await cdp_a.trigger_full_sync()
-    # Give Obsidian a moment to finish the push and set recentlyPushed.
-    await asyncio.sleep(0.3)
+    await cdp_a.push_file_now(path, "# echo seed")
 
     try:
-        # Confirm the suppression window is actually active before proceeding.
+        # Confirm the suppression window is active. Fail loudly if not — the
+        # markRecentlyPushed() call in pushFile's finally block must have
+        # already run by now, so a False here indicates a real regression.
         is_suppressed = await cdp_a.evaluate(
             f"{_ENGINE}.isRecentlyPushed({path!r})"
         )
-        if not is_suppressed:
-            pytest.skip(
-                f"recentlyPushed not set for '{path}' immediately after sync — "
-                "either the push debounce timer hasn't fired yet or the note "
-                "was not pushed (server unavailable).  Cannot test echo suppression."
-            )
+        assert is_suppressed, (
+            f"recentlyPushed is False for {path!r} immediately after "
+            f"push_file_now() resolved. markRecentlyPushed() in pushFile's "
+            f"finally block was not called or ECHO_COOLDOWN_MS is misconfigured."
+        )
 
         # ------------------------------------------------------------------ #
         # Install a spy on applyChange to detect if any write would occur.   #

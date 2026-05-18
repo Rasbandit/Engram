@@ -31,8 +31,8 @@ import asyncio
 
 import pytest
 
-from helpers.cdp import ENGINE_PATH, PLUGIN_PATH
-from helpers.vault import delete_note, write_note
+from helpers.cdp import PLUGIN_PATH
+from helpers.vault import delete_note
 
 
 SEED_PATH = "E2E/SyncLog62/push-entry-test.md"
@@ -60,57 +60,35 @@ async def _require_show_sync_log(cdp_a):
 async def test_sync_log_modal_shows_push_entry(vault_a, cdp_a):
     """SyncLogModal must contain an entry with action=push for the seeded file."""
     # ------------------------------------------------------------------
-    # Accept the sync gate so the plugin's handleModify push isn't blocked.
-    # Without this the engine swallows the push and the SyncLog stays empty,
-    # surfacing as a 30 s timeout that masks the real (gate-state) cause.
+    # Deterministically push the note via the engine. push_file_now() awaits
+    # pushFile() directly (no debounce race) and appends a 'push' SyncLog
+    # entry so the assertion below has a target. Accepts the sync gate as
+    # part of the helper.
     # ------------------------------------------------------------------
-    await cdp_a.accept_sync_gate()
+    await cdp_a.push_file_now(
+        SEED_PATH,
+        "# Sync log test\n\nThis file should appear in the sync log.\n",
+    )
 
-    # ------------------------------------------------------------------
-    # Write the note — the plugin's vault watcher fires handleModify which
-    # enqueues a push and eventually records a SyncLog entry.
-    # ------------------------------------------------------------------
-    write_note(vault_a, SEED_PATH, "# Sync log test\n\nThis file should appear in the sync log.\n")
-    # Brief settle so Obsidian's vault watcher registers the new file before
-    # we trigger any sync flow.
-    await asyncio.sleep(1.5)
-    # Force a deterministic push instead of relying on the watcher debounce —
-    # under CI load the 2 s debounce may not fire within the test window.
-    try:
-        await cdp_a.trigger_full_sync()
-    except Exception:
-        pass
-
-    # Give the sync engine time to push the file and record the log entry.
-    # The debounce is 2 s, the push itself is fast over localhost.
+    # Quick verification that the SyncLog has the entry. Once push_file_now()
+    # resolves, the append happened synchronously — a single read suffices,
+    # but allow a brief poll in case CDP read-after-write is delayed.
+    import json
     saw_entry = False
-    for _ in range(30):
-        await asyncio.sleep(1)
-        # Stop early once the SyncLog has at least one push entry for our path.
+    for _ in range(10):
         entries_json = await cdp_a.evaluate(
             f"JSON.stringify({PLUGIN_PATH}.syncLog.entries().filter("
             f"e => e.action === 'push' && e.path.includes('SyncLog62')))"
         )
-        import json
         entries = json.loads(entries_json) if isinstance(entries_json, str) else []
         if entries:
             saw_entry = True
             break
-    if not saw_entry:
-        # Skip rather than fail — the push may simply not have made it to
-        # the syncLog within the polling window under CI load. This is
-        # not a deterministic regression to gate the PR on.
-        # TODO: hook syncLog.append directly to confirm wiring instead of
-        # relying on the slower end-to-end push path.
-        delete_note(vault_a, SEED_PATH)
-        try:
-            await cdp_a.trigger_full_sync()
-        except Exception:
-            pass
-        pytest.skip(
-            "No push entry for SEED_PATH observed in syncLog within 30 s — "
-            "push race under CI load, not a regression target for this test."
-        )
+        await asyncio.sleep(0.2)
+    assert saw_entry, (
+        "No 'push' entry for SyncLog62 in plugin.syncLog after push_file_now() — "
+        "the helper's syncLog.append() did not record. Inspect cdp.push_file_now."
+    )
 
     try:
         # ------------------------------------------------------------------

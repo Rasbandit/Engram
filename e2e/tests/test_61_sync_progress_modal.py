@@ -107,70 +107,116 @@ async def test_phases_advance_and_bg_button_closes(vault_a, cdp_a):
 
     try:
         # ------------------------------------------------------------------
-        # Open the progress modal via the plugin's own openProgressModal()
-        # which wires onSyncProgress and opens the modal, then fire pushAll
-        # as a fire-and-forget task (do NOT await here — we poll while it runs).
+        # Open the progress modal AND install a recorder that captures every
+        # onSyncProgress emission. The recorder wraps whatever callback the
+        # modal installed so the modal still updates, but we get an
+        # event-by-event record we can inspect — no polling-window race
+        # possible.
         # ------------------------------------------------------------------
         await cdp_a.evaluate(
-            f"(async () => {{"
-            f"const p = {PLUGIN_PATH};"
-            f"window.__e2e_progressModal = await p.settings.openProgressModal();"
-            f"window.__e2e_pushAllPromise = p.syncEngine.pushAll();"
-            f"}})()",
+            f"""
+            (async () => {{
+                const p = {PLUGIN_PATH};
+                window.__e2e_progressModal = await p.settings.openProgressModal();
+                window.__e2e_progressEvents = [];
+                const se = p.syncEngine;
+                const modalCb = se.onSyncProgress;
+                se.onSyncProgress = (progress) => {{
+                    window.__e2e_progressEvents.push({{
+                        phase: progress.phase,
+                        current: progress.current,
+                        total: progress.total,
+                        failed: progress.failed,
+                    }});
+                    if (typeof modalCb === 'function') modalCb(progress);
+                }};
+                // Fire-and-forget — we want the modal still in 'pushing'
+                // state so we can exercise the bg button below.
+                window.__e2e_pushAllPromise = se.pushAll();
+            }})()
+            """,
             await_promise=True,
         )
 
         # ------------------------------------------------------------------
-        # Poll for up to 10 s, sampling the phase label and bar every 250 ms.
+        # Wait until at least one 'pushing' event with current>0 is recorded
+        # — that proves the modal is wired AND the engine is mid-push (bg
+        # button is therefore still visible).
         # ------------------------------------------------------------------
-        seen_phases: set[str] = set()
-        seen_percents: list[int] = []
-
-        for _ in range(40):
-            phase = await cdp_a.get_progress_phase()
-            if phase and phase.strip():
-                seen_phases.add(phase.strip())
-            pct = await cdp_a.get_progress_percent()
-            if pct is not None:
-                seen_percents.append(pct)
+        import json as _json
+        saw_active_push = False
+        for _ in range(80):  # up to 20 s
+            events_json = await cdp_a.evaluate(
+                "JSON.stringify(window.__e2e_progressEvents || [])"
+            )
+            events = _json.loads(events_json) if isinstance(events_json, str) else []
+            for e in events:
+                if e.get("phase") == "pushing" and (e.get("current") or 0) > 0:
+                    saw_active_push = True
+                    break
+            if saw_active_push:
+                break
             await asyncio.sleep(0.25)
 
-        # The modal must have observed at least one signal of progress —
-        # either a non-empty phase label OR a non-zero progress bar sample.
-        # Under CI load the 50 ms per-file delay on pushFile can be eaten
-        # by event-loop scheduling so the modal may finish too fast for the
-        # 250 ms polling loop to catch a "Pushing notes" frame.  Treat
-        # either signal as evidence the modal is alive and wired to the
-        # engine — that is the core regression this test is guarding
-        # against (modal wiring breakage).  If neither signal arrived,
-        # skip rather than fail because the push may have completed
-        # between samples.
-        # TODO: replace polling with a callback hook that records every
-        # onSyncProgress event so we observe transient phases reliably.
-        push_phase_seen = any(
-            "pushing" in p.lower() for p in seen_phases
+        assert saw_active_push, (
+            "No 'pushing' event with current>0 within 20 s. "
+            "pushAll fired no intermediate progress — onSyncProgress "
+            "wiring is broken or the 50 ms per-file pushFile patch failed."
         )
-        bar_advanced = any(v > 0 for v in seen_percents)
-        if not push_phase_seen and not bar_advanced:
-            pytest.skip(
-                f"SyncProgressModal observed no phase or bar progress within "
-                f"10 s — push likely completed faster than the 250 ms polling "
-                f"interval under CI load. Phases: {seen_phases!r}, "
-                f"percents: {seen_percents!r}"
-            )
 
         # ------------------------------------------------------------------
-        # Click "Run in background" if the button is still visible.
-        # It auto-hides once sync reaches the "complete" phase.
+        # While still pushing, click "Run in background" — modal must close.
         # ------------------------------------------------------------------
         bg_visible = await cdp_a.evaluate(
             "Boolean(Array.from(document.querySelectorAll("
             "'.engram-sync-progress-modal .engram-progress-buttons button'))"
-            ".find(b => b.textContent.trim() === 'Run in background'))"
+            ".find(b => b.textContent.trim() === 'Run in background' && !b.hidden))"
         )
-        if bg_visible:
-            await cdp_a.click_progress_background()
-            await cdp_a.wait_for_progress_modal_closed(timeout=5)
+        assert bg_visible, (
+            "'Run in background' button not visible during 'pushing' phase — "
+            "either the modal closed too early or bgBtn.hidden was set "
+            "prematurely."
+        )
+        await cdp_a.click_progress_background()
+        await cdp_a.wait_for_progress_modal_closed(timeout=10)
+
+        # ------------------------------------------------------------------
+        # Now wait for pushAll to finish so the test exits with the engine
+        # idle (cleanup needs a quiescent engine to delete the seed files).
+        # ------------------------------------------------------------------
+        await cdp_a.evaluate(
+            """
+            (async () => {
+                try { await (window.__e2e_pushAllPromise || Promise.resolve()); }
+                catch (_) {}
+                return 'done';
+            })()
+            """,
+            await_promise=True,
+        )
+
+        # ------------------------------------------------------------------
+        # Final assertions on the full event tape.
+        # ------------------------------------------------------------------
+        events_json = await cdp_a.evaluate(
+            "JSON.stringify(window.__e2e_progressEvents || [])"
+        )
+        events = _json.loads(events_json) if isinstance(events_json, str) else []
+        phases = [e.get("phase") for e in events]
+        assert "pushing" in phases, (
+            f"No 'pushing' phase observed in onSyncProgress events: {phases!r}"
+        )
+        assert "complete" in phases, (
+            f"No 'complete' phase observed in onSyncProgress events: {phases!r}"
+        )
+        final = events[-1]
+        assert final.get("phase") == "complete", (
+            f"Final progress event is not 'complete': {final!r}"
+        )
+        assert final.get("total") == SEED_COUNT, (
+            f"Final progress event total mismatch: {final!r} "
+            f"(expected total=={SEED_COUNT})"
+        )
 
     finally:
         # ------------------------------------------------------------------

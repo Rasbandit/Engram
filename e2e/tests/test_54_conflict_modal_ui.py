@@ -192,43 +192,59 @@ async def test_all_remote_then_accept_writes_remote(vault_a, vault_b, cdp_a, cdp
 async def test_per_hunk_choices_mixed_then_accept(vault_a, vault_b, cdp_a, cdp_b):
     """Per-hunk choices: local for hunk 0, remote for hunk 1; merged result.
 
-    SKIPPED: the seed's two independent heading edits collapse into a single
-    hunk under the plugin's current diff segmentation, so picking ``remote``
-    for ``hunk[1]`` is a silent no-op (no element at index 1) and the merged
-    file inherits the local choice for both regions. This is a property of
-    the diff-match-patch hunk grouping, not a bug the test should catch
-    here.
-
-    TODO: rewrite this test once the plugin exposes a stable hunk-count
-    contract or once a seed shape is found that reliably produces ≥2 hunks
-    (e.g. inject 10+ lines of context between the diverged headings so the
-    grouping algorithm cannot merge them).
+    Seed shape: the two diverged regions are separated by 10+ lines of
+    identical unchanged context so diff-match-patch's hunk grouping cannot
+    collapse them into a single hunk. With sufficient context distance the
+    plugin's groupIntoHunks() emits a separate hunk per diverged region.
     """
-    pytest.skip(
-        "Per-hunk segmentation collapses both heading edits into a single "
-        "hunk under current diff grouping — hunk[1] picker silently no-ops. "
-        "Re-enable once a deterministic two-hunk seed shape is found."
-    )
     path = "E2E/Conflict54/PerHunk.md"
-    local = "# H1\nlocal-1\n\n# H2\nlocal-2\n"
-    remote = "# H1\nremote-1\n\n# H2\nremote-2\n"
+    # 12 identical unchanged lines between the two diverged regions force
+    # the diff grouper to emit two distinct hunks rather than fusing them.
+    middle = "\n".join(f"context line {i}" for i in range(1, 13))
+    local = (
+        "# H1\n"
+        "local-region-A\n"
+        f"{middle}\n"
+        "# H2\n"
+        "local-region-B\n"
+    )
+    remote = (
+        "# H1\n"
+        "remote-region-A\n"
+        f"{middle}\n"
+        "# H2\n"
+        "remote-region-B\n"
+    )
     await setup_conflict_for_a(
         vault_a, vault_b, cdp_a, cdp_b, path, local=local, remote=remote
     )
     try:
+        # Verify we actually got ≥2 hunks — fail loudly if the grouping
+        # rules change and collapse them again, instead of silently
+        # producing the wrong merged content via a no-op pick_conflict_hunk(1).
+        hunk_count = await cdp_a.evaluate(
+            "document.querySelectorAll("
+            "'.engram-conflict-modal .engram-conflict-hunk').length"
+        )
+        assert hunk_count >= 2, (
+            f"Seed produced {hunk_count} hunk(s); test requires ≥2. "
+            f"diff-match-patch grouping may have changed; add more "
+            f"separator lines."
+        )
+
         await cdp_a.pick_conflict_hunk(0, "local")
         await cdp_a.pick_conflict_hunk(1, "remote")
         await cdp_a.click_conflict_accept()
         await cdp_a.wait_for_conflict_modal_closed()
 
         merged = read_note(vault_a, path)
-        assert "local-1" in merged, (
-            f"Expected 'local-1' (hunk 0 local choice) in merged; "
-            f"got: {merged[:300]!r}"
+        assert "local-region-A" in merged, (
+            f"Expected 'local-region-A' (hunk 0 local choice) in merged; "
+            f"got: {merged[:400]!r}"
         )
-        assert "remote-2" in merged, (
-            f"Expected 'remote-2' (hunk 1 remote choice) in merged; "
-            f"got: {merged[:300]!r}"
+        assert "remote-region-B" in merged, (
+            f"Expected 'remote-region-B' (hunk 1 remote choice) in merged; "
+            f"got: {merged[:400]!r}"
         )
     finally:
         await restore_after_conflict(vault_a, vault_b, cdp_a, cdp_b, path)

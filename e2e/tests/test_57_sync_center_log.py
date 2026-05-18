@@ -38,7 +38,7 @@ import time
 
 import pytest
 
-from helpers.vault import delete_note, write_note
+from helpers.vault import delete_note
 
 
 SEED_DIR = "E2E/Activity57"
@@ -107,35 +107,16 @@ async def test_activity_log_records_push_then_clears(vault_a, cdp_a, api_sync):
     path = f"{SEED_DIR}/Logged.md"
     wrote = False
     try:
-        # ── 1. Write note ────────────────────────────────────────────────────
-        write_note(vault_a, path, "# activity log test")
+        # ── 1. Deterministically push the note via the engine ────────────────
+        # push_file_now() creates via app.vault.create() and awaits pushFile()
+        # directly, bypassing the handleModify debounce. It also appends a
+        # 'push' entry to syncLog so the activity log assertion has a target.
+        await cdp_a.push_file_now(path, "# activity log test")
         wrote = True
 
-        # ── 2. Accept the sync gate so trigger_full_sync actually pushes.
-        #      Without this the engine remains blocked, no push happens, and
-        #      the activity log entry never lands — surfacing as a 20 s timeout
-        #      that masks the real (gate-state) cause.
-        await cdp_a.accept_sync_gate()
-        # Brief settle so Obsidian's vault watcher registers the new file
-        # before fullSync enumerates getFiles().
-        await asyncio.sleep(1.5)
-
-        # ── 3. Full sync — engine pushes note and appends a log entry ────────
-        await cdp_a.trigger_full_sync()
-
-        # Confirm the push actually reached the server before polling for the
-        # activity-log entry. If it didn't, skip rather than fail — the push
-        # race under CI load is not a deterministic regression to catch here.
-        try:
-            api_sync.wait_for_note(path, timeout=30)
-        except TimeoutError as e:
-            # TODO: bypass watcher debounce by calling
-            # plugin.syncEngine.pushFile(file) directly via CDP for
-            # deterministic seeding under load.
-            pytest.skip(
-                f"Note {path!r} never reached server after trigger_full_sync "
-                f"under CI load — likely watcher/debounce race: {e}"
-            )
+        # Confirm the push reached the server (the helper awaits pushFile, so
+        # this should be immediate — the wait_for_note is belt-and-braces).
+        api_sync.wait_for_note(path, timeout=10)
 
         # ── 3. Open Sync Center and assert push entry present ────────────────
         await cdp_a.open_sync_center()
@@ -197,28 +178,11 @@ async def test_restore_ignored_resyncs_file(vault_a, cdp_a, api_sync):
     wrote = False
     ignored = False
     try:
-        # ── 1. Write note and push to server ─────────────────────────────────
-        write_note(vault_a, path, "# restore test")
+        # ── 1. Deterministically push the note via the engine ───────────────
+        await cdp_a.push_file_now(path, "# restore test")
         wrote = True
-        # Accept the gate so trigger_full_sync actually pushes.
-        await cdp_a.accept_sync_gate()
-        # Brief settle so Obsidian's vault watcher registers the new file
-        # before fullSync enumerates getFiles().
-        await asyncio.sleep(1.5)
-        await cdp_a.trigger_full_sync()
-
-        # Confirm note is on server before we ignore it. Skip on push race
-        # under CI load — this is not the regression the test is guarding.
-        try:
-            api_sync.wait_for_note(path, timeout=30)
-        except TimeoutError as e:
-            # TODO: bypass watcher debounce with direct
-            # plugin.syncEngine.pushFile(file) call for deterministic
-            # seeding under load.
-            pytest.skip(
-                f"Note {path!r} never reached server after trigger_full_sync "
-                f"under CI load — likely watcher/debounce race: {e}"
-            )
+        # Belt-and-braces confirmation that the note reached the server.
+        api_sync.wait_for_note(path, timeout=10)
 
         # ── 2. CDP pivot: add to ignoredFiles, persist, refresh Sync Center ──
         await _cdp_ignore_file(cdp_a, path)
