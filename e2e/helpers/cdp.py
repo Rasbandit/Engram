@@ -947,6 +947,25 @@ class CdpClient:
             "})()"
         )
 
+    async def wait_for_conflict_modal_closed(self, timeout: float = 10) -> None:
+        """Poll until .engram-conflict-modal is gone from the DOM.
+
+        Distinct from wait_for_modal_closed() which targets the sync-preview
+        modal.  Conflict resolution can involve a full-sync round-trip so the
+        default timeout is more generous (10 s vs 5 s).
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            present = await self.evaluate(
+                "Boolean(document.querySelector('.engram-conflict-modal'))"
+            )
+            if not present:
+                return
+            await asyncio.sleep(0.1)
+        raise TimeoutError(
+            f"ConflictModal still mounted after {timeout}s on CDP port {self.port}"
+        )
+
     # ------------------------------------------------------------------
     # Step 4: SyncPreviewModal destructive confirm helpers
     # ------------------------------------------------------------------
