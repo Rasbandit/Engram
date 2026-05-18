@@ -295,6 +295,28 @@ class ApiClient:
         self._raise_for_status(resp)
         return resp.json()
 
+    def list_logs(
+        self,
+        limit: int = 200,
+        level: str = "",
+        since: str = "",
+        query: str = "",
+    ) -> list[dict]:
+        """GET /logs and return the log entries as a flat list.
+
+        Convenience wrapper around get_logs() for callers that want a list
+        rather than the raw ``{"logs": [...]}`` envelope.
+
+        ``query`` is a Python-side substring filter applied to the ``message``
+        field — the backend /logs endpoint does not support full-text search
+        (it accepts ``level``, ``category``, and ``since`` params only).
+        """
+        resp = self.get_logs(level=level, since=since, limit=limit)
+        logs = resp.get("logs", [])
+        if query:
+            logs = [l for l in logs if query in l.get("message", "")]
+        return logs
+
     def list_folder(self, folder: str = "") -> dict:
         """GET /folders/list. Returns folder listing dict."""
         resp = self.session.get(
