@@ -18,9 +18,71 @@ Extracts two patterns:
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 
 from helpers.vault import write_note
+
+
+# Snapshot helper for setup_conflict_for_a step-by-step diagnostics.
+# Captures everything we need to figure out which step lost syncState.
+_SNAPSHOT_JS = """
+((path) => {
+    const p = app.plugins.plugins['engram-vault-sync'];
+    const se = p.syncEngine;
+    const ss = se.syncState.get(path);
+    const bs = p.baseStore?.get?.(path);
+    const file = app.vault.getFileByPath(path);
+    let content = null;
+    let contentLen = null;
+    if (file) {
+        try {
+            // sync read of cached content if available
+            const cached = app.vault.cachedRead
+                ? null /* async, skip in sync snapshot */
+                : null;
+            contentLen = file.stat?.size ?? null;
+        } catch (_) {}
+    }
+    const allFiles = app.vault.getFiles();
+    const inGetFiles = allFiles.some(f => f.path === path);
+    return JSON.stringify({
+        conflictResolution: p.settings.conflictResolution,
+        vaultId: p.settings.vaultId,
+        lastSync: se.lastSync,
+        syncBlocked: se.syncBlocked,
+        pulling: !!se.pulling,
+        pushingHas: se.pushing?.has?.(path) ?? null,
+        pushingSize: se.pushing?.size ?? null,
+        recentlyPushed: se.isRecentlyPushed?.(path) ?? null,
+        syncStatePresent: !!ss,
+        syncStateHash: ss?.hash ?? null,
+        syncStateVersion: ss?.version ?? null,
+        baseStorePresent: !!bs,
+        baseLen: bs ? (bs.content || '').length : null,
+        baseVersion: bs?.version ?? null,
+        fileInIndex: !!file,
+        fileInGetFiles: inGetFiles,
+        fileMtime: file?.stat?.mtime ?? null,
+        fileSize: file?.stat?.size ?? null,
+        getFilesCount: allFiles.length,
+        incomingPaused: !!se._origHandleStreamEvent,
+        outgoingPaused: !!se._origHandleModify,
+        ready: se.ready,
+        debounceTimersCount: se.debounceTimers?.size ?? null,
+    });
+})
+"""
+
+
+async def _snapshot(cdp, path: str) -> dict:
+    """Capture engine state for diagnostics at a setup_conflict_for_a step."""
+    js = f"({_SNAPSHOT_JS})({json.dumps(path)})"
+    raw = await cdp.evaluate(js)
+    try:
+        return json.loads(raw) if isinstance(raw, str) else {}
+    except Exception:
+        return {"_raw": raw}
 
 
 async def setup_conflict(
@@ -140,18 +202,29 @@ async def setup_conflict_for_a(
         "})()"
     )
 
+    # Diagnostic snapshots per step — accumulate so on a modal-mount
+    # timeout we can pinpoint which step lost syncState/baseStore.
+    snapshots: list[tuple[str, dict]] = []
+    snapshots.append(("step0_after_dismiss", await _snapshot(cdp_a, path)))
+
     # 1. A writes the base content and syncs — establishes syncedHash on A
     #    and base content on the server. Use vault_write (Obsidian's vault
     #    API) instead of write_note so the file is in getFiles() before
     #    fullSync iterates — raw filesystem writes are picked up only when
     #    the watcher eventually fires, which races against trigger_full_sync.
     await cdp_a.vault_write(path, base)
-    await cdp_a.trigger_full_sync()
+    snapshots.append(("step1a_after_vault_write_base", await _snapshot(cdp_a, path)))
+    step1_full_sync_result = await cdp_a.trigger_full_sync()
+    snapshots.append(("step1b_after_trigger_full_sync", await _snapshot(cdp_a, path)))
+    snapshots.append(
+        ("step1b_full_sync_result", {"result": step1_full_sync_result})
+    )
 
     # 2. B pulls so it also records the same base in its syncState. Not strictly
     #    required for ConflictModal on A, but keeps both sides consistent for
     #    test_54's eventual restore.
     await cdp_b.trigger_full_sync()
+    snapshots.append(("step2_after_b_full_sync", await _snapshot(cdp_a, path)))
 
     # 3. Pause A's outgoing sync so the local divergent write stays off-server.
     await cdp_a.pause_outgoing_sync()
@@ -163,16 +236,19 @@ async def setup_conflict_for_a(
     #     geometries the interleaving silently auto-resolves and neither
     #     mounts the modal — the test_54 PerHunk flake on PR #162.
     await cdp_a.pause_incoming_sync()
+    snapshots.append(("step3_after_pauses", await _snapshot(cdp_a, path)))
 
     # 4. A writes local divergence (now: localHash != lastSyncedHash → modified).
     #    vault_write ensures pull() in step 6 reads the local content from the
     #    same path Obsidian's index knows about. handleModify is a no-op while
     #    paused, so no push leaks out.
     await cdp_a.vault_write(path, local)
+    snapshots.append(("step4_after_vault_write_local", await _snapshot(cdp_a, path)))
 
     # 5. B writes remote divergence and syncs so the server carries B's version.
     await cdp_b.vault_write(path, remote)
     await cdp_b.trigger_full_sync()
+    snapshots.append(("step5_after_b_writes_remote", await _snapshot(cdp_a, path)))
 
     # 6. Resume A's outgoing sync, then pull — divergence is detected and
     #    ConflictModal opens.
@@ -187,12 +263,39 @@ async def setup_conflict_for_a(
     # to know when the seed has reached the user-interaction point. Incoming
     # WS handling stays paused — pull is the only conflict-detection path.
     await cdp_a.resume_outgoing_sync()
+    snapshots.append(("step6a_after_resume_outgoing", await _snapshot(cdp_a, path)))
+    # Instrument resolveConflict so we can see whether pull reached it at all
+    # (and what info.path was). Stored on the engine for the timeout dump.
+    await cdp_a.evaluate(
+        """
+        (() => {
+            const se = app.plugins.plugins['engram-vault-sync'].syncEngine;
+            if (se._origResolveConflict) return 'already-wrapped';
+            se._resolveConflictCalls = [];
+            se._origResolveConflict = se.resolveConflict.bind(se);
+            se.resolveConflict = (info) => {
+                try {
+                    se._resolveConflictCalls.push({
+                        path: info.path,
+                        localLen: info.localContent?.length ?? null,
+                        remoteLen: info.remoteContent?.length ?? null,
+                        baseLen: info.baseContent?.length ?? null,
+                        ts: Date.now(),
+                    });
+                } catch (_) {}
+                return se._origResolveConflict(info);
+            };
+            return 'wrapped';
+        })()
+        """
+    )
     # No await_promise — dispatch pull() and return immediately so the seed
     # can poll for the modal that pull() is about to surface.
     await cdp_a.evaluate(
         "void app.plugins.plugins['engram-vault-sync']"
         ".syncEngine.pull(); 'dispatched'"
     )
+    snapshots.append(("step6b_after_pull_dispatched", await _snapshot(cdp_a, path)))
 
     # Wait for ConflictModal to mount (pull dispatches resolveConflict which
     # opens the modal asynchronously).
@@ -203,47 +306,69 @@ async def setup_conflict_for_a(
         )
         if present:
             # Modal up. Restore WS handler so the rest of the test (and
-            # restore_after_conflict) observes normal events again.
+            # restore_after_conflict) observes normal events again. Also
+            # unwrap the resolveConflict diagnostic wrapper so subsequent
+            # test invocations don't stack additional wrappers each time.
             await cdp_a.resume_incoming_sync()
+            try:
+                await cdp_a.evaluate(
+                    """
+                    (() => {
+                        const se = app.plugins.plugins['engram-vault-sync'].syncEngine;
+                        if (se._origResolveConflict) {
+                            se.resolveConflict = se._origResolveConflict;
+                            delete se._origResolveConflict;
+                        }
+                    })()
+                    """
+                )
+            except Exception:
+                pass
             return
         await asyncio.sleep(0.2)
 
-    # Modal never mounted. Capture the engine's view of the world before
-    # raising so the next flake has actionable evidence. Mirrors the
-    # wait_for_vault_registered diagnostic pattern from PR #159.
-    state = await cdp_a.evaluate(
-        f"""
-        (() => {{
-            const p = app.plugins.plugins['engram-vault-sync'];
-            const se = p.syncEngine;
-            const ss = se.syncState.get({path!r});
-            const bs = p.baseStore?.get?.({path!r});
-            return JSON.stringify({{
-                conflictResolution: p.settings.conflictResolution,
-                syncBlocked: se.syncBlocked,
-                recentlyPushed: se.isRecentlyPushed?.({path!r}) ?? null,
-                pushing: se.pushing?.has?.({path!r}) ?? null,
-                syncState: ss ? {{
-                    hash: ss.hash,
-                    version: ss.version,
-                    hashLen: (ss.hash || '').length,
-                }} : null,
-                baseStorePresent: !!bs,
-                baseLen: bs ? (bs.content || '').length : null,
-                incomingPaused: !!se._origHandleStreamEvent,
-                outgoingPaused: !!se._origHandleModify,
-            }});
-        }})()
-        """
+    # Modal never mounted. Capture full diagnostic dump: per-step snapshots
+    # taken during the seed, the final engine state, and any resolveConflict
+    # invocations the instrumented pull recorded. Lets the next CI failure
+    # pinpoint exactly which step lost state vs. which step ran clean.
+    final_state = await _snapshot(cdp_a, path)
+    resolve_calls = await cdp_a.evaluate(
+        "JSON.stringify(app.plugins.plugins['engram-vault-sync']"
+        ".syncEngine._resolveConflictCalls || [])"
     )
+    try:
+        resolve_calls_parsed = json.loads(resolve_calls) if isinstance(resolve_calls, str) else []
+    except Exception:
+        resolve_calls_parsed = []
     # Best-effort restore so we don't poison downstream cleanup paths.
     try:
         await cdp_a.resume_incoming_sync()
     except Exception:
         pass
+    # Best-effort unwrap so subsequent test attempts don't accumulate wrappers.
+    try:
+        await cdp_a.evaluate(
+            """
+            (() => {
+                const se = app.plugins.plugins['engram-vault-sync'].syncEngine;
+                if (se._origResolveConflict) {
+                    se.resolveConflict = se._origResolveConflict;
+                    delete se._origResolveConflict;
+                }
+            })()
+            """
+        )
+    except Exception:
+        pass
+    snapshots.append(("final_at_timeout", final_state))
+    snapshot_dump = "\n".join(
+        f"  {name}: {json.dumps(snap, sort_keys=True)}" for name, snap in snapshots
+    )
     raise TimeoutError(
-        f"ConflictModal never opened for path '{path}' within 10 s; "
-        f"engine state at timeout: {state}"
+        f"ConflictModal never opened for path '{path}' within 10 s\n"
+        f"resolveConflict invocations during pull: "
+        f"{json.dumps(resolve_calls_parsed)}\n"
+        f"per-step snapshots:\n{snapshot_dump}"
     )
 
 
