@@ -52,20 +52,6 @@ _P = f"app.plugins.plugins['{PLUGIN_ID}']"
 _ENGINE = f"{_P}.syncEngine"
 
 
-@pytest.fixture(autouse=True)
-async def _require_echo_suppression(cdp_a):
-    """Skip when the loaded build lacks the echo-suppression API."""
-    has_api = await cdp_a.evaluate(
-        f"typeof {_ENGINE}.isRecentlyPushed === 'function' && "
-        f"typeof {_ENGINE}.handleStreamEvent === 'function'"
-    )
-    if not has_api:
-        pytest.skip(
-            "SyncEngine lacks isRecentlyPushed() or handleStreamEvent() — "
-            "echo-suppression API not present in this build."
-        )
-
-
 @pytest.mark.asyncio
 async def test_echo_suppressed_within_cooldown(vault_a, cdp_a):
     """handleStreamEvent drops an upsert event for a path that was recently pushed."""
