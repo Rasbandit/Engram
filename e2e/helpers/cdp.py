@@ -142,7 +142,9 @@ class CdpClient:
         """
         deadline = time.monotonic() + timeout
         triggered = False
-        last_result: object = None
+        last_plugin_result: object = None
+        last_api_result: object = None
+        last_count: object = None
         while time.monotonic() < deadline:
             try:
                 vault_id = await self.evaluate(
@@ -155,24 +157,52 @@ class CdpClient:
                     return
                 if not triggered:
                     triggered = True
-                    last_result = await self.evaluate(
+                    # Drive plugin.registerVault to take the production code path
+                    # (sets vaultId on success, runs the catch on failure).
+                    last_plugin_result = await self.evaluate(
                         f"{PLUGIN_PATH}.registerVault()"
                         f".then(r => ['ok', r]).catch(e => "
                         f"['err', String(e?.message || e), e?.status ?? null])",
                         await_promise=True,
                     )
+                    # Also call api.registerVault DIRECTLY so we capture the
+                    # actual HTTP status the backend returned (the plugin
+                    # wrapper at main.ts:514 swallows the error into a boolean).
+                    last_api_result = await self.evaluate(
+                        f"{PLUGIN_PATH}.api.registerVault("
+                        f"app.vault.getName(), {PLUGIN_PATH}.settings.clientId)"
+                        f".then(r => ['ok', r]).catch(e => "
+                        f"['err', String(e?.message || e), e?.status ?? null])",
+                        await_promise=True,
+                    )
+                    # And the user's current vault inventory — count + names
+                    # tell us whether the 402 is a real vault_limit hit or a
+                    # phantom (e.g. soft-deleted but counted, or auth scope bug).
+                    last_count = await self.evaluate(
+                        f"{PLUGIN_PATH}.api.listVaults()"
+                        f".then(vs => ['ok', vs.length, vs.map(v => "
+                        f"({{id: v.id, client_id: v.client_id, name: v.name}}))])"
+                        f".catch(e => "
+                        f"['err', String(e?.message || e), e?.status ?? null])",
+                        await_promise=True,
+                    )
                     logger.info(
-                        "vaultId was null on CDP port %d — registerVault() → %r",
+                        "vaultId null on port %d — plugin.registerVault=%r "
+                        "api.registerVault=%r listVaults=%r",
                         self.port,
-                        last_result,
+                        last_plugin_result,
+                        last_api_result,
+                        last_count,
                     )
                     continue
             except Exception:
                 pass
             await asyncio.sleep(0.5)
         raise TimeoutError(
-            f"Vault not registered after {timeout}s on CDP port {self.port} "
-            f"(registerVault() returned {last_result!r})"
+            f"Vault not registered after {timeout}s on CDP port {self.port}\n"
+            f"  plugin.registerVault → {last_plugin_result!r}\n"
+            f"  api.registerVault    → {last_api_result!r}\n"
+            f"  api.listVaults       → {last_count!r}"
         )
 
     async def has_sync_gate(self) -> bool:
