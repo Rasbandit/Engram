@@ -751,6 +751,41 @@ class CdpClient:
         result = await self.evaluate(js)
         logger.info("Outgoing sync resumed on CDP port %d: %s", self.port, result)
 
+    async def pause_incoming_sync(self) -> None:
+        """Silence incoming WebSocket events by replacing handleStreamEvent.
+
+        Used by setup_conflict_for_a to guarantee that ``pull()`` is the
+        ONLY path that can detect divergence and open ConflictModal —
+        without this, B's full_sync push broadcasts an upsert event to A
+        which races against pull() under resolveConflict's single-flight
+        gate. The race produced the test_54 PerHunk flake on PR #162.
+        """
+        js = f"""
+        (function() {{
+            const se = {ENGINE_PATH};
+            if (se._origHandleStreamEvent) return 'already-paused';
+            se._origHandleStreamEvent = se.handleStreamEvent.bind(se);
+            se.handleStreamEvent = async () => {{}};
+            return 'paused';
+        }})()
+        """
+        result = await self.evaluate(js)
+        logger.info("Incoming sync paused on CDP port %d: %s", self.port, result)
+
+    async def resume_incoming_sync(self) -> None:
+        """Restore the WebSocket event handler saved by pause_incoming_sync()."""
+        js = f"""
+        (function() {{
+            const se = {ENGINE_PATH};
+            if (!se._origHandleStreamEvent) return 'not-paused';
+            se.handleStreamEvent = se._origHandleStreamEvent;
+            delete se._origHandleStreamEvent;
+            return 'resumed';
+        }})()
+        """
+        result = await self.evaluate(js)
+        logger.info("Incoming sync resumed on CDP port %d: %s", self.port, result)
+
     async def rename_file(self, old_path: str, new_path: str) -> None:
         """Rename a file through Obsidian's vault API (triggers handleRename)."""
         escaped_old = json.dumps(old_path)
