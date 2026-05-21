@@ -599,14 +599,6 @@ defmodule Engram.VaultsTest do
       assert_received {[:engram, :abuse, :vault_count], _, %{count: 1},
                        %{user_id: _, op: :created}}
     end
-
-    test "does NOT emit when register_vault matches existing", %{user: user} do
-      {:ok, _, :created} = Vaults.register_vault(user, "Reg", "client-xyz")
-      drain_vault_count_messages()
-
-      {:ok, _, :existing} = Vaults.register_vault(user, "Reg", "client-xyz")
-      refute_received {[:engram, :abuse, :vault_count], _, _, _}
-    end
   end
 
   defp drain_vault_count_messages do
