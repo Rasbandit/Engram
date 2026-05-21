@@ -56,10 +56,10 @@ defmodule Engram.Billing.LimitKeys do
   @keys Map.keys(@catalog)
   @tiers [:free, :starter, :pro]
 
-  @spec all() :: [atom()]
+  @spec all() :: [atom(), ...]
   def all, do: @keys
 
-  @spec tiers() :: [atom()]
+  @spec tiers() :: [:free | :starter | :pro, ...]
   def tiers, do: @tiers
 
   @spec defined?(any()) :: boolean()
