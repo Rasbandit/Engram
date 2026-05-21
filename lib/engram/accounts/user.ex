@@ -19,6 +19,9 @@ defmodule Engram.Accounts.User do
     field :key_provider, :string, default: "local", redact: true
     field :dek_rotation_locked_at, :utc_datetime_usec
     field :phone_verified_at, :utc_datetime_usec
+    field :deleted_at, :utc_datetime_usec
+    field :inactivity_warning_60_at, :utc_datetime_usec
+    field :inactivity_warning_80_at, :utc_datetime_usec
 
     belongs_to :plan, Engram.Billing.Plan
     has_many :notes, Engram.Notes.Note
