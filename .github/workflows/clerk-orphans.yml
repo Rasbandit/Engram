@@ -8,9 +8,12 @@ name: Clerk Orphan Reaper
 
 on:
   schedule:
-    # Every hour on the half-hour (offset from the top to avoid colliding
-    # with the burst of scheduled jobs at :00).
-    - cron: "30 * * * *"
+    # Once a day at 06:30 UTC (off-peak). Now that all known leaking
+    # prefixes are in is_e2e_user (e2e-sync/iso/vault-iso/oauth/clerk/
+    # browser/onboard), the per-run pytest fixture handles fresh users
+    # and this cron only needs to mop up crash-killed runs. Hourly was
+    # overkill and chewed runner minutes for nothing.
+    - cron: "30 6 * * *"
   workflow_dispatch:
 
 permissions:
