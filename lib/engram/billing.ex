@@ -50,7 +50,7 @@ defmodule Engram.Billing do
   defp enforced?, do: Application.get_env(:engram, :limits_enforced, true)
 
   defp do_effective_limit(user, key) do
-    user_tier = tier_or_free(user)
+    user_tier = tier(user)
     string_key = to_string(key)
 
     with :miss <- user_override_lookup(user.id, string_key),
@@ -59,14 +59,6 @@ defmodule Engram.Billing do
       LimitKeys.default_for(key, user_tier)
     else
       {:hit, v} -> v
-    end
-  end
-
-  # Temporary helper — replaced in Task 10 once tier/1 returns :free directly.
-  defp tier_or_free(user) do
-    case tier(user) do
-      :none -> :free
-      other -> other
     end
   end
 
@@ -136,7 +128,7 @@ defmodule Engram.Billing do
 
   @doc """
   Returns the user's effective tier as an atom.
-  Users without a subscription (or with a canceled one) are :none.
+  Users without a subscription (or with a canceled one) are :free.
   """
   def tier(user) do
     case get_subscription(user) do
@@ -144,7 +136,7 @@ defmodule Engram.Billing do
         String.to_existing_atom(tier)
 
       _ ->
-        :none
+        :free
     end
   end
 
