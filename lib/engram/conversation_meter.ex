@@ -37,10 +37,11 @@ defmodule Engram.ConversationMeter do
 
     Repo.transaction(
       fn ->
-        Ecto.Adapters.SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1, $2)", [
-          @advisory_lock_key,
-          user_id
-        ])
+        _ =
+          Ecto.Adapters.SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1, $2)", [
+            @advisory_lock_key,
+            user_id
+          ])
 
         do_tick(user, ensure_row(user_id))
       end,
