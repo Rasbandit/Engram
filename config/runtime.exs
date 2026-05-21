@@ -181,6 +181,26 @@ end
 # disabled in self-host (no PADDLE_API_KEY → no payment → no wizard).
 config :engram, :billing_enabled, System.get_env("PADDLE_API_KEY") != nil
 
+# Plan limits enforcement toggle.
+# SaaS default: enforce when Paddle is configured.
+# Self-host default: bypass when no Paddle key.
+# Explicit override: ENGRAM_LIMITS_ENFORCED=true|false
+config :engram, :limits_enforced, case(System.get_env("ENGRAM_LIMITS_ENFORCED")) do
+  "true" ->
+    true
+
+  "false" ->
+    false
+
+  nil ->
+    System.get_env("PADDLE_API_KEY") != nil
+
+  other ->
+    raise """
+    ENGRAM_LIMITS_ENFORCED must be 'true', 'false', or unset (got #{inspect(other)}).
+    """
+end
+
 # Current Terms of Service version. Must match the version exported by
 # frontend/src/legal/terms-of-service.tsx. Bumping this re-prompts every
 # user on next request via the RequireOnboarding plug.
