@@ -101,6 +101,10 @@ config :engram, :clerk_webhook_secret, "whsec_Y2xlcmstdGVzdC1zZWNyZXQ="
 config :engram, :clerk_secret_key, "sk_test_fake_clerk_backend_api"
 config :engram, :clerk_api, Engram.Auth.Clerk.ApiMock
 
+# Email — tests configure with a Mox; default to NoOp for tests that don't
+# care about email delivery.
+config :engram, :email_provider, Engram.Email.NoOp
+
 # Default to local auth provider in tests
 config :engram, :auth_provider, :local
 
