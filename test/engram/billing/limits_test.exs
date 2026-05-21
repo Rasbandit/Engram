@@ -1,5 +1,10 @@
 defmodule Engram.Billing.LimitsTest do
-  use Engram.DataCase, async: true
+  # async: false — the bypass + default describe blocks mutate
+  # `Application.put_env(:engram, :limits_enforced, ...)`, which is global
+  # to the BEAM. Under async, concurrent readers in other modules
+  # (e.g. VaultsControllerTest) observe the bypass and see `:unlimited`
+  # mid-test, producing 201 where 402 is expected. See engram-app/engram#183.
+  use Engram.DataCase, async: false
 
   alias Engram.Billing
   alias Engram.Billing.Plan
