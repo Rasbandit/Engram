@@ -40,12 +40,13 @@ pytestmark = pytest.mark.skipif(
 
 
 def _set_vault_limit(user_id: int, limit: int) -> None:
-    """Insert/update a user_overrides row to set vaults_cap via docker exec SQL."""
+    """Insert/update a user_limit_overrides row to set vaults_cap via docker exec SQL."""
     sql = (
-        f"INSERT INTO user_overrides (user_id, overrides, reason, created_at, updated_at) "
-        f"VALUES ({user_id}, '{{\"vaults_cap\": {limit}}}', 'e2e-test', NOW(), NOW()) "
-        f"ON CONFLICT (user_id) DO UPDATE SET overrides = "
-        f"jsonb_set(user_overrides.overrides, '{{vaults_cap}}', '{limit}'), updated_at = NOW()"
+        f"INSERT INTO user_limit_overrides "
+        f"(user_id, key, value, reason, set_by) "
+        f"VALUES ({user_id}, 'vaults_cap', '{{\"v\": {limit}}}'::jsonb, 'e2e-test', 'e2e') "
+        f"ON CONFLICT (user_id, key) DO UPDATE SET "
+        f"value = '{{\"v\": {limit}}}'::jsonb, set_at = NOW()"
     )
     result = subprocess.run(
         ["docker", "exec", "-i", CI_POSTGRES_CONTAINER,
