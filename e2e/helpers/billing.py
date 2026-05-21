@@ -1,0 +1,71 @@
+"""E2E billing helpers — grant plan limits to test users.
+
+Pricing v2 §G gates default Free-tier values that block API-key traffic
+(`api_rps_cap=0` → 429, `api_write_enabled=false` → 403). The unit-test
+suite has `EngramWeb.ConnCase.grant_api_write!/1` for the same problem;
+this is the e2e equivalent. Insert overrides via SQL keyed on email so
+no API hit is required (the first /me would itself 429).
+"""
+
+import json
+import logging
+import os
+import subprocess
+
+logger = logging.getLogger(__name__)
+
+CI_POSTGRES_CONTAINER = os.environ.get("CI_POSTGRES_CONTAINER", "engram-postgres-1")
+
+# Mirror EngramWeb.ConnCase.grant_api_write!/1 — lift the §G gates that
+# block API-key-authed traffic. Keep this minimal: only override the keys
+# whose Free defaults would prevent e2e from exercising the surface.
+# Tests that need to assert a specific gate (e.g. test_32 vault cap) set
+# their own override on top via their own SQL helper.
+TEST_USER_OVERRIDES = {
+    "api_write_enabled": True,
+    "api_rps_cap": 1000,
+}
+
+
+def grant_test_plan(email: str) -> int:
+    """Grant Pro-tier-equivalent overrides to the user with this email.
+
+    Returns the resolved user_id (useful for tests that need it for
+    follow-up SQL). Raises if the user does not exist or the docker
+    exec fails.
+    """
+    values_sql = ", ".join(
+        f"((SELECT id FROM users WHERE email = '{email}'), '{k}', "
+        f"'{json.dumps({'v': v})}'::jsonb, 'e2e-test', 'e2e')"
+        for k, v in TEST_USER_OVERRIDES.items()
+    )
+
+    sql = (
+        "INSERT INTO user_limit_overrides (user_id, key, value, reason, set_by) "
+        f"VALUES {values_sql} "
+        "ON CONFLICT (user_id, key) DO UPDATE "
+        "SET value = EXCLUDED.value, set_at = NOW(); "
+        f"SELECT id FROM users WHERE email = '{email}';"
+    )
+
+    result = subprocess.run(
+        [
+            "docker", "exec", "-i", CI_POSTGRES_CONTAINER,
+            "psql", "-U", "engram", "-d", "engram", "-tA", "-c", sql,
+        ],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"grant_test_plan({email}) failed: {result.stderr.strip()}"
+        )
+
+    # Last non-empty line is the user_id (from the trailing SELECT)
+    lines = [ln for ln in result.stdout.strip().splitlines() if ln.strip()]
+    if not lines:
+        raise RuntimeError(
+            f"grant_test_plan({email}): no user_id returned — user may not exist yet"
+        )
+    user_id = int(lines[-1])
+    logger.info("Granted e2e plan overrides to user %s (id=%d)", email, user_id)
+    return user_id

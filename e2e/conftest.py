@@ -26,6 +26,7 @@ import pytest
 
 from helpers.api import ApiClient
 from helpers.auth_provider import get_auth_provider, ClerkAuthProvider
+from helpers.billing import grant_test_plan
 from helpers.cdp import CdpClient
 from helpers.cleanup import cleanup_minio_bucket, cleanup_test_data, cleanup_vaults
 from helpers.obsidian import ObsidianInstance
@@ -163,6 +164,10 @@ def sync_user(ts, auth_provider):
     email = f"e2e-sync-{ts}@example.com"
     password = secrets.token_urlsafe(32)
     provider_user_id, api_key = auth_provider.provision_user(email, password)
+    # Lift pricing v2 §G Free-tier defaults (api_rps_cap=0, api_write_enabled=false)
+    # before any api-key-authed request hits the user — mirrors
+    # EngramWeb.ConnCase.grant_api_write!/1 for the e2e layer.
+    grant_test_plan(email)
     return email, provider_user_id, api_key
 
 
@@ -175,6 +180,7 @@ def isolation_user(ts, auth_provider):
     email = f"e2e-iso-{ts}@example.com"
     password = secrets.token_urlsafe(32)
     provider_user_id, api_key = auth_provider.provision_user(email, password)
+    grant_test_plan(email)
     return email, provider_user_id, api_key
 
 
