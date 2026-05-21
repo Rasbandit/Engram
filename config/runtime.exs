@@ -185,24 +185,27 @@ config :engram, :billing_enabled, System.get_env("PADDLE_API_KEY") != nil
 # SaaS default: enforce when Paddle is configured.
 # Self-host default: bypass when no Paddle key.
 # Explicit override: ENGRAM_LIMITS_ENFORCED=true|false
-limits_enforced =
-  case System.get_env("ENGRAM_LIMITS_ENFORCED") do
-    "true" ->
-      true
+# Test env: config/test.exs hardcodes true; do not override at runtime.
+if config_env() != :test do
+  limits_enforced =
+    case System.get_env("ENGRAM_LIMITS_ENFORCED") do
+      "true" ->
+        true
 
-    "false" ->
-      false
+      "false" ->
+        false
 
-    nil ->
-      System.get_env("PADDLE_API_KEY") != nil
+      nil ->
+        System.get_env("PADDLE_API_KEY") != nil
 
-    other ->
-      raise """
-      ENGRAM_LIMITS_ENFORCED must be 'true', 'false', or unset (got #{inspect(other)}).
-      """
-  end
+      other ->
+        raise """
+        ENGRAM_LIMITS_ENFORCED must be 'true', 'false', or unset (got #{inspect(other)}).
+        """
+    end
 
-config :engram, :limits_enforced, limits_enforced
+  config :engram, :limits_enforced, limits_enforced
+end
 
 # Current Terms of Service version. Must match the version exported by
 # frontend/src/legal/terms-of-service.tsx. Bumping this re-prompts every
