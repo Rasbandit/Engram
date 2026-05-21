@@ -39,6 +39,10 @@ E2E_EMAIL_PREFIXES = (
     # leak; this reaper is the safety net. The 1h --older-than filter
     # protects in-flight Playwright runs from being culled.
     "e2e-browser-",
+    # Onboarding wizard tests from the signup wizard work (PR #142 era).
+    # The test code is gone but Clerk users persist; 70+ accumulated
+    # since 2026-05-15 and ate most of the dev-tier 100-user cap.
+    "e2e-onboard-",
 )
 
 
@@ -135,14 +139,6 @@ def main():
     e2e_users = [u for u in all_users if is_e2e_user(u)]
     non_e2e = len(all_users) - len(e2e_users)
     logger.info("E2E test users: %d | Real users: %d", len(e2e_users), non_e2e)
-
-    # TEMP DEBUG: dump non-e2e emails so we can see why the "real" bucket
-    # is so large. Remove once the leak is identified.
-    if os.environ.get("REAPER_DEBUG_REAL_EMAILS") == "1":
-        for u in all_users:
-            if not is_e2e_user(u):
-                emails = [ea.get("email_address", "") for ea in u.get("email_addresses", [])]
-                logger.info("REAL: %s", ", ".join(emails))
 
     if args.older_than is not None:
         now = datetime.now(timezone.utc)
