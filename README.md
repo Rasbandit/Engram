@@ -1,8 +1,8 @@
 # Engram
 
-Your vault remembers everything.
+Your notes are your AI's memory.
 
-AI-powered personal knowledge base that makes your Obsidian vault queryable by any AI assistant via [MCP](https://modelcontextprotocol.io). Built with Elixir/Phoenix. Notes are stored in PostgreSQL, embedded into vectors via Voyage AI, and searched with semantic similarity through Qdrant.
+The AI memory layer where your notes are the storage — markdown you and your AI assistants both read and write to via [MCP](https://modelcontextprotocol.io). Built with Elixir/Phoenix. Notes are stored in PostgreSQL with per-user AES-GCM encryption at rest, embedded into vectors via Voyage AI, and searched with semantic similarity through Qdrant.
 
 Pairs with the [Engram Obsidian Sync](https://github.com/engram-app/Engram-obsidian) plugin for real-time bidirectional sync between Obsidian and the server via Phoenix Channels (WebSocket).
 
