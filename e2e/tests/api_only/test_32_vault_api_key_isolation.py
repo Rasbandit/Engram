@@ -23,6 +23,7 @@ import time
 import pytest
 
 from helpers.api import ApiClient
+from helpers.billing import grant_test_plan
 from helpers.clerk import ClerkClient
 from helpers.clerk_auth import provision_clerk_user
 
@@ -71,12 +72,12 @@ def _register_test_user(ts: int):
         clerk_client, email, password, API_URL,
     )
 
-    # Hit /me to get the Engram user_id (needed for SQL vault limit override)
-    api = ApiClient(API_URL, api_key)
-    resp = api.session.get(f"{API_URL}/me", timeout=10)
-    resp.raise_for_status()
-    user_id = resp.json()["user"]["id"]
+    # Lift pricing v2 §G Free-tier gates (api_rps_cap=0 would 429 /me)
+    # before any api-key call. grant_test_plan returns the user_id via
+    # email lookup, so we don't need a /me round-trip just to find it.
+    user_id = grant_test_plan(email)
 
+    api = ApiClient(API_URL, api_key)
     return user_id, api, clerk_client, clerk_user_id
 
 
