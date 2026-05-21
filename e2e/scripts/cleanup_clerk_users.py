@@ -27,7 +27,19 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 CLERK_API = "https://api.clerk.dev/v1"
-E2E_EMAIL_PREFIXES = ("e2e-sync-", "e2e-iso-", "e2e-vault-iso-", "e2e-oauth-", "e2e-clerk-")
+E2E_EMAIL_PREFIXES = (
+    "e2e-sync-",
+    "e2e-iso-",
+    "e2e-vault-iso-",
+    "e2e-oauth-",
+    "e2e-clerk-",
+    # Playwright frontend e2e (frontend/e2e/global-setup.ts) self-cleans
+    # its own prefix at setup, but only when the job runs successfully.
+    # When e2e-browser fails (Clerk quota, runner OOM, etc.) those users
+    # leak; this reaper is the safety net. The 1h --older-than filter
+    # protects in-flight Playwright runs from being culled.
+    "e2e-browser-",
+)
 
 
 def get_all_users(session: requests.Session) -> list[dict]:
