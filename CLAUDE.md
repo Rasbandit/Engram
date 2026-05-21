@@ -2,7 +2,7 @@
 
 > **Workspace:** For cross-project work, open `../engram-workspace/` instead. It provides unified context for both plugin and backend.
 
-Engram — AI-powered personal knowledge base built on Obsidian. Your vault remembers everything. Makes your notes queryable by any AI assistant via MCP. SaaS-only at launch: Starter $5/mo, Pro $10/mo. Pricing rationale in `../engram-workspace/docs/context/pricing-strategy.md`; billing integration details in `docs/context/paddle-integration.md`.
+Engram — AI-powered personal knowledge base built on Obsidian. Your vault remembers everything. Makes your notes queryable by any AI assistant via MCP. Pricing v2 (reanchored 2026-05-20): Free, Starter $10/mo, Pro $20/mo. v1 ($5/$10) grandfathered for OG-waitlist. See `../engram-workspace/docs/superpowers/specs/2026-05-20-pricing-tiers-v2-design.md` (current source of truth — note $6/$12 internal numbers awaiting rewrite) and `docs/context/paddle-integration.md` (Paddle MoR webhook + billing config).
 
 ## Architecture
 
@@ -129,16 +129,20 @@ mix dialyzer                              # slow first run (~5-10 min PLT build)
 | 9: Deploy | Fly.io for SaaS, OIDC pull-based deploy to self-host, isolated runner VM pool | shipped |
 | 10: Billing | Paddle (Merchant-of-Record), subscriptions, RequireOnboarding gate | shipped |
 | 11: Encryption | Per-user DEKs + AAD bind + boot canary + per-user DEK rotation | shipped (T3.0-T3.7) |
-| Future | AWS KMS provider routing (Tier-4 / Phase F), T3.8-T3.11 hardening, frontend Paddle.js overlay smoke, Rewardful affiliate hookup, annual price IDs | pending |
+| 12: Plan limits | `Engram.Billing` 4-layer resolver (user override → env → plan → catalog default), `Engram.Billing.LimitKeys` 19-key catalog, `user_limit_overrides` per-(user, key) audit table, `OverrideExpirySweep` Oban cron, `mix engram.lint.limit_keys` AST gate, `:limits_enforced` self-host bypass | shipped 2026-05-21 (PRs #177 / #181 / #179, 0.5.155) |
+| Future | AWS KMS provider routing (Tier-4 / Phase F), T3.8-T3.11 hardening, pricing-v2 abuse defenses §A-§K, frontend Paddle.js overlay smoke, Rewardful affiliate hookup, annual price IDs | pending |
 
 ## Product Tiers
 
-| Tier | Price | Features |
-|------|-------|----------|
-| **Starter** | $5/mo ($50/yr) | Text search, MCP, WebSocket sync, 5 devices, 10GB storage |
-| **Pro** | $10/mo ($100/yr) | + unlimited devices, 50GB, 2x rate limit, multimodal (future) |
+Pricing v2 reanchored 2026-05-20 from $6/$12 to **$10/$20** after AI-memory competitive research. Spec docs (`engram-workspace/docs/superpowers/specs/2026-05-20-pricing-tiers-v2-design.md`) still show $6/$12 — rewrite pending pre-Paddle-catalog-setup. v1 prices ($5/$10) grandfathered for OG-waitlist users. Free tier added.
 
-14-day free trial (card required). Self-host (no `PADDLE_API_KEY`): free, no billing wiring. See `docs/context/paddle-integration.md`.
+| Tier | Price (v2 reanchor) | Notes |
+|------|---------------------|-------|
+| **Free** | $0 | New tier — `vaults_cap=1`, `notes_cap=…`, see `Engram.Billing.LimitKeys` catalog for full matrix |
+| **Starter** | $10/mo | Was $6/v2 / $5/v1 |
+| **Pro** | $20/mo | Was $12/v2 / $10/v1 |
+
+14-day free trial (card required). Self-host (no `PADDLE_API_KEY`): `:limits_enforced=false` → bypass returns `:unlimited` for every limit. See `docs/context/paddle-integration.md` and the plans-resolver shipping memory.
 
 ## Context Docs
 
