@@ -58,7 +58,10 @@ config :engram, Oban,
        {"0 * * * *", Engram.Workers.CleanupDeviceAuthWorker},
        {"0 3 * * *", Engram.Billing.Workers.OverrideExpirySweep},
        {"30 3 * * *", Engram.Workers.InactivityCleanup},
-       {"0 4 * * *", Engram.Workers.OriginAbuseSweep}
+       {"0 4 * * *", Engram.Workers.OriginAbuseSweep},
+       # Cross-store orphan sweep — weekly safety net for failed
+       # event-driven Qdrant/S3 deletes. Sun 05:00 UTC, off-peak.
+       {"0 5 * * 0", Engram.Workers.OrphanSweep}
      ]}
   ]
 

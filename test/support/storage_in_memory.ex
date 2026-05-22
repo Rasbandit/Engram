@@ -71,4 +71,29 @@ defmodule Engram.Storage.InMemory do
     Enum.each(keys, &:ets.delete(@table, &1))
     {:ok, length(keys)}
   end
+
+  @impl true
+  def list_user_prefixes do
+    ensure_table()
+
+    ids =
+      :ets.foldl(
+        fn {k, _}, acc ->
+          case String.split(k, "/", parts: 2) do
+            [user_id_str, _rest] ->
+              case Integer.parse(user_id_str) do
+                {id, ""} -> [id | acc]
+                _ -> acc
+              end
+
+            _ ->
+              acc
+          end
+        end,
+        [],
+        @table
+      )
+
+    {:ok, Enum.uniq(ids)}
+  end
 end

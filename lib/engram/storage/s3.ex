@@ -58,6 +58,29 @@ defmodule Engram.Storage.S3 do
   end
 
   @impl true
+  def list_user_prefixes do
+    case ExAws.S3.list_objects(bucket(), delimiter: "/") |> ExAws.request() do
+      {:ok, %{body: %{common_prefixes: prefixes}}} ->
+        ids =
+          prefixes
+          |> Enum.map(& &1.prefix)
+          |> Enum.flat_map(&parse_user_id_from_prefix/1)
+
+        {:ok, ids}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp parse_user_id_from_prefix(prefix) do
+    case Integer.parse(String.trim_trailing(prefix, "/")) do
+      {id, ""} -> [id]
+      _ -> []
+    end
+  end
+
+  @impl true
   def exists?(key) do
     case ExAws.S3.head_object(bucket(), key) |> ExAws.request() do
       {:ok, _} ->

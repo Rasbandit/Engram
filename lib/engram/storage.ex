@@ -19,6 +19,14 @@ defmodule Engram.Storage do
   @callback delete_prefix(prefix :: String.t()) ::
               {:ok, non_neg_integer()} | {:error, term()}
 
+  @doc """
+  Enumerates the top-level user_id prefixes in the bucket (one per active
+  user). Used by `Engram.Workers.OrphanSweep` to diff against the live
+  users table without listing every blob.
+  """
+  @callback list_user_prefixes() ::
+              {:ok, [non_neg_integer()]} | {:error, term()}
+
   @doc "Returns the configured storage adapter module."
   def adapter, do: Application.get_env(:engram, :storage, __MODULE__.S3)
 
