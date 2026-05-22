@@ -92,7 +92,7 @@ Complete decision audit for the Engram Elixir/Phoenix architecture. Captures wha
 
 | # | Action | Command / Steps | Status |
 |---|--------|-----------------|--------|
-| 1 | Create Fly app | `fly launch --name engram` (auto-detects Phoenix) | TODO |
+| 1 | Create Fly app | `fly launch --name engram` (auto-detects Phoenix) | Done |
 | 2 | Create Fly Postgres | `fly postgres create --name engram-db` | TODO |
 | 3 | Attach Postgres | `fly postgres attach --app engram engram-db` | TODO |
 | 4 | Create Tigris bucket | `fly storage create --name engram-attachments` | TODO |
