@@ -21,6 +21,7 @@ defmodule Engram.Application do
         {Phoenix.PubSub, name: Engram.PubSub},
         EngramWeb.Presence,
         Engram.Crypto.DekCache,
+        {EngramWeb.RateLimiter, [clean_period: :timer.minutes(2)]},
         {Oban, Application.fetch_env!(:engram, Oban)},
         clerk_strategy_child(),
         EngramWeb.Endpoint

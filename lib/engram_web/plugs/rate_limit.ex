@@ -1,6 +1,6 @@
 defmodule EngramWeb.Plugs.RateLimit do
   @moduledoc """
-  Configurable rate-limiting plug backed by Hammer.
+  Configurable rate-limiting plug backed by `EngramWeb.RateLimiter`.
   Usage: `plug EngramWeb.Plugs.RateLimit, limit: 10, period: 60_000`
   """
 
@@ -23,11 +23,11 @@ defmodule EngramWeb.Plugs.RateLimit do
 
     key = rate_limit_key(conn)
 
-    case Hammer.check_rate(key, period, effective_limit) do
+    case EngramWeb.RateLimiter.hit(key, period, effective_limit) do
       {:allow, _count} ->
         conn
 
-      {:deny, _limit} ->
+      {:deny, _retry_after_ms} ->
         conn
         |> put_resp_content_type("application/json")
         |> send_resp(429, Jason.encode!(%{error: "rate_limited"}))

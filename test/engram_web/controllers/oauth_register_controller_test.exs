@@ -10,7 +10,7 @@ defmodule EngramWeb.OAuthRegisterControllerTest do
   end
 
   setup do
-    Hammer.delete_buckets("/oauth/register:127.0.0.1")
+    EngramWeb.RateLimiter.reset_buckets!()
     Application.put_env(:engram, :rate_limit_override, 10_000)
     :ok
   end
@@ -130,7 +130,7 @@ defmodule EngramWeb.OAuthRegisterControllerTest do
   describe "POST /oauth/register — rate limit" do
     test "returns 429 after 10 registrations from same IP in a minute", %{conn: conn} do
       Application.put_env(:engram, :rate_limit_override, 10)
-      Hammer.delete_buckets("/oauth/register:127.0.0.1")
+      EngramWeb.RateLimiter.reset_buckets!()
 
       for _ <- 1..10 do
         post(conn, "/oauth/register", %{"redirect_uris" => ["https://x/cb"]})

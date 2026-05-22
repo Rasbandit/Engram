@@ -33,17 +33,6 @@ config :engram, :embedder, Engram.Embedders.Voyage
 # Storage adapter — S3-compatible object storage (MinIO local, Tigris prod).
 config :engram, :storage, Engram.Storage.S3
 
-# Hammer rate limiting (ETS backend)
-config :hammer,
-  backend:
-    {Hammer.Backend.ETS,
-     [
-       # 1 hour bucket expiry
-       expiry_ms: 60_000 * 60,
-       # cleanup every 2 min
-       cleanup_interval_ms: 60_000 * 2
-     ]}
-
 # Oban job queue (per-env overrides in dev/test/prod configs)
 config :engram, Oban,
   engine: Oban.Engines.Basic,

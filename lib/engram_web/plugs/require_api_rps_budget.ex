@@ -3,16 +3,16 @@ defmodule EngramWeb.Plugs.RequireApiRpsBudget do
   Pricing v2 §G — per-plan RPS cap on authenticated API requests.
 
   Looks up the user's `api_rps_cap` from `Engram.Billing` and rate-limits
-  via Hammer with a 1-second window. JWT-authed requests (web app) are
-  exempt; the gate only fires for API-key-authed traffic, mirroring the
-  policy shape in `RequireApiWriteEnabled`.
+  via `EngramWeb.RateLimiter` with a 1-second window. JWT-authed requests
+  (web app) are exempt; the gate only fires for API-key-authed traffic,
+  mirroring the policy shape in `RequireApiWriteEnabled`.
 
   Free defaults to `0` (no API access). Starter `10`, Pro `30`. When the
   cap is exhausted within the window, responds 429 with
   `{"error": "api_rps_exceeded", "limit": N, "period_ms": 1000}`.
 
   Self-host with `ENGRAM_LIMITS_ENFORCED=false` short-circuits to
-  `:unlimited` via `Billing.effective_limit/2` — no Hammer call.
+  `:unlimited` via `Billing.effective_limit/2` — no rate-limiter call.
   """
 
   import Plug.Conn
@@ -33,15 +33,15 @@ defmodule EngramWeb.Plugs.RequireApiRpsBudget do
       :unlimited -> conn
       nil -> conn
       0 -> deny(conn, 0)
-      limit when is_integer(limit) and limit > 0 -> check_hammer(conn, user, limit)
+      limit when is_integer(limit) and limit > 0 -> check_rate_limit(conn, user, limit)
       _ -> conn
     end
   end
 
-  defp check_hammer(conn, user, limit) do
-    case Hammer.check_rate("api_rps:#{user.id}", @period_ms, limit) do
+  defp check_rate_limit(conn, user, limit) do
+    case EngramWeb.RateLimiter.hit("api_rps:#{user.id}", @period_ms, limit) do
       {:allow, _count} -> conn
-      {:deny, _limit} -> deny(conn, limit)
+      {:deny, _retry_after_ms} -> deny(conn, limit)
     end
   end
 

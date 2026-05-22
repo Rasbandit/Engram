@@ -4,7 +4,7 @@ defmodule Engram.MixProject do
   def project do
     [
       app: :engram,
-      version: "0.5.205",
+      version: "0.5.206",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -89,7 +89,7 @@ defmodule Engram.MixProject do
       {:hackney, "~> 1.20"},
 
       # Rate limiting
-      {:hammer, "~> 6.2"},
+      {:hammer, "~> 7.3"},
 
       # Telemetry & logging
       {:telemetry_metrics, "~> 1.0"},
