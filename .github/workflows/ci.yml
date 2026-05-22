@@ -82,6 +82,13 @@ jobs:
     steps:
       - name: Generate App token
         id: app-token
+        # Dependabot PRs don't receive workflow secrets by GitHub policy,
+        # so create-github-app-token errors with "private-key must be set
+        # to a non-empty string". Skip this step on Dependabot — the
+        # plugin SHA resolution below falls back to unauthenticated calls
+        # against the public Engram-obsidian repo, which works fine for
+        # Dependabot's low PR volume.
+        if: github.actor != 'dependabot[bot]'
         uses: actions/create-github-app-token@v3
         with:
           client-id: ${{ vars.ENGRAM_CI_CLIENT_ID }}
@@ -108,7 +115,15 @@ jobs:
           # Uses curl (not gh CLI) — the engram-isolated runners don't ship gh
           # on the default PATH for the fingerprint runner image.
           API="https://api.github.com/repos/engram-app/Engram-obsidian"
-          AUTH=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json")
+          # GH_TOKEN is empty on Dependabot PRs (App-token step skipped).
+          # Engram-obsidian is public, so unauthenticated GET works; only
+          # downside is lower rate limit, which doesn't matter for the
+          # weekly Dependabot wave.
+          if [ -n "$GH_TOKEN" ]; then
+            AUTH=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json")
+          else
+            AUTH=(-H "Accept: application/vnd.github+json")
+          fi
 
           resolve_sha() {
             curl -fsS "${AUTH[@]}" "${API}/commits/$1" | jq -r '.sha'
@@ -339,7 +354,9 @@ jobs:
           mix compile --warnings-as-errors
 
   version-check:
-    if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    # Skip on Dependabot PRs — they can't bump app version, and the `ci`
+    # aggregate already treats `skipped` as OK for version-check.
+    if: github.event_name == 'push' && github.ref != 'refs/heads/main' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
