@@ -1,0 +1,18 @@
+# Dependabot — managed by engram-infra/main/github/dependabot_config.tf.
+# DO NOT EDIT IN-REPO; changes will be overwritten on next tf apply.
+version: 2
+updates:
+  - package-ecosystem: mix
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
