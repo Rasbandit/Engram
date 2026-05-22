@@ -113,11 +113,11 @@ function DesktopLayout() {
         <ResizablePanel
           id="sidebar"
           panelRef={leftRef}
-          defaultSize={18}
-          minSize={12}
-          maxSize={40}
+          defaultSize="18%"
+          minSize="12%"
+          maxSize="40%"
           collapsible
-          collapsedSize={0}
+          collapsedSize="0%"
           onResize={(size) => setLeftCollapsed(size.asPercentage === 0)}
           className="border-r border-border bg-card"
         >
@@ -143,7 +143,7 @@ function DesktopLayout() {
           </FolderTreeProvider>
         </ResizablePanel>
         <ResizableHandle withHandle />
-        <ResizablePanel id="main" defaultSize={60} minSize={30}>
+        <ResizablePanel id="main" defaultSize="60%" minSize="30%">
           <main className="relative h-full overflow-hidden bg-muted/40 p-6 text-foreground">
             {leftCollapsed && (
               <Button
@@ -176,11 +176,11 @@ function DesktopLayout() {
         <ResizablePanel
           id="right-sidebar"
           panelRef={rightRef}
-          defaultSize={22}
-          minSize={12}
-          maxSize={40}
+          defaultSize="22%"
+          minSize="12%"
+          maxSize="40%"
           collapsible
-          collapsedSize={0}
+          collapsedSize="0%"
           onResize={(size) => setRightCollapsed(size.asPercentage === 0)}
           className="border-l border-border bg-card"
         >
