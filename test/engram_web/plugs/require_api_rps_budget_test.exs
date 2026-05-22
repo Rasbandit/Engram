@@ -1,5 +1,5 @@
 defmodule EngramWeb.Plugs.RequireApiRpsBudgetTest do
-  # async: false — Hammer's bucket store is global; tests delete buckets in setup.
+  # async: false — the rate-limiter bucket store is global; tests reset it in setup.
   use EngramWeb.ConnCase, async: false
 
   alias EngramWeb.Plugs.RequireApiRpsBudget
@@ -7,7 +7,7 @@ defmodule EngramWeb.Plugs.RequireApiRpsBudgetTest do
   setup do
     user = insert(:user)
     api_key = %Engram.Accounts.ApiKey{id: 1, user_id: user.id, name: "test"}
-    Hammer.delete_buckets("api_rps:#{user.id}")
+    EngramWeb.RateLimiter.reset_buckets!()
     %{user: user, api_key: api_key}
   end
 
@@ -117,7 +117,7 @@ defmodule EngramWeb.Plugs.RequireApiRpsBudgetTest do
       user_b = insert(:user)
       insert(:user_limit_override, user: user_b, key: "api_rps_cap", value: %{"v" => 2})
       api_key_b = %Engram.Accounts.ApiKey{id: 2, user_id: user_b.id, name: "b"}
-      Hammer.delete_buckets("api_rps:#{user_b.id}")
+      EngramWeb.RateLimiter.reset_buckets!()
 
       conn_b =
         build_conn()

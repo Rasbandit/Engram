@@ -15,8 +15,7 @@ defmodule EngramWeb.Plugs.RateLimitTest do
   setup do
     Application.put_env(:engram, :rate_limit_override, @test_limit)
 
-    Hammer.delete_buckets("/api/auth/device:127.0.0.1")
-    Hammer.delete_buckets("/api/auth/device/token:127.0.0.1")
+    EngramWeb.RateLimiter.reset_buckets!()
     :ok
   end
 
