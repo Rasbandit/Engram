@@ -312,13 +312,16 @@ jobs:
           key: ${{ steps.keys.outputs.build-test }}
           restore-keys: mix-build-test-${{ steps.beam.outputs.tag }}-
 
-      - name: Fetch deps (if missing)
-        run: |
-          if [ ! -d deps ] || [ -z "$(ls -A deps 2>/dev/null)" ]; then
-            mix deps.get
-          else
-            echo "deps/ restored from cache"
-          fi
+      - name: Fetch deps (if missing or lockfile changed)
+        # Don't gate on `[ -d deps ]` — the cache's `restore-keys`
+        # fallback can populate deps/ from a stale cache when the
+        # exact-key match fails (e.g. after a mix.lock change). Use
+        # the cache step's `cache-hit` output, which is 'true' only
+        # on exact match; restore-keys partial hits set it to ''.
+        # On a partial hit, `mix deps.get` reconciles the lockfile
+        # against the restored deps/ and fetches the delta.
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: mix deps.get
 
       - name: Compile :dev
         env:
