@@ -78,6 +78,37 @@ defmodule EngramWeb.OAuthRegisterControllerTest do
       assert client.client_name == "test"
       assert client.redirect_uris == ["https://example.com/cb"]
     end
+
+    test "accepts multiple https redirect_uris", %{conn: conn} do
+      uris = [
+        "https://app.example.com/oauth/cb",
+        "https://app.example.com/oauth/cb2",
+        "https://other.example.com/cb"
+      ]
+
+      conn = post(conn, "/oauth/register", %{"redirect_uris" => uris})
+      body = json_response(conn, 201)
+
+      assert body["redirect_uris"] == uris
+      assert {:ok, client} = Engram.OAuth.get_client(body["client_id"])
+      assert client.redirect_uris == uris
+    end
+
+    test "persists software_id and software_version when provided", %{conn: conn} do
+      conn =
+        post(conn, "/oauth/register", %{
+          "redirect_uris" => ["https://example.com/cb"],
+          "client_name" => "Cursor",
+          "software_id" => "com.cursor.app",
+          "software_version" => "1.42.0"
+        })
+
+      body = json_response(conn, 201)
+
+      assert {:ok, client} = Engram.OAuth.get_client(body["client_id"])
+      assert client.software_id == "com.cursor.app"
+      assert client.software_version == "1.42.0"
+    end
   end
 
   describe "POST /oauth/register — invalid input" do
@@ -124,6 +155,25 @@ defmodule EngramWeb.OAuthRegisterControllerTest do
 
       body = json_response(conn, 400)
       assert body["error"] == "invalid_client_metadata"
+    end
+
+    test "rejects malformed JSON body with 400", %{conn: conn} do
+      assert_error_sent(400, fn ->
+        conn
+        |> put_req_header("content-type", "application/json")
+        |> post("/oauth/register", "{not valid json")
+      end)
+    end
+
+    test "rejects oversized body with 413", %{conn: conn} do
+      # Endpoint's Plug.Parsers length cap is 11_000_000 bytes — push past it.
+      oversized = String.duplicate("a", 11_000_001)
+
+      assert_error_sent(413, fn ->
+        conn
+        |> put_req_header("content-type", "application/json")
+        |> post("/oauth/register", ~s({"redirect_uris":["https://x/cb"],"pad":"#{oversized}"}))
+      end)
     end
   end
 
