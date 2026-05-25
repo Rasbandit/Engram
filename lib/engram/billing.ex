@@ -8,7 +8,7 @@ defmodule Engram.Billing do
 
   import Ecto.Query
   alias Engram.Billing.LimitKeys
-  alias Engram.Billing.Plan
+  alias Engram.Billing.PlanCache
   alias Engram.Billing.Subscription
   alias Engram.Billing.UserLimitOverride
   alias Engram.Repo
@@ -116,13 +116,9 @@ defmodule Engram.Billing do
   defp plan_lookup(%{plan_id: nil}, _string_key), do: :miss
 
   defp plan_lookup(%{plan_id: id}, string_key) do
-    Repo.one(
-      from(p in Plan,
-        where: p.id == ^id,
-        select: fragment("?->?", p.limits, ^string_key)
-      ),
-      skip_tenant_check: true
-    )
+    id
+    |> PlanCache.limits()
+    |> Map.get(string_key)
     |> wrap_lookup()
   end
 

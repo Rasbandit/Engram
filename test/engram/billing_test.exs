@@ -341,18 +341,69 @@ defmodule Engram.BillingTest do
     end
   end
 
-  # Counts Repo queries against the `subscriptions` source emitted while `fun`
-  # runs. Telemetry fires synchronously in the calling process under the SQL
-  # sandbox, so a plain Agent counter is safe.
-  defp with_subscription_query_count(fun) do
+  describe "plan limit caching" do
+    setup do
+      plan =
+        Engram.Repo.insert!(%Engram.Billing.Plan{
+          name: "pro_#{System.unique_integer([:positive])}",
+          limits: %{"vaults_cap" => 7, "cross_vault_search" => false}
+        })
+
+      user = insert(:user) |> Ecto.Changeset.change(plan_id: plan.id) |> Engram.Repo.update!()
+      on_exit(fn -> Engram.Billing.PlanCache.invalidate(plan.id) end)
+      %{plan: plan, user: user}
+    end
+
+    test "resolves plan limits and caches them after the first lookup", %{plan: plan, user: user} do
+      Engram.Billing.PlanCache.invalidate(plan.id)
+
+      {first, q1} =
+        with_query_count("plans", fn -> Billing.effective_limit(user, :vaults_cap) end)
+
+      assert first == 7
+      assert q1 == 1
+
+      {second, q2} =
+        with_query_count("plans", fn -> Billing.effective_limit(user, :vaults_cap) end)
+
+      assert second == 7
+      assert q2 == 0
+    end
+
+    test "cached lookup preserves false plan values (not treated as missing)", %{user: user} do
+      assert Billing.effective_limit(user, :cross_vault_search) == false
+      assert Billing.effective_limit(user, :cross_vault_search) == false
+    end
+
+    test "missing plan key falls through to the default", %{user: user} do
+      # vault_scoped_keys is not set on this plan → default for tier.
+      assert Billing.effective_limit(user, :vault_scoped_keys) ==
+               Engram.Billing.LimitKeys.default_for(:vault_scoped_keys, :free)
+    end
+
+    test "invalidate/1 forces a re-read", %{plan: plan, user: user} do
+      Billing.effective_limit(user, :vaults_cap)
+      Engram.Billing.PlanCache.invalidate(plan.id)
+
+      {_, q} = with_query_count("plans", fn -> Billing.effective_limit(user, :vaults_cap) end)
+      assert q == 1
+    end
+  end
+
+  defp with_subscription_query_count(fun), do: with_query_count("subscriptions", fun)
+
+  # Counts Repo queries against `source` emitted while `fun` runs. Telemetry
+  # fires synchronously in the calling process under the SQL sandbox, so a
+  # plain Agent counter is safe.
+  defp with_query_count(source, fun) do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
     handler_id = {__MODULE__, make_ref()}
 
     :telemetry.attach(
       handler_id,
       [:engram, :repo, :query],
-      fn _event, _measurements, %{source: source}, _config ->
-        if source == "subscriptions", do: Agent.update(counter, &(&1 + 1))
+      fn _event, _measurements, %{source: src}, _config ->
+        if src == source, do: Agent.update(counter, &(&1 + 1))
       end,
       nil
     )
