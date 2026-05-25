@@ -228,11 +228,14 @@ async def test_per_hunk_choices_mixed_then_accept(vault_a, vault_b, cdp_a, cdp_b
         await cdp_a.click_conflict_accept()
         await cdp_a.wait_for_conflict_modal_closed()
 
-        # Poll for the async vault.modify() flush; the file is written
-        # atomically so once hunk-0's content lands, hunk-1's is present too.
-        merged = wait_for_content(vault_a, path, "local-region-A", timeout=10)
-        assert "remote-region-B" in merged, (
-            f"Expected 'remote-region-B' (hunk 1 remote choice) in merged; "
+        # Poll for the async vault.modify() flush. Wait on the LAST-written
+        # region (hunk 1, end of file): vault.modify writes front-to-back, so
+        # if 'remote-region-B' is visible the earlier 'local-region-A' is too.
+        # Waiting on the leading region instead would leave a truncated-read
+        # window where hunk 0 is present but hunk 1 isn't yet flushed.
+        merged = wait_for_content(vault_a, path, "remote-region-B", timeout=10)
+        assert "local-region-A" in merged, (
+            f"Expected 'local-region-A' (hunk 0 local choice) in merged; "
             f"got: {merged[:400]!r}"
         )
     finally:
