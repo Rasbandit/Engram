@@ -4,7 +4,11 @@ defmodule Engram.BillingTest do
   import Mox
 
   alias Engram.Billing
+  alias Engram.Billing.LimitKeys
+  alias Engram.Billing.Plan
+  alias Engram.Billing.PlanCache
   alias Engram.Billing.Subscription
+  alias Engram.Repo
 
   setup :verify_on_exit!
 
@@ -299,7 +303,7 @@ defmodule Engram.BillingTest do
     test "get_subscription/1 reuses a preloaded :subscription assoc without querying" do
       user = insert(:user)
       insert(:subscription, user: user, tier: "pro", status: "active")
-      user = Engram.Repo.preload(user, :subscription)
+      user = Repo.preload(user, :subscription)
 
       {result, queries} = with_subscription_query_count(fn -> Billing.get_subscription(user) end)
 
@@ -308,7 +312,7 @@ defmodule Engram.BillingTest do
     end
 
     test "get_subscription/1 returns nil from a preloaded-but-empty assoc without querying" do
-      user = insert(:user) |> Engram.Repo.preload(:subscription)
+      user = insert(:user) |> Repo.preload(:subscription)
 
       {result, queries} = with_subscription_query_count(fn -> Billing.get_subscription(user) end)
 
@@ -319,7 +323,7 @@ defmodule Engram.BillingTest do
     test "active?/1 and tier/1 reuse a preloaded subscription (zero extra queries)" do
       user = insert(:user)
       insert(:subscription, user: user, tier: "pro", status: "active")
-      user = Engram.Repo.preload(user, :subscription)
+      user = Repo.preload(user, :subscription)
 
       {_, queries} =
         with_subscription_query_count(fn ->
@@ -344,18 +348,18 @@ defmodule Engram.BillingTest do
   describe "plan limit caching" do
     setup do
       plan =
-        Engram.Repo.insert!(%Engram.Billing.Plan{
+        Repo.insert!(%Plan{
           name: "pro_#{System.unique_integer([:positive])}",
           limits: %{"vaults_cap" => 7, "cross_vault_search" => false}
         })
 
-      user = insert(:user) |> Ecto.Changeset.change(plan_id: plan.id) |> Engram.Repo.update!()
-      on_exit(fn -> Engram.Billing.PlanCache.invalidate(plan.id) end)
+      user = insert(:user) |> Ecto.Changeset.change(plan_id: plan.id) |> Repo.update!()
+      on_exit(fn -> PlanCache.invalidate(plan.id) end)
       %{plan: plan, user: user}
     end
 
     test "resolves plan limits and caches them after the first lookup", %{plan: plan, user: user} do
-      Engram.Billing.PlanCache.invalidate(plan.id)
+      PlanCache.invalidate(plan.id)
 
       {first, q1} =
         with_query_count("plans", fn -> Billing.effective_limit(user, :vaults_cap) end)
@@ -378,12 +382,12 @@ defmodule Engram.BillingTest do
     test "missing plan key falls through to the default", %{user: user} do
       # vault_scoped_keys is not set on this plan → default for tier.
       assert Billing.effective_limit(user, :vault_scoped_keys) ==
-               Engram.Billing.LimitKeys.default_for(:vault_scoped_keys, :free)
+               LimitKeys.default_for(:vault_scoped_keys, :free)
     end
 
     test "invalidate/1 forces a re-read", %{plan: plan, user: user} do
       Billing.effective_limit(user, :vaults_cap)
-      Engram.Billing.PlanCache.invalidate(plan.id)
+      PlanCache.invalidate(plan.id)
 
       {_, q} = with_query_count("plans", fn -> Billing.effective_limit(user, :vaults_cap) end)
       assert q == 1
