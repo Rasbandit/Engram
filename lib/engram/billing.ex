@@ -160,6 +160,15 @@ defmodule Engram.Billing do
     end
   end
 
+  @doc """
+  Loads the user's subscription (or nil). Reuses an already-preloaded
+  `:subscription` association when present so the auth pipeline can load it
+  once per request and have `tier/1`, `active?/1`, and `effective_limit/2`
+  share that single read instead of each issuing its own query.
+  """
+  def get_subscription(%{subscription: %Subscription{} = sub}), do: sub
+  def get_subscription(%{subscription: nil}), do: nil
+
   def get_subscription(user) do
     Repo.one(
       from(s in Subscription, where: s.user_id == ^user.id),

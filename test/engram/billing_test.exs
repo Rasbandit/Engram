@@ -294,4 +294,75 @@ defmodule Engram.BillingTest do
       assert {:ok, :ignored} = Billing.upsert_from_paddle_event(event)
     end
   end
+
+  describe "subscription memoization" do
+    test "get_subscription/1 reuses a preloaded :subscription assoc without querying" do
+      user = insert(:user)
+      insert(:subscription, user: user, tier: "pro", status: "active")
+      user = Engram.Repo.preload(user, :subscription)
+
+      {result, queries} = with_subscription_query_count(fn -> Billing.get_subscription(user) end)
+
+      assert %Subscription{tier: "pro"} = result
+      assert queries == 0
+    end
+
+    test "get_subscription/1 returns nil from a preloaded-but-empty assoc without querying" do
+      user = insert(:user) |> Engram.Repo.preload(:subscription)
+
+      {result, queries} = with_subscription_query_count(fn -> Billing.get_subscription(user) end)
+
+      assert result == nil
+      assert queries == 0
+    end
+
+    test "active?/1 and tier/1 reuse a preloaded subscription (zero extra queries)" do
+      user = insert(:user)
+      insert(:subscription, user: user, tier: "pro", status: "active")
+      user = Engram.Repo.preload(user, :subscription)
+
+      {_, queries} =
+        with_subscription_query_count(fn ->
+          assert Billing.active?(user)
+          assert Billing.tier(user) == :pro
+        end)
+
+      assert queries == 0
+    end
+
+    test "get_subscription/1 still queries when the assoc is not loaded" do
+      user = insert(:user)
+      insert(:subscription, user: user, tier: "pro", status: "active")
+
+      {result, queries} = with_subscription_query_count(fn -> Billing.get_subscription(user) end)
+
+      assert %Subscription{} = result
+      assert queries == 1
+    end
+  end
+
+  # Counts Repo queries against the `subscriptions` source emitted while `fun`
+  # runs. Telemetry fires synchronously in the calling process under the SQL
+  # sandbox, so a plain Agent counter is safe.
+  defp with_subscription_query_count(fun) do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+    handler_id = {__MODULE__, make_ref()}
+
+    :telemetry.attach(
+      handler_id,
+      [:engram, :repo, :query],
+      fn _event, _measurements, %{source: source}, _config ->
+        if source == "subscriptions", do: Agent.update(counter, &(&1 + 1))
+      end,
+      nil
+    )
+
+    try do
+      result = fun.()
+      {result, Agent.get(counter, & &1)}
+    after
+      :telemetry.detach(handler_id)
+      Agent.stop(counter)
+    end
+  end
 end
