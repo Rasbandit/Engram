@@ -29,10 +29,23 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      qdrant:
+        condition: service_started
+      ollama:
+        condition: service_healthy
       minio-init:
         condition: service_completed_successfully
       ollama-init:
         condition: service_completed_successfully
+    healthcheck:
+      # So `docker compose up` reports ready only after the release has booted
+      # + migrated and the endpoint is listening — not the instant the process
+      # forks. start_period covers release migrate + Phoenix listen.
+      test: ["CMD-SHELL", "curl -sf http://localhost:4000/api/health || exit 1"]
+      start_period: 30s
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   postgres:
