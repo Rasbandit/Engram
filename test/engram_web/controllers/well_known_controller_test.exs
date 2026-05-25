@@ -69,13 +69,15 @@ defmodule EngramWeb.WellKnownControllerTest do
       assert "mcp" in body["scopes_supported"]
     end
 
-    test "supports public clients via PKCE (token_endpoint_auth_methods includes none)", %{
+    test "advertises only public PKCE (none) — no confidential auth methods", %{
       conn: conn
     } do
       conn = get(conn, "/.well-known/oauth-authorization-server")
       body = json_response(conn, 200)
 
-      assert "none" in body["token_endpoint_auth_methods_supported"]
+      # Must match what /oauth/register actually accepts (#282) — advertising
+      # client_secret_* here would tell clients to request a method we 400 on.
+      assert body["token_endpoint_auth_methods_supported"] == ["none"]
     end
 
     test "responds with application/json content-type", %{conn: conn} do

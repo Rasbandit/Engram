@@ -177,6 +177,101 @@ defmodule EngramWeb.OAuthRegisterControllerTest do
     end
   end
 
+  describe "POST /oauth/register — impl gaps (#282)" do
+    test "rejects non-array redirect_uris with 400, not a 500 crash", %{conn: conn} do
+      conn = post(conn, "/oauth/register", %{"redirect_uris" => "https://x/cb"})
+      body = json_response(conn, 400)
+
+      assert body["error"] == "invalid_redirect_uri"
+    end
+
+    test "rejects client_secret_post auth method (only public PKCE supported)", %{conn: conn} do
+      conn =
+        post(conn, "/oauth/register", %{
+          "redirect_uris" => ["https://x/cb"],
+          "token_endpoint_auth_method" => "client_secret_post"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_client_metadata"
+    end
+
+    test "rejects client_secret_basic auth method", %{conn: conn} do
+      conn =
+        post(conn, "/oauth/register", %{
+          "redirect_uris" => ["https://x/cb"],
+          "token_endpoint_auth_method" => "client_secret_basic"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_client_metadata"
+    end
+
+    test "serializer echoes software_id and software_version", %{conn: conn} do
+      conn =
+        post(conn, "/oauth/register", %{
+          "redirect_uris" => ["https://x/cb"],
+          "client_name" => "Cursor",
+          "software_id" => "com.cursor.app",
+          "software_version" => "1.42.0"
+        })
+
+      body = json_response(conn, 201)
+      assert body["software_id"] == "com.cursor.app"
+      assert body["software_version"] == "1.42.0"
+    end
+
+    test "rejects overlong software_id", %{conn: conn} do
+      conn =
+        post(conn, "/oauth/register", %{
+          "redirect_uris" => ["https://x/cb"],
+          "software_id" => String.duplicate("a", 256)
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_client_metadata"
+    end
+
+    test "rejects overlong software_version", %{conn: conn} do
+      conn =
+        post(conn, "/oauth/register", %{
+          "redirect_uris" => ["https://x/cb"],
+          "software_version" => String.duplicate("a", 256)
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_client_metadata"
+    end
+
+    test "emits dcr register telemetry on success", %{conn: conn} do
+      ref =
+        :telemetry_test.attach_event_handlers(self(), [[:engram, :mcp, :dcr, :register]])
+
+      post(conn, "/oauth/register", %{
+        "redirect_uris" => ["https://x/cb"],
+        "software_id" => "com.cursor.app"
+      })
+
+      assert_received {[:engram, :mcp, :dcr, :register], ^ref, %{count: 1}, meta}
+      assert meta.result == :ok
+      assert is_binary(meta.client_id)
+      assert meta.software_id == "com.cursor.app"
+
+      :telemetry.detach(ref)
+    end
+
+    test "emits dcr register telemetry on error", %{conn: conn} do
+      ref =
+        :telemetry_test.attach_event_handlers(self(), [[:engram, :mcp, :dcr, :register]])
+
+      post(conn, "/oauth/register", %{"redirect_uris" => []})
+
+      assert_received {[:engram, :mcp, :dcr, :register], ^ref, %{count: 1}, %{result: :error}}
+
+      :telemetry.detach(ref)
+    end
+  end
+
   describe "POST /oauth/register — rate limit" do
     test "returns 429 after 10 registrations from same IP in a minute", %{conn: conn} do
       Application.put_env(:engram, :rate_limit_override, 10)

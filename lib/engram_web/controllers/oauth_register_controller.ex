@@ -12,20 +12,33 @@ defmodule EngramWeb.OAuthRegisterController do
 
   alias Engram.OAuth
 
+  @telemetry_event [:engram, :mcp, :dcr, :register]
+
   def register(conn, params) do
     case OAuth.register_client(params) do
       {:ok, client} ->
+        emit_telemetry(:ok, client.client_id, client.software_id)
+
         conn
         |> put_status(:created)
         |> json(serialize(client))
 
       {:error, changeset} ->
+        emit_telemetry(:error, nil, Ecto.Changeset.get_field(changeset, :software_id))
         {error, description} = changeset_error(changeset)
 
         conn
         |> put_status(:bad_request)
         |> json(%{error: error, error_description: description})
     end
+  end
+
+  defp emit_telemetry(result, client_id, software_id) do
+    :telemetry.execute(@telemetry_event, %{count: 1}, %{
+      result: result,
+      client_id: client_id,
+      software_id: software_id
+    })
   end
 
   defp serialize(client) do
@@ -37,7 +50,9 @@ defmodule EngramWeb.OAuthRegisterController do
       scope: client.scope,
       grant_types: client.grant_types,
       response_types: client.response_types,
-      token_endpoint_auth_method: client.token_endpoint_auth_method
+      token_endpoint_auth_method: client.token_endpoint_auth_method,
+      software_id: client.software_id,
+      software_version: client.software_version
     }
     |> Map.reject(fn {_k, v} -> is_nil(v) end)
   end
@@ -54,7 +69,17 @@ defmodule EngramWeb.OAuthRegisterController do
 
   defp translate_error({msg, opts}) do
     Enum.reduce(opts, msg, fn {key, value}, acc ->
-      String.replace(acc, "%{#{key}}", to_string(value))
+      placeholder = "%{#{key}}"
+
+      # Only stringify when the placeholder is actually present. A failed cast
+      # (e.g. a JSON string where an array is expected) carries opts like
+      # `type: {:array, :string}` whose message ("is invalid") has no
+      # placeholder — eagerly to_string-ing that tuple is what crashed (500).
+      if String.contains?(acc, placeholder) do
+        String.replace(acc, placeholder, to_string(value))
+      else
+        acc
+      end
     end)
   end
 
