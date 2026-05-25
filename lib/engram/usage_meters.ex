@@ -92,7 +92,7 @@ defmodule Engram.UsageMeters do
   positive `delta` when notes become live (insert/restore). Single upsert so
   concurrent writes can't lose increments to a read-modify-write race.
   """
-  @spec inc_notes_count(integer(), integer()) :: :ok
+  @spec inc_notes_count(integer(), pos_integer()) :: :ok
   def inc_notes_count(user_id, delta)
       when is_integer(user_id) and is_integer(delta) and delta > 0 do
     now = DateTime.utc_now()
@@ -153,13 +153,14 @@ defmodule Engram.UsageMeters do
 
     now = DateTime.utc_now()
 
-    Repo.insert_all(
-      Meter,
-      [%{user_id: user_id, notes_count: count, updated_at: now}],
-      on_conflict: [set: [notes_count: count, updated_at: now]],
-      conflict_target: :user_id,
-      skip_tenant_check: true
-    )
+    {_, _} =
+      Repo.insert_all(
+        Meter,
+        [%{user_id: user_id, notes_count: count, updated_at: now}],
+        on_conflict: [set: [notes_count: count, updated_at: now]],
+        conflict_target: :user_id,
+        skip_tenant_check: true
+      )
 
     count
   end

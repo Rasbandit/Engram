@@ -72,6 +72,9 @@ defmodule EngramWeb.Plugs.BumpActivityTest do
 
   # Counts Repo queries against the `usage_meters` source while `fun` runs.
   defp count_meter_queries(fun) do
+    # Scope to this test's pid: telemetry handlers run in the emitting process,
+    # so without this a concurrent test could leak into the count.
+    test_pid = self()
     {:ok, counter} = Agent.start_link(fn -> 0 end)
     handler_id = {__MODULE__, make_ref()}
 
@@ -79,7 +82,8 @@ defmodule EngramWeb.Plugs.BumpActivityTest do
       handler_id,
       [:engram, :repo, :query],
       fn _event, _measurements, %{source: source}, _config ->
-        if source == "usage_meters", do: Agent.update(counter, &(&1 + 1))
+        if source == "usage_meters" and self() == test_pid,
+          do: Agent.update(counter, &(&1 + 1))
       end,
       nil
     )

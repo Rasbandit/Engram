@@ -397,9 +397,11 @@ defmodule Engram.BillingTest do
   defp with_subscription_query_count(fun), do: with_query_count("subscriptions", fun)
 
   # Counts Repo queries against `source` emitted while `fun` runs. Telemetry
-  # fires synchronously in the calling process under the SQL sandbox, so a
-  # plain Agent counter is safe.
+  # handlers run synchronously in the process that emitted the query, so we
+  # scope counting to this test's pid — otherwise concurrent async tests
+  # (running in their own processes) leak into the count.
   defp with_query_count(source, fun) do
+    test_pid = self()
     {:ok, counter} = Agent.start_link(fn -> 0 end)
     handler_id = {__MODULE__, make_ref()}
 
@@ -407,7 +409,7 @@ defmodule Engram.BillingTest do
       handler_id,
       [:engram, :repo, :query],
       fn _event, _measurements, %{source: src}, _config ->
-        if src == source, do: Agent.update(counter, &(&1 + 1))
+        if src == source and self() == test_pid, do: Agent.update(counter, &(&1 + 1))
       end,
       nil
     )
