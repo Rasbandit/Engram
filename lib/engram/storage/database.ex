@@ -27,7 +27,7 @@ defmodule Engram.Storage.Database do
 
   @impl true
   def put(key, binary, _opts \\ []) when is_binary(key) and is_binary(binary) do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.utc_now(:microsecond)
 
     Repo.query!(
       """
