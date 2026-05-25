@@ -8,7 +8,10 @@ defmodule Engram.OAuth.Client do
   import Ecto.Changeset
 
   @primary_key {:client_id, :binary_id, autogenerate: true}
-  @valid_auth_methods ~w(none client_secret_post client_secret_basic)
+  # Only public PKCE clients are supported until confidential-client minting
+  # ships (Phase 4). Reject client_secret_* to avoid handing back a 201 with
+  # no secret — a broken half-state for the caller.
+  @valid_auth_methods ~w(none)
   @valid_grant_types ~w(authorization_code refresh_token)
   @valid_response_types ~w(code)
   @loopback_hosts ~w(localhost 127.0.0.1 ::1)

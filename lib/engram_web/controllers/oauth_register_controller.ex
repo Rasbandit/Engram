@@ -12,20 +12,33 @@ defmodule EngramWeb.OAuthRegisterController do
 
   alias Engram.OAuth
 
+  @telemetry_event [:engram, :mcp, :dcr, :register]
+
   def register(conn, params) do
     case OAuth.register_client(params) do
       {:ok, client} ->
+        emit_telemetry(:ok, client.client_id, client.software_id)
+
         conn
         |> put_status(:created)
         |> json(serialize(client))
 
       {:error, changeset} ->
+        emit_telemetry(:error, nil, Ecto.Changeset.get_field(changeset, :software_id))
         {error, description} = changeset_error(changeset)
 
         conn
         |> put_status(:bad_request)
         |> json(%{error: error, error_description: description})
     end
+  end
+
+  defp emit_telemetry(result, client_id, software_id) do
+    :telemetry.execute(@telemetry_event, %{count: 1}, %{
+      result: result,
+      client_id: client_id,
+      software_id: software_id
+    })
   end
 
   defp serialize(client) do
@@ -37,7 +50,9 @@ defmodule EngramWeb.OAuthRegisterController do
       scope: client.scope,
       grant_types: client.grant_types,
       response_types: client.response_types,
-      token_endpoint_auth_method: client.token_endpoint_auth_method
+      token_endpoint_auth_method: client.token_endpoint_auth_method,
+      software_id: client.software_id,
+      software_version: client.software_version
     }
     |> Map.reject(fn {_k, v} -> is_nil(v) end)
   end
@@ -54,9 +69,16 @@ defmodule EngramWeb.OAuthRegisterController do
 
   defp translate_error({msg, opts}) do
     Enum.reduce(opts, msg, fn {key, value}, acc ->
-      String.replace(acc, "%{#{key}}", to_string(value))
+      String.replace(acc, "%{#{key}}", stringify(value))
     end)
   end
+
+  # Ecto interpolation values are usually strings/atoms/numbers, but a failed
+  # cast (e.g. a JSON string where an array is expected) yields a type tuple
+  # like `{:array, :string}`. to_string/1 raises on those — inspect/1 is safe.
+  defp stringify(value) when is_binary(value), do: value
+  defp stringify(value) when is_atom(value) or is_number(value), do: to_string(value)
+  defp stringify(value), do: inspect(value)
 
   defp join_errors(list) when is_list(list), do: Enum.join(list, "; ")
   defp join_errors(other), do: to_string(other)
