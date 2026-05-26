@@ -3,6 +3,7 @@ defmodule EngramWeb.WebhookController do
 
   alias Engram.Auth.Clerk.Webhook, as: ClerkWebhook
   alias Engram.Billing
+  alias Engram.Email.Suppression
   alias Engram.Webhooks.Svix
 
   require Logger
@@ -50,6 +51,37 @@ defmodule EngramWeb.WebhookController do
         |> json(%{error: to_string(reason)})
     end
   end
+
+  def resend(conn, _params) do
+    with {:ok, sig_header} <- get_header(conn, "svix-signature"),
+         {:ok, id} <- get_header(conn, "svix-id"),
+         {:ok, ts} <- get_header(conn, "svix-timestamp"),
+         {:ok, payload} <- read_body_once(conn),
+         :ok <- Svix.verify(id, ts, payload, sig_header, resend_webhook_secret()) do
+      payload |> Jason.decode!() |> handle_resend_event()
+      json(conn, %{status: "ok"})
+    else
+      {:error, reason} ->
+        conn |> put_status(400) |> json(%{error: to_string(reason)})
+    end
+  end
+
+  # Resend posts a bounce/complaint per delivery problem. Add the affected
+  # recipients to the suppression list so we stop sending to them; ignore all
+  # other event types (delivered, opened, etc.).
+  defp handle_resend_event(%{"type" => type, "data" => data})
+       when type in ["email.bounced", "email.complained"] do
+    reason = if type == "email.complained", do: "complained", else: "bounced"
+
+    data
+    |> Map.get("to", [])
+    |> List.wrap()
+    |> Enum.each(fn email -> _ = Suppression.suppress(email, reason) end)
+  end
+
+  defp handle_resend_event(_), do: :ok
+
+  defp resend_webhook_secret, do: Application.get_env(:engram, :resend_webhook_secret)
 
   defp get_signature(conn) do
     case Plug.Conn.get_req_header(conn, "paddle-signature") do
