@@ -22,7 +22,15 @@ defmodule Engram.Onboarding.Agreement do
 
   def changeset(agreement, attrs) do
     agreement
-    |> cast(attrs, [:user_id, :document, :version, :accepted_at, :ip_address, :user_agent, :content_hash])
+    |> cast(attrs, [
+      :user_id,
+      :document,
+      :version,
+      :accepted_at,
+      :ip_address,
+      :user_agent,
+      :content_hash
+    ])
     |> validate_required([:user_id, :document, :version, :accepted_at])
   end
 end
