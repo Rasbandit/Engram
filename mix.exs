@@ -81,6 +81,9 @@ defmodule Engram.MixProject do
       # Markdown parsing
       {:earmark, "~> 1.4"},
 
+      # Email template rendering (MJML → responsive HTML, via mrml Rust NIF)
+      {:mjml, "~> 6.0"},
+
       # HTTP client (Qdrant, Voyage AI)
       {:req, "~> 0.5"},
 

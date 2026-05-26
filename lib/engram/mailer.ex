@@ -2,13 +2,36 @@ defmodule Engram.Mailer do
   @moduledoc """
   Engram-specific email templates. Wraps the configured `Engram.Email.Provider`.
 
-  Three §C inactivity-cleanup templates today:
+  Bodies are authored as MJML via `Engram.Email.Template` and compiled to
+  responsive HTML before sending.
+
+  Templates today:
+  - `send_welcome/1`
   - `send_inactivity_warning_60/1`
   - `send_inactivity_warning_80/1`
   - `send_account_deleted_notice/1`
   """
 
   alias Engram.Accounts.User
+  alias Engram.Email.Template
+
+  def send_welcome(%User{email: email} = user) do
+    name = Template.esc(greeting_name(user))
+
+    body = """
+    <mj-text font-size="18px" font-weight="600">Welcome to Engram, #{name}!</mj-text>
+    <mj-text>Your account is ready. Engram keeps your Obsidian vault synced across
+    every device, with full-text and semantic search over everything you write.</mj-text>
+    <mj-text>To get started, install the Engram plugin in Obsidian and connect it
+    to your account — your notes start syncing immediately.</mj-text>
+    <mj-text>— The Engram team</mj-text>
+    """
+
+    provider().send(email, "Welcome to Engram", Template.render(body), [])
+  end
+
+  defp greeting_name(%User{display_name: name}) when is_binary(name) and name != "", do: name
+  defp greeting_name(_), do: "there"
 
   def send_inactivity_warning_60(%User{email: email}) do
     provider().send(
