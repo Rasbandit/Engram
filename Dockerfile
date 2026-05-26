@@ -69,7 +69,17 @@ COPY --from=frontend /priv/static/app priv/static/app
 # saw old beam files. Single-step build is correct; the extra minute
 # of compile time is worth the guarantee that the release matches the
 # current source.
+# deps.get here reconciles the shared mix-deps cache mount to THIS image's
+# mix.lock before compiling. The earlier deps.get (~line 46) is layer-cached and
+# skipped when mix.lock is unchanged, so it can't repair a mount that another
+# branch's build (different lock) mutated — and the CI `docker builder prune
+# --keep-storage=2gb` step can evict deps from the mount. Without this, compile
+# fails with "Unchecked dependencies ... lock mismatch". Keeps the cache mounts
+# intact (no caching disabled) while making the build robust to mount drift.
 RUN --mount=type=cache,target=/app/deps,id=mix-deps,sharing=locked \
+    --mount=type=cache,target=/root/.hex,id=mix-hex,sharing=locked \
+    --mount=type=cache,target=/root/.cache/rebar3,id=mix-rebar,sharing=locked \
+    mix deps.get --only $MIX_ENV && \
     mix compile --force && \
     mix release && \
     cp -r /app/_build/prod/rel/engram /app/_release
