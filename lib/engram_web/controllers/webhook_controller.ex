@@ -3,6 +3,7 @@ defmodule EngramWeb.WebhookController do
 
   alias Engram.Auth.Clerk.Webhook, as: ClerkWebhook
   alias Engram.Billing
+  alias Engram.Webhooks.Svix
 
   require Logger
 
@@ -13,8 +14,7 @@ defmodule EngramWeb.WebhookController do
          {:ok, id} <- get_header(conn, "svix-id"),
          {:ok, ts} <- get_header(conn, "svix-timestamp"),
          {:ok, payload} <- read_body_once(conn),
-         :ok <- check_clerk_timestamp_age(ts),
-         :ok <- verify_clerk_signature(id, ts, payload, sig_header) do
+         :ok <- Svix.verify(id, ts, payload, sig_header, clerk_webhook_secret()) do
       event = Jason.decode!(payload)
       _ = ClerkWebhook.handle(event)
       json(conn, %{status: "ok"})
@@ -145,52 +145,5 @@ defmodule EngramWeb.WebhookController do
     end
   end
 
-  defp check_clerk_timestamp_age(ts_str) do
-    case Integer.parse(ts_str) do
-      {ts, _} ->
-        age = abs(System.system_time(:second) - ts)
-        if age <= @max_signature_age_seconds, do: :ok, else: {:error, "timestamp too old"}
-
-      :error ->
-        {:error, "invalid timestamp"}
-    end
-  end
-
-  defp verify_clerk_signature(id, ts, payload, sig_header) do
-    with {:ok, secret_bytes} <- fetch_clerk_webhook_secret() do
-      signed = "#{id}.#{ts}.#{payload}"
-      expected = :crypto.mac(:hmac, :sha256, secret_bytes, signed) |> Base.encode64()
-
-      sig_header
-      |> String.split(" ", trim: true)
-      |> Enum.map(&strip_v1_prefix/1)
-      |> Enum.any?(&Plug.Crypto.secure_compare(&1, expected))
-      |> case do
-        true -> :ok
-        false -> {:error, "invalid signature"}
-      end
-    end
-  end
-
-  defp strip_v1_prefix("v1," <> sig), do: sig
-  defp strip_v1_prefix(_), do: ""
-
-  defp fetch_clerk_webhook_secret do
-    case Application.get_env(:engram, :clerk_webhook_secret) do
-      nil ->
-        {:error, "webhook secret not configured"}
-
-      "" ->
-        {:error, "webhook secret not configured"}
-
-      secret when is_binary(secret) ->
-        secret
-        |> String.replace_prefix("whsec_", "")
-        |> Base.decode64()
-        |> case do
-          {:ok, bytes} -> {:ok, bytes}
-          :error -> {:error, "webhook secret malformed"}
-        end
-    end
-  end
+  defp clerk_webhook_secret, do: Application.get_env(:engram, :clerk_webhook_secret)
 end
