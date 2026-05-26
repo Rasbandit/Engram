@@ -17,6 +17,7 @@ defmodule EngramWeb.OnboardingController do
           terms_ok: terms_ok,
           subscription_ok: sub_ok,
           current_tos_version: version,
+          current_privacy_version: privacy_version,
           next_step: next
         } ->
           %{
@@ -24,6 +25,7 @@ defmodule EngramWeb.OnboardingController do
             terms_ok: terms_ok,
             subscription_ok: sub_ok,
             current_tos_version: version,
+            current_privacy_version: privacy_version,
             next_step: Atom.to_string(next)
           }
       end

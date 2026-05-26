@@ -34,6 +34,7 @@ defmodule EngramWeb.OnboardingControllerTest do
       assert body["subscription_ok"] == false
       assert body["next_step"] == "agreement"
       assert body["current_tos_version"] == "2026-05-15"
+      assert body["current_privacy_version"] == "2026-05-15"
     end
 
     test "returns next_step=done for fully onboarded user", %{conn: conn, user: user} do
