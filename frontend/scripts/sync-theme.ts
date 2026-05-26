@@ -13,7 +13,7 @@
  * which lands in the app's --brand-purple. The app's own --secondary is a neutral
  * shadcn surface and is intentionally never touched here.
  */
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -142,6 +142,37 @@ function syncAssets(marketingDir: string, appPublic: string, dryRun: boolean): s
   return actions;
 }
 
+/* Vendor the marketing repo's immutable legal sources (src/legal/*.md +
+ * legal-manifest.json) into the app so signup can render the exact bytes it
+ * hashes. Same byte-compare/idempotent copy as syncAssets; the files are
+ * frozen by version, so a changed byte for an existing name would be a bug
+ * upstream, not something to silently overwrite — but we mirror verbatim and
+ * surface the copy in the summary either way. */
+function syncLegal(marketingDir: string, appLegalDir: string, dryRun: boolean): string[] {
+  const actions: string[] = [];
+  const srcDir = join(marketingDir, "src/legal");
+  if (!existsSync(srcDir)) {
+    console.warn(`sync-theme: marketing src/legal missing, skipped legal sync: ${srcDir}`);
+    return actions;
+  }
+  const names = readdirSync(srcDir).filter(
+    (n) => n.endsWith(".md") || n === "legal-manifest.json",
+  );
+  for (const name of names) {
+    const src = join(srcDir, name);
+    const dst = join(appLegalDir, name);
+    const srcBuf = readFileSync(src);
+    const same = existsSync(dst) && Buffer.compare(srcBuf, readFileSync(dst)) === 0;
+    if (same) continue;
+    actions.push(name);
+    if (!dryRun) {
+      mkdirSync(appLegalDir, { recursive: true });
+      writeFileSync(dst, srcBuf);
+    }
+  }
+  return actions;
+}
+
 function main() {
   const dryRun = process.argv.includes("--dry-run");
   const marketingDir = findMarketingDir();
@@ -163,22 +194,28 @@ function main() {
   );
 
   const assetActions = syncAssets(marketingDir, join(appRoot, "public"), dryRun);
+  const legalActions = syncLegal(marketingDir, join(appRoot, "src/legal/versions"), dryRun);
 
   console.log(`sync-theme: source = ${marketingDir}${dryRun ? "  (dry run)" : ""}`);
   for (const c of changes) {
     console.log(`  [${c.scope}] --${c.appVar}: ${c.from}  ->  ${c.to}`);
   }
   for (const a of assetActions) console.log(`  [asset] ${a} ${dryRun ? "(would copy)" : "copied"}`);
+  for (const l of legalActions) console.log(`  [legal] ${l} ${dryRun ? "(would copy)" : "copied"}`);
 
-  if (changes.length === 0 && assetActions.length === 0) {
+  if (changes.length === 0 && assetActions.length === 0 && legalActions.length === 0) {
     console.log("  already in sync");
     return;
   }
   if (!dryRun) {
     writeFileSync(appCssPath, appCss);
-    console.log(`sync-theme: wrote ${changes.length} token change(s), ${assetActions.length} asset(s)`);
+    console.log(
+      `sync-theme: wrote ${changes.length} token change(s), ${assetActions.length} asset(s), ${legalActions.length} legal file(s)`,
+    );
   } else {
-    console.log(`sync-theme: ${changes.length} token change(s), ${assetActions.length} asset(s) pending`);
+    console.log(
+      `sync-theme: ${changes.length} token change(s), ${assetActions.length} asset(s), ${legalActions.length} legal file(s) pending`,
+    );
   }
 }
 
