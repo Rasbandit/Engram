@@ -220,14 +220,14 @@
 
 :root {
   /* Cyber-Organic palette (light) — ported from engram-marketing global.css. primary=cyan, secondary kept neutral (shadcn surface), brand-purple added as accent. */
-  --background: oklch(1 0 0);
+  --background: oklch(100.00% 0 0);
   --foreground: oklch(14.52% 0.0021 286.13);
-  --card: oklch(1 0 0);
+  --card: oklch(100.00% 0 0);
   --card-foreground: oklch(14.52% 0.0021 286.13);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(14.52% 0.0021 286.13);
   --primary: oklch(60.89% 0.1109 221.72);
-  --primary-foreground: oklch(1 0 0);
+  --primary-foreground: oklch(100.00% 0 0);
   --secondary: oklch(96.74% 0.0013 286.37);
   --secondary-foreground: oklch(21.03% 0.0059 285.89);
   --muted: oklch(96.74% 0.0013 286.37);
@@ -239,7 +239,7 @@
   --input: oklch(91.97% 0.004 286.32);
   --ring: oklch(60.89% 0.1109 221.72);
   --brand-purple: oklch(54.13% 0.2466 293.01);
-  --brand-purple-foreground: oklch(1 0 0);
+  --brand-purple-foreground: oklch(100.00% 0 0);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
