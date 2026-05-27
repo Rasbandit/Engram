@@ -46,8 +46,14 @@ defmodule Engram.Application do
   # Seed + verify terms_versions from the vendored manifest, then warm the
   # version cache. Skipped in :test (tests seed per-case). Fail-loud verify
   # runs in prod so a manifest/db drift halts boot instead of 409-ing signups.
+  #
+  # Also skipped in self-host (billing_enabled=false): the onboarding gate is
+  # bypassed there, so seeding an unused legal table — and turning the vendored
+  # manifest into a hard, fail-loud boot dependency — buys nothing. If a self-host
+  # operator later enables billing, the seed runs on that boot.
   defp maybe_seed_legal do
-    if Application.get_env(:engram, :seed_legal_on_boot, true) do
+    if Application.get_env(:engram, :seed_legal_on_boot, true) and
+         Application.get_env(:engram, :billing_enabled, false) do
       Engram.Legal.Seeder.seed()
       Engram.Legal.Seeder.verify()
       Engram.Legal.VersionCache.invalidate_all()
