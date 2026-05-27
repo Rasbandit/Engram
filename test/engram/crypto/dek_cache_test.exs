@@ -78,6 +78,38 @@ defmodule Engram.Crypto.DekCacheTest do
     end
   end
 
+  describe "real two-node eviction" do
+    @tag :cluster
+    test "invalidate on node A evicts the entry cached on node B" do
+      {peer_pid, _peer_node} =
+        Engram.ClusterCase.start_peer!([Engram.Crypto.DekCache], &on_exit/1)
+
+      DekCache.put(123, @dek)
+      :ok = :peer.call(peer_pid, Engram.Crypto.DekCache, :put, [123, @dek, nil])
+      assert {:ok, @dek} = :peer.call(peer_pid, Engram.Crypto.DekCache, :get, [123])
+
+      DekCache.invalidate(123)
+
+      assert eventually(fn ->
+               :miss == :peer.call(peer_pid, Engram.Crypto.DekCache, :get, [123])
+             end)
+    end
+  end
+
+  defp eventually(fun, attempts \\ 50) do
+    cond do
+      fun.() ->
+        true
+
+      attempts <= 0 ->
+        false
+
+      true ->
+        Process.sleep(20)
+        eventually(fun, attempts - 1)
+    end
+  end
+
   describe "T3.3 / H2 — ETS write protection" do
     @table :engram_dek_cache
 
