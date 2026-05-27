@@ -38,7 +38,7 @@ defmodule Engram.Legal.Seeder do
         effective_date: meta.effective_date,
         changelog: meta.changelog
       })
-      |> Repo.insert(
+      |> Repo.insert!(
         on_conflict: {:replace, [:content_hash, :material, :effective_date, :changelog]},
         conflict_target: [:document, :version],
         skip_tenant_check: true
