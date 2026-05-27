@@ -14,6 +14,11 @@ defmodule Engram.Legal.Seeder do
   alias Engram.Repo
 
   # document => version => %{material, effective_date, changelog}
+  #
+  # IMPORTANT: every version present in the vendored manifest MUST have an entry
+  # here, or `meta!/2` raises at boot (fail-loud). So a legal bump is a TWO-file
+  # change: add the version→hash to priv/legal/legal-manifest.json AND its
+  # material/effective_date/changelog here. (P5 will automate this cross-repo.)
   @version_meta %{
     "terms_of_service" => %{
       "2026-05-19" => %{material: true, effective_date: nil, changelog: "Initial version."}
