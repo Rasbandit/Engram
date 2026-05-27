@@ -14,6 +14,10 @@ defmodule Engram.Legal do
   alias Engram.Legal.TermsVersion
   alias Engram.Repo
 
+  # Version ordering is lexicographic on the version string. This is load-bearing:
+  # it only equals calendar ordering because versions are constrained to
+  # YYYY-MM-DD by TermsVersion's validate_format. Keep that constraint.
+
   @spec required_floor(document :: String.t()) :: String.t() | nil
   def required_floor(document) do
     today = Date.utc_today()
