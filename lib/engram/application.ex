@@ -20,6 +20,7 @@ defmodule Engram.Application do
         boot_canary_guard(),
         {DNSCluster, query: Application.get_env(:engram, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Engram.PubSub},
+        Engram.Legal.VersionCache.Invalidator,
         EngramWeb.Presence,
         Engram.Crypto.DekCache,
         Engram.UsageMeters.ActivityCache,
