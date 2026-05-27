@@ -32,7 +32,26 @@ defmodule Engram.Application do
       |> Enum.reject(&is_nil/1)
 
     opts = [strategy: :one_for_one, name: Engram.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    case Supervisor.start_link(children, opts) do
+      {:ok, pid} ->
+        maybe_seed_legal()
+        {:ok, pid}
+
+      other ->
+        other
+    end
+  end
+
+  # Seed + verify terms_versions from the vendored manifest, then warm the
+  # version cache. Skipped in :test (tests seed per-case). Fail-loud verify
+  # runs in prod so a manifest/db drift halts boot instead of 409-ing signups.
+  defp maybe_seed_legal do
+    if Application.get_env(:engram, :seed_legal_on_boot, true) do
+      Engram.Legal.Seeder.seed()
+      Engram.Legal.Seeder.verify()
+      Engram.Legal.VersionCache.invalidate_all()
+    end
   end
 
   # T3-audit C2 — runs BootCanary.verify!/0 synchronously in a GenServer's

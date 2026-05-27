@@ -128,3 +128,6 @@ config :engram, :current_privacy_hash, "test-privacy-hash"
 
 # Limits enforced by default in test env so existing tests don't bypass.
 config :engram, :limits_enforced, true
+
+# Legal seeder skipped at boot in tests — SeederTest seeds per-case.
+config :engram, :seed_legal_on_boot, false
