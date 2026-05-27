@@ -32,7 +32,32 @@ defmodule Engram.Application do
       |> Enum.reject(&is_nil/1)
 
     opts = [strategy: :one_for_one, name: Engram.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    case Supervisor.start_link(children, opts) do
+      {:ok, pid} ->
+        maybe_seed_legal()
+        {:ok, pid}
+
+      other ->
+        other
+    end
+  end
+
+  # Seed + verify terms_versions from the vendored manifest, then warm the
+  # version cache. Skipped in :test (tests seed per-case). Fail-loud verify
+  # runs in prod so a manifest/db drift halts boot instead of 409-ing signups.
+  #
+  # Also skipped in self-host (billing_enabled=false): the onboarding gate is
+  # bypassed there, so seeding an unused legal table — and turning the vendored
+  # manifest into a hard, fail-loud boot dependency — buys nothing. If a self-host
+  # operator later enables billing, the seed runs on that boot.
+  defp maybe_seed_legal do
+    if Application.get_env(:engram, :seed_legal_on_boot, true) and
+         Application.get_env(:engram, :billing_enabled, false) do
+      Engram.Legal.Seeder.seed()
+      Engram.Legal.Seeder.verify()
+      Engram.Legal.VersionCache.invalidate_all()
+    end
   end
 
   # T3-audit C2 — runs BootCanary.verify!/0 synchronously in a GenServer's
