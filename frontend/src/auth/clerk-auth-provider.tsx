@@ -51,16 +51,17 @@ function ClerkAdapterInner({ children }: { children: React.ReactNode }) {
   }, [clerkUserId])
 
   const email = clerk.user?.primaryEmailAddress?.emailAddress
+  const imageUrl = clerk.user?.imageUrl
   const adapter: AuthAdapter = useMemo(
     () => ({
       isLoaded,
       isSignedIn: isSignedIn ?? false,
-      user: isSignedIn && email ? { email } : null,
+      user: isSignedIn && email ? { email, imageUrl } : null,
       getToken: tokenGetter,
       logout: async () => { await clerk.signOut() },
       hasBuiltInUI: true,
     }),
-    [isLoaded, isSignedIn, clerk, email, tokenGetter],
+    [isLoaded, isSignedIn, clerk, email, imageUrl, tokenGetter],
   )
 
   return <AuthContext.Provider value={adapter}>{children}</AuthContext.Provider>
