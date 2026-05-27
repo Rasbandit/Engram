@@ -17,11 +17,16 @@ const appearance = {
 
 export default function AccountPage() {
   return (
-    <section>
-      <h1 className="mb-4 text-xl font-semibold text-foreground">Account</h1>
+    <article className="space-y-6">
+      <header>
+        <h1 className="text-xl font-semibold text-foreground">Account</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Manage your profile, security, and active sessions.
+        </p>
+      </header>
       <Suspense fallback={<p className="text-muted-foreground">Loading account…</p>}>
         <UserProfile routing="path" path="/settings/account" appearance={appearance} />
       </Suspense>
-    </section>
+    </article>
   )
 }
