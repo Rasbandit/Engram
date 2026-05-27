@@ -12,7 +12,7 @@ function renderAt(path: string) {
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/settings" element={<SettingsLayout />}>
-          <Route path="appearance" element={<p>appearance body</p>} />
+          <Route path="api-keys" element={<p>api keys body</p>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -21,10 +21,10 @@ function renderAt(path: string) {
 
 describe('SettingsLayout', () => {
   it('renders the shared header, the settings nav, and the routed section', () => {
-    renderAt('/settings/appearance')
+    renderAt('/settings/api-keys')
     expect(screen.getByText('Engram')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Account' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Billing' })).toBeInTheDocument()
-    expect(screen.getByText('appearance body')).toBeInTheDocument()
+    expect(screen.getByText('api keys body')).toBeInTheDocument()
   })
 })

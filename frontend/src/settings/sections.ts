@@ -6,9 +6,7 @@ export interface SettingsSection {
 }
 
 const BASE_SECTIONS: SettingsSection[] = [
-  { to: 'appearance', label: 'Appearance' },
   { to: 'api-keys', label: 'API Keys' },
-  { to: 'encryption', label: 'Encryption' },
   { to: 'billing', label: 'Billing' },
 ]
 

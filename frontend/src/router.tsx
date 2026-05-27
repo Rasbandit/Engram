@@ -7,10 +7,8 @@ import { config } from './config'
 import DeviceLinkPage from './device/device-link-page'
 import AppLayout from './layout/app-layout'
 import NotFoundPage from './not-found'
-import AppearancePage from './settings/appearance-page'
 import ApiKeysPage from './settings/api-keys-page'
 import AccountPage from './settings/account-page'
-import EncryptionPage from './settings/encryption-page'
 import SettingsLayout from './settings/settings-layout'
 import OAuthAuthorizePage from './oauth/oauth-authorize-page'
 import { ROUTES } from './routes'
@@ -65,7 +63,7 @@ export const router = createBrowserRouter(
                   index: true,
                   element: (
                     <Navigate
-                      to={config.authProvider === 'clerk' ? 'account' : 'appearance'}
+                      to={config.authProvider === 'clerk' ? 'account' : 'api-keys'}
                       replace
                     />
                   ),
@@ -75,9 +73,7 @@ export const router = createBrowserRouter(
                 ...(config.authProvider === 'clerk'
                   ? [{ path: 'account/*', element: <AccountPage /> }]
                   : []),
-                { path: 'appearance', element: <AppearancePage /> },
                 { path: 'api-keys', element: <ApiKeysPage /> },
-                { path: 'encryption', element: <EncryptionPage /> },
                 { path: 'billing', element: <BillingPage /> },
               ],
             },
