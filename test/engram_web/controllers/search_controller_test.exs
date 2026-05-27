@@ -4,7 +4,37 @@ defmodule EngramWeb.SearchControllerTest do
   import ExUnit.CaptureLog
   import Mox
 
+  alias Engram.Onboarding
+
   setup :verify_on_exit!
+
+  # Seed terms_versions so the VersionCache gate has a real floor to check.
+  # The cache is :persistent_term-backed (process-global), so if another
+  # async: false test seeded versions earlier and those rows were rolled back
+  # with the sandbox, the stale cached floor would gate these users.
+  # Seeding + invalidating here ensures a consistent cache for the test and
+  # cleans up on exit so later tests start fresh.
+  setup do
+    Engram.LegalFixtures.insert_version(
+      document: "terms_of_service",
+      version: "2026-05-15",
+      content_hash: "canonical-tos",
+      material: true,
+      effective_date: nil
+    )
+
+    Engram.LegalFixtures.insert_version(
+      document: "privacy_policy",
+      version: "2026-05-15",
+      content_hash: "canonical-pp",
+      material: true,
+      effective_date: nil
+    )
+
+    Engram.Legal.VersionCache.invalidate_all()
+    on_exit(&Engram.Legal.VersionCache.invalidate_all/0)
+    :ok
+  end
 
   setup %{conn: conn} do
     user = insert(:user)
@@ -12,6 +42,8 @@ defmodule EngramWeb.SearchControllerTest do
     vault = insert(:vault, user: user, is_default: true)
     {:ok, api_key, _} = Engram.Accounts.create_api_key(user, "test-key")
     grant_api_write!(user)
+    {:ok, _} = Onboarding.accept_terms(user, "2026-05-15", %{})
+    insert(:subscription, user: user, status: "active")
     authed = put_req_header(conn, "authorization", "Bearer #{api_key}")
 
     bypass = Bypass.open()
