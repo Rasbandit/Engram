@@ -2,12 +2,14 @@ defmodule EngramWeb.OnboardingGateIntegrationTest do
   use EngramWeb.ConnCase, async: false
 
   alias Engram.Accounts
+  alias Engram.Legal.VersionCache
+  alias Engram.LegalFixtures
 
   setup %{conn: conn} do
     prev_enabled = Application.get_env(:engram, :billing_enabled)
     Application.put_env(:engram, :billing_enabled, true)
 
-    Engram.LegalFixtures.insert_version(
+    LegalFixtures.insert_version(
       document: "terms_of_service",
       version: "2026-05-15",
       content_hash: "canonical",
@@ -15,7 +17,7 @@ defmodule EngramWeb.OnboardingGateIntegrationTest do
       effective_date: nil
     )
 
-    Engram.LegalFixtures.insert_version(
+    LegalFixtures.insert_version(
       document: "privacy_policy",
       version: "2026-05-15",
       content_hash: "p",
@@ -23,8 +25,8 @@ defmodule EngramWeb.OnboardingGateIntegrationTest do
       effective_date: nil
     )
 
-    Engram.Legal.VersionCache.invalidate_all()
-    on_exit(&Engram.Legal.VersionCache.invalidate_all/0)
+    VersionCache.invalidate_all()
+    on_exit(&VersionCache.invalidate_all/0)
 
     on_exit(fn ->
       Application.put_env(:engram, :billing_enabled, prev_enabled)

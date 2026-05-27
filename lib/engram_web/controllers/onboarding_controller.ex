@@ -1,6 +1,7 @@
 defmodule EngramWeb.OnboardingController do
   use EngramWeb, :controller
 
+  alias Engram.Legal.VersionCache
   alias Engram.Onboarding
 
   def status(conn, _params) do
@@ -35,10 +36,10 @@ defmodule EngramWeb.OnboardingController do
     # showing different text than the backend expects (drift) — refuse with 409
     # instead of recording bad consent.
     ok =
-      th == Engram.Legal.VersionCache.hash_for("terms_of_service", tv) and th != nil and
-        ph == Engram.Legal.VersionCache.hash_for("privacy_policy", pv) and ph != nil and
-        tv == Engram.Legal.VersionCache.current_version("terms_of_service") and
-        pv == Engram.Legal.VersionCache.current_version("privacy_policy")
+      th == VersionCache.hash_for("terms_of_service", tv) and th != nil and
+        ph == VersionCache.hash_for("privacy_policy", pv) and ph != nil and
+        tv == VersionCache.current_version("terms_of_service") and
+        pv == VersionCache.current_version("privacy_policy")
 
     if ok do
       meta = %{

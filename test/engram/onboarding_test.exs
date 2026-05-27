@@ -1,6 +1,8 @@
 defmodule Engram.OnboardingTest do
   use Engram.DataCase, async: false
 
+  alias Engram.Legal.VersionCache
+  alias Engram.LegalFixtures
   alias Engram.Onboarding
   alias Engram.Onboarding.Agreement
   alias Engram.Onboarding.TermsCache
@@ -82,7 +84,7 @@ defmodule Engram.OnboardingTest do
 
       # Seed the canonical floor/current both at "2026-05-15" (material, effective
       # now) so an acceptance of "2026-05-15" satisfies the gate.
-      Engram.LegalFixtures.insert_version(
+      LegalFixtures.insert_version(
         document: "terms_of_service",
         version: "2026-05-15",
         content_hash: "canonical",
@@ -90,7 +92,7 @@ defmodule Engram.OnboardingTest do
         effective_date: nil
       )
 
-      Engram.LegalFixtures.insert_version(
+      LegalFixtures.insert_version(
         document: "privacy_policy",
         version: "2026-05-15",
         content_hash: "p",
@@ -98,8 +100,8 @@ defmodule Engram.OnboardingTest do
         effective_date: nil
       )
 
-      Engram.Legal.VersionCache.invalidate_all()
-      on_exit(&Engram.Legal.VersionCache.invalidate_all/0)
+      VersionCache.invalidate_all()
+      on_exit(&VersionCache.invalidate_all/0)
 
       on_exit(fn ->
         Application.put_env(:engram, :billing_enabled, prev_enabled)
@@ -202,8 +204,8 @@ defmodule Engram.OnboardingTest do
       prev_enabled = Application.get_env(:engram, :billing_enabled)
       Application.put_env(:engram, :billing_enabled, true)
 
-      Engram.Legal.VersionCache.invalidate_all()
-      on_exit(&Engram.Legal.VersionCache.invalidate_all/0)
+      VersionCache.invalidate_all()
+      on_exit(&VersionCache.invalidate_all/0)
 
       on_exit(fn ->
         Application.put_env(:engram, :billing_enabled, prev_enabled)
@@ -215,19 +217,19 @@ defmodule Engram.OnboardingTest do
     test "terms_accepted? true when accepted >= floor even if below current" do
       # Floor = 2026-05-19 (material, effective now); current = 2026-06-01
       # (material, future effective_date so it stays out of the floor).
-      Engram.LegalFixtures.insert_version(
+      LegalFixtures.insert_version(
         version: "2026-05-19",
         material: true,
         effective_date: nil
       )
 
-      Engram.LegalFixtures.insert_version(
+      LegalFixtures.insert_version(
         version: "2026-06-01",
         material: true,
         effective_date: ~D[2099-01-01]
       )
 
-      Engram.Legal.VersionCache.invalidate_all()
+      VersionCache.invalidate_all()
 
       user = insert(:user)
       {:ok, _} = Onboarding.accept_terms(user, "2026-05-19", "h_tos", "2026-05-19", "h_priv", %{})
@@ -238,13 +240,13 @@ defmodule Engram.OnboardingTest do
     test "terms_accepted? false when accepted below floor" do
       # Floor = 2026-06-01 (material, effective now); acceptance of 2026-05-19
       # is below the floor.
-      Engram.LegalFixtures.insert_version(
+      LegalFixtures.insert_version(
         version: "2026-06-01",
         material: true,
         effective_date: ~D[2000-01-01]
       )
 
-      Engram.Legal.VersionCache.invalidate_all()
+      VersionCache.invalidate_all()
 
       user = insert(:user)
       {:ok, _} = Onboarding.accept_terms(user, "2026-05-19", "h_tos", "2026-05-19", "h_priv", %{})
@@ -253,14 +255,14 @@ defmodule Engram.OnboardingTest do
     end
 
     test "accept_terms stores content_hash and writes a privacy_policy row" do
-      Engram.LegalFixtures.insert_version(
+      LegalFixtures.insert_version(
         version: "2026-05-19",
         material: true,
         effective_date: nil
       )
 
-      Engram.LegalFixtures.insert_version(document: "privacy_policy", version: "2026-05-19")
-      Engram.Legal.VersionCache.invalidate_all()
+      LegalFixtures.insert_version(document: "privacy_policy", version: "2026-05-19")
+      VersionCache.invalidate_all()
 
       user = insert(:user)
 
@@ -285,14 +287,14 @@ defmodule Engram.OnboardingTest do
     end
 
     test "status returns current_privacy_version" do
-      Engram.LegalFixtures.insert_version(
+      LegalFixtures.insert_version(
         version: "2026-05-19",
         material: true,
         effective_date: nil
       )
 
-      Engram.LegalFixtures.insert_version(document: "privacy_policy", version: "2026-05-19")
-      Engram.Legal.VersionCache.invalidate_all()
+      LegalFixtures.insert_version(document: "privacy_policy", version: "2026-05-19")
+      VersionCache.invalidate_all()
 
       user = insert(:user)
 
@@ -303,26 +305,26 @@ defmodule Engram.OnboardingTest do
   describe "computed floor gate + terms_notice" do
     setup do
       prev_enabled = Application.get_env(:engram, :billing_enabled)
-      Engram.Legal.VersionCache.invalidate_all()
+      VersionCache.invalidate_all()
       Application.put_env(:engram, :billing_enabled, true)
 
       on_exit(fn ->
         Application.put_env(:engram, :billing_enabled, prev_enabled)
-        Engram.Legal.VersionCache.invalidate_all()
+        VersionCache.invalidate_all()
       end)
 
       :ok
     end
 
     test "terms_ok true and no notice when accepted == current, effective now" do
-      Engram.LegalFixtures.insert_version(
+      LegalFixtures.insert_version(
         version: "2026-05-19",
         material: true,
         effective_date: nil
       )
 
-      Engram.LegalFixtures.insert_version(document: "privacy_policy", version: "2026-05-19")
-      Engram.Legal.VersionCache.invalidate_all()
+      LegalFixtures.insert_version(document: "privacy_policy", version: "2026-05-19")
+      VersionCache.invalidate_all()
       user = insert(:user)
       {:ok, _} = Onboarding.accept_terms(user, "2026-05-19", "h", "2026-05-19", "h", %{})
 
@@ -332,23 +334,23 @@ defmodule Engram.OnboardingTest do
     end
 
     test "notice present but terms_ok still true during the window (new material version, future effective_date)" do
-      Engram.LegalFixtures.insert_version(
+      LegalFixtures.insert_version(
         version: "2026-05-19",
         material: true,
         effective_date: nil
       )
 
-      Engram.LegalFixtures.insert_version(document: "privacy_policy", version: "2026-05-19")
+      LegalFixtures.insert_version(document: "privacy_policy", version: "2026-05-19")
       user = insert(:user)
       {:ok, _} = Onboarding.accept_terms(user, "2026-05-19", "h", "2026-05-19", "h", %{})
 
-      Engram.LegalFixtures.insert_version(
+      LegalFixtures.insert_version(
         version: "2026-06-01",
         material: true,
         effective_date: ~D[2099-01-01]
       )
 
-      Engram.Legal.VersionCache.invalidate_all()
+      VersionCache.invalidate_all()
 
       status = Onboarding.status(user)
       assert status.terms_ok
@@ -357,23 +359,23 @@ defmodule Engram.OnboardingTest do
     end
 
     test "terms_ok false once the new material version is effective and unaccepted" do
-      Engram.LegalFixtures.insert_version(
+      LegalFixtures.insert_version(
         version: "2026-05-19",
         material: true,
         effective_date: nil
       )
 
-      Engram.LegalFixtures.insert_version(document: "privacy_policy", version: "2026-05-19")
+      LegalFixtures.insert_version(document: "privacy_policy", version: "2026-05-19")
       user = insert(:user)
       {:ok, _} = Onboarding.accept_terms(user, "2026-05-19", "h", "2026-05-19", "h", %{})
 
-      Engram.LegalFixtures.insert_version(
+      LegalFixtures.insert_version(
         version: "2026-06-01",
         material: true,
         effective_date: ~D[2000-01-01]
       )
 
-      Engram.Legal.VersionCache.invalidate_all()
+      VersionCache.invalidate_all()
 
       refute Onboarding.status(user).terms_ok
     end
