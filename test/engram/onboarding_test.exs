@@ -288,9 +288,15 @@ defmodule Engram.OnboardingTest do
 
   describe "computed floor gate + terms_notice" do
     setup do
+      prev_enabled = Application.get_env(:engram, :billing_enabled)
       Engram.Legal.VersionCache.invalidate_all()
       Application.put_env(:engram, :billing_enabled, true)
-      on_exit(fn -> Engram.Legal.VersionCache.invalidate_all() end)
+
+      on_exit(fn ->
+        Application.put_env(:engram, :billing_enabled, prev_enabled)
+        Engram.Legal.VersionCache.invalidate_all()
+      end)
+
       :ok
     end
 
