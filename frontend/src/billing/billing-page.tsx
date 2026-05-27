@@ -228,7 +228,7 @@ function PlanCard({
       customer: { email: config.customer_email },
       customData: config.custom_data,
       settings: {
-        successUrl: `${window.location.origin}/billing?status=success`,
+        successUrl: `${window.location.origin}/settings/billing?status=success`,
       },
     })
   }
