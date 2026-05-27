@@ -975,6 +975,21 @@ jobs:
           # job; this extends the same bar to test/**.
           mix test --warnings-as-errors
 
+      - name: Lint DB schema (splinter)
+        run: |
+          # splinter (priv/repo/splinter.sql) references Supabase's API roles,
+          # so stub them — without them the linter aborts on a plain Postgres.
+          # Our tables aren't granted to these roles, so the API-exposure lints
+          # (rls_disabled_in_public, *_table_exposed) stay silent; only genuine
+          # schema/security findings surface. unused_index is filtered by the
+          # gate (no scan stats on a fresh CI database).
+          docker exec "$PG_CONTAINER" psql -U engram -d engram_test -q -v ON_ERROR_STOP=1 -c "
+            DO \$\$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END \$\$;
+            DO \$\$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END \$\$;
+            DO \$\$ BEGIN CREATE ROLE service_role NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END \$\$;"
+          docker exec -i "$PG_CONTAINER" psql -U engram -d engram_test -At -F'|' \
+            < priv/repo/splinter.sql | bash priv/repo/lint_schema.sh
+
       - name: Stop ephemeral postgres
         if: always()
         run: docker rm -fv "$PG_CONTAINER" 2>/dev/null || true
