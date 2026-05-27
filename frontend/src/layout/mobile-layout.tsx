@@ -89,7 +89,6 @@ export default function MobileLayout() {
         </section>
         <nav className="flex items-center gap-1" aria-label="Main navigation">
           <HeaderLink to="/search" label="Search" />
-          <HeaderLink to="/settings" label="Settings" />
           <ThemeToggle />
           <UserMenu />
           {rightContent && (

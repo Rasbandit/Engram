@@ -28,7 +28,6 @@ export default function AppHeader() {
       </Link>
       <nav className="flex items-center gap-3" aria-label="Main navigation">
         <HeaderLink to="/search" label="Search" />
-        <HeaderLink to="/settings" label="Settings" />
         <ThemeToggle />
         <UserMenu />
       </nav>
