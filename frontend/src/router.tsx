@@ -70,6 +70,8 @@ export const router = createBrowserRouter(
                     />
                   ),
                 },
+                // Wildcard: Clerk's <UserProfile> renders its own nested
+                // sub-routes (security, sessions) under path routing.
                 ...(config.authProvider === 'clerk'
                   ? [{ path: 'account/*', element: <AccountPage /> }]
                   : []),
