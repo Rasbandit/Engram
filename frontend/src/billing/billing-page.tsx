@@ -10,6 +10,7 @@ import {
 import { api } from '../api/client'
 import { useTheme } from '../theme/theme-provider'
 import { cn } from '@/lib/utils'
+import CurrentPlanCard from './current-plan-card'
 
 // Paddle confirms checkout client-side (checkout.completed) before its webhook
 // reaches our backend and flips the subscription active, so a single refetch
@@ -18,14 +19,6 @@ import { cn } from '@/lib/utils'
 // onboarding redirect fires without a manual reload.
 const ACTIVATION_POLL_MS = 2000
 const ACTIVATION_POLL_TIMEOUT_MS = 30000
-
-const TIER_LABELS = {
-  free: 'Free',
-  none: 'No Plan',
-  trial: 'Free Trial',
-  starter: 'Starter',
-  pro: 'Pro',
-} as const
 
 export default function BillingPage({ hideHeading = false }: { hideHeading?: boolean }) {
   const { data: billing, isLoading } = useBillingStatus()
@@ -100,7 +93,6 @@ export default function BillingPage({ hideHeading = false }: { hideHeading?: boo
   }
 
   const needsSubscription = !billing.active
-  const isTrial = billing.subscription?.status === 'trialing'
   const checkoutReady = Boolean(paddle && config)
 
   return (
@@ -124,44 +116,7 @@ export default function BillingPage({ hideHeading = false }: { hideHeading?: boo
         </div>
       )}
 
-      {!hideHeading && (
-        <section className="space-y-4 rounded-lg border border-border bg-card p-6">
-          <header className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-foreground">Current Plan</h2>
-            <span className="rounded-full bg-secondary px-3 py-1 text-sm font-medium text-secondary-foreground">
-              {TIER_LABELS[billing.tier]}
-            </span>
-          </header>
-
-          {needsSubscription && (
-            <p className="text-sm text-muted-foreground">
-              Choose a plan below to start your 7-day free trial. A card is required but you
-              won't be charged until the trial ends.
-            </p>
-          )}
-
-          {isTrial && billing.trial_days_remaining > 0 && (
-            <p className="text-sm text-muted-foreground">
-              {billing.trial_days_remaining} days remaining in your free trial.
-            </p>
-          )}
-
-          {billing.subscription && (
-            <dl className="grid grid-cols-2 gap-4 text-sm">
-              <dt className="text-muted-foreground">Status</dt>
-              <dd className="font-medium capitalize">{billing.subscription.status.replace('_', ' ')}</dd>
-              {billing.subscription.current_period_end && (
-                <>
-                  <dt className="text-muted-foreground">Current period ends</dt>
-                  <dd className="font-medium">
-                    {new Date(billing.subscription.current_period_end).toLocaleDateString()}
-                  </dd>
-                </>
-              )}
-            </dl>
-          )}
-        </section>
-      )}
+      {!hideHeading && <CurrentPlanCard billing={billing} />}
 
       {needsSubscription && (
         <section className="space-y-4">
