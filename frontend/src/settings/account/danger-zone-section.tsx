@@ -1,0 +1,42 @@
+import { useState } from 'react'
+import { useUser, useReverification } from '@clerk/clerk-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+
+const CONFIRM = 'delete my account'
+const inputClass =
+  'mt-1 block w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring'
+
+export function DangerZoneSection() {
+  const { user, isLoaded } = useUser()
+  const [phrase, setPhrase] = useState('')
+  const remove = useReverification(() => user!.delete())
+
+  if (!isLoaded || !user) return null
+
+  async function onDelete() {
+    try {
+      await remove()
+    } catch {
+      toast.error('Could not delete account')
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 sm:p-6">
+      <header className="mb-4">
+        <h2 className="text-base font-semibold text-destructive">Danger zone</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Permanently delete your account and all associated data. This cannot be undone.
+        </p>
+      </header>
+      <label className="block text-sm font-medium text-foreground">
+        Type "{CONFIRM}" to confirm
+        <input className={inputClass} value={phrase} onChange={(e) => setPhrase(e.target.value)} />
+      </label>
+      <Button className="mt-4" variant="destructive" disabled={phrase !== CONFIRM} onClick={onDelete}>
+        Delete my account
+      </Button>
+    </section>
+  )
+}
