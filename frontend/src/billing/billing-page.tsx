@@ -102,6 +102,11 @@ export default function BillingPage({ hideHeading = false }: { hideHeading?: boo
       eventCallback: (event) => {
         if (event.name === CheckoutEventNames.CHECKOUT_COMPLETED) {
           setActivationStuck(false)
+          // Refresh the live billing surface so an updated card / plan shows
+          // without a reload. The subscription-activation poll handles the
+          // separate onboarding-gate race below.
+          qc.invalidateQueries({ queryKey: ['billing', 'subscription'] })
+          qc.invalidateQueries({ queryKey: ['billing', 'transactions'] })
           pollUntilActive(Date.now() + ACTIVATION_POLL_TIMEOUT_MS)
         }
       },
@@ -123,6 +128,24 @@ export default function BillingPage({ hideHeading = false }: { hideHeading?: boo
 
   const needsSubscription = !billing.active
   const checkoutReady = Boolean(paddle && config)
+
+  async function handleUpdatePayment() {
+    // No initialized Paddle.js yet — fall back to the hosted portal so the
+    // action still works rather than silently no-opping.
+    if (!paddle) {
+      openPortal('update_payment')
+      return
+    }
+
+    try {
+      const { transaction_id } = await api.get<{ transaction_id: string }>(
+        '/billing/payment-update-transaction',
+      )
+      paddle.Checkout.open({ transactionId: transaction_id })
+    } catch {
+      toast.error('Could not start the payment update. Please try again.')
+    }
+  }
 
   return (
     <article className="space-y-6">
@@ -184,7 +207,7 @@ export default function BillingPage({ hideHeading = false }: { hideHeading?: boo
           <PendingChangeBanner scheduledChange={detail?.scheduled_change ?? null} />
           <PaymentMethodCard
             paymentMethod={history?.payment_method ?? null}
-            onUpdate={() => openPortal('update_payment')}
+            onUpdate={handleUpdatePayment}
           />
           <BillingHistoryTable
             transactions={history?.transactions ?? []}

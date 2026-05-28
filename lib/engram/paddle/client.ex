@@ -60,6 +60,16 @@ defmodule Engram.Paddle.Client do
   @callback get_portal_session(customer_id :: String.t()) ::
               {:ok, map()} | {:error, term()}
 
+  @doc """
+  Fetch a transaction for updating the subscription's payment method in-app.
+
+  Paddle endpoint: `GET /subscriptions/{id}/update-payment-method-transaction`.
+  Returns the decoded `data` map; the `id` feeds `Paddle.Checkout.open({
+  transactionId })` so the card is updated in an overlay without leaving the app.
+  """
+  @callback get_update_payment_transaction(subscription_id :: String.t()) ::
+              {:ok, map()} | {:error, term()}
+
   @default_impl Engram.Paddle.Client.HTTP
 
   @doc "Returns the configured client implementation module."

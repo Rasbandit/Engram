@@ -172,6 +172,23 @@ defmodule EngramWeb.BillingControllerTest do
     end
   end
 
+  describe "GET /api/billing/payment-update-transaction" do
+    test "returns the transaction id for the overlay", %{conn: conn, user: user} do
+      insert(:subscription, user: user, paddle_subscription_id: "sub_dev")
+
+      expect(Engram.Paddle.ClientMock, :get_update_payment_transaction, fn "sub_dev" ->
+        {:ok, %{"id" => "txn_update_1"}}
+      end)
+
+      body = conn |> get("/api/billing/payment-update-transaction") |> json_response(200)
+      assert body["transaction_id"] == "txn_update_1"
+    end
+
+    test "returns 404 when the user has no subscription", %{conn: conn} do
+      assert json_response(get(conn, "/api/billing/payment-update-transaction"), 404)
+    end
+  end
+
   describe "GET /api/billing/portal?action=" do
     test "returns the cancel deep link", %{conn: conn, user: user} do
       insert(:subscription,

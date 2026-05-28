@@ -97,6 +97,17 @@ defmodule EngramWeb.BillingController do
     end)
   end
 
+  @doc "Mint a transaction id for the in-app Paddle.js payment-method overlay."
+  def payment_update_transaction(conn, _params) do
+    with_billing(conn, fn ->
+      case Billing.update_payment_transaction(conn.assigns.current_user) do
+        {:ok, transaction_id} -> json(conn, %{transaction_id: transaction_id})
+        {:error, :no_subscription} -> not_found(conn, "no subscription")
+        {:error, reason} -> paddle_error(conn, reason)
+      end
+    end)
+  end
+
   # Self-host (billing_enabled=false) never reaches Paddle: the page is hidden
   # client-side, but gate here too so a direct request 404s instead of erroring.
   defp with_billing(conn, fun) do

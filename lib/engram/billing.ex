@@ -283,6 +283,20 @@ defmodule Engram.Billing do
     end
   end
 
+  @doc """
+  Mint a transaction for an in-app payment-method update. Returns the Paddle
+  transaction id for `Paddle.Checkout.open({ transactionId })`.
+  """
+  def update_payment_transaction(user) do
+    with_paddle_subscription(user, fn sub ->
+      case Client.impl().get_update_payment_transaction(sub.paddle_subscription_id) do
+        {:ok, %{"id" => transaction_id}} -> {:ok, transaction_id}
+        {:ok, _} -> {:error, :invalid_response}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
+  end
+
   defp with_paddle_subscription(user, fun) do
     case get_subscription(user) do
       %Subscription{paddle_subscription_id: sub_id} = sub when is_binary(sub_id) ->

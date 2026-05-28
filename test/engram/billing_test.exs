@@ -363,6 +363,34 @@ defmodule Engram.BillingTest do
     end
   end
 
+  describe "update_payment_transaction/1" do
+    test "returns the Paddle transaction id for the in-app overlay" do
+      user = insert(:user)
+      insert(:subscription, user: user, paddle_subscription_id: "sub_dev")
+
+      expect(Engram.Paddle.ClientMock, :get_update_payment_transaction, fn "sub_dev" ->
+        {:ok, %{"id" => "txn_update_1", "checkout" => %{"url" => "https://pay.paddle.com/x"}}}
+      end)
+
+      assert {:ok, "txn_update_1"} = Billing.update_payment_transaction(user)
+    end
+
+    test "returns :no_subscription when the user has none" do
+      assert {:error, :no_subscription} = Billing.update_payment_transaction(insert(:user))
+    end
+
+    test "propagates client errors" do
+      user = insert(:user)
+      insert(:subscription, user: user, paddle_subscription_id: "sub_err")
+
+      expect(Engram.Paddle.ClientMock, :get_update_payment_transaction, fn _ ->
+        {:error, {:paddle_error, 500}}
+      end)
+
+      assert {:error, {:paddle_error, 500}} = Billing.update_payment_transaction(user)
+    end
+  end
+
   describe "upsert_from_paddle_event/1" do
     test "subscription.created inserts a new row with custom_data" do
       user = insert(:user)

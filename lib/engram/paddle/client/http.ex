@@ -117,6 +117,27 @@ defmodule Engram.Paddle.Client.HTTP do
     end
   end
 
+  @impl true
+  def get_update_payment_transaction(subscription_id) when is_binary(subscription_id) do
+    with {:ok, api_key} <- fetch_api_key() do
+      url =
+        base_url() <>
+          "/subscriptions/" <> subscription_id <> "/update-payment-method-transaction"
+
+      case Req.get(url, headers: headers(api_key), receive_timeout: 10_000) do
+        {:ok, %Req.Response{status: 200, body: %{"data" => data}}} ->
+          {:ok, data}
+
+        {:ok, %Req.Response{status: status, body: body}} ->
+          log_non_2xx("update-payment-transaction", status, body)
+          {:error, {:paddle_error, status}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
   defp log_non_2xx(label, status, body) do
     Logger.warning("Paddle #{label} non-2xx", status: status, reason_label: inspect(body))
   end
