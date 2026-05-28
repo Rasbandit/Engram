@@ -27,6 +27,16 @@ defmodule EngramWeb.McpController do
     send_jsonrpc_error(conn, nil, -32_600, "Invalid Request")
   end
 
+  # Streamable-HTTP clients may open a GET for a server-initiated SSE stream,
+  # or DELETE to terminate a session. This server is POST-only JSON-RPC and
+  # offers neither, so respond 405 with Allow per the MCP spec — not 404,
+  # which clients treat as a missing endpoint and abort the connection.
+  def unsupported_transport(conn, _params) do
+    conn
+    |> put_resp_header("allow", "POST")
+    |> send_resp(405, "")
+  end
+
   # -- Method dispatch --
 
   defp dispatch(_conn, "initialize", _params) do
