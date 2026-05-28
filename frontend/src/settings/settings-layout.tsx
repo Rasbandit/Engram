@@ -2,6 +2,7 @@ import { Menu } from 'lucide-react'
 import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { Button } from '@/components/ui/button'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Sheet,
   SheetContent,
@@ -88,17 +89,23 @@ export default function SettingsLayout() {
             {/* Desktop: persistent side rail. */}
             <nav
               aria-label="Settings sections"
-              className="hidden w-56 shrink-0 overflow-y-auto border-r border-border p-4 md:block"
+              className="hidden w-56 shrink-0 border-r border-border md:block"
             >
-              <h2 className="mb-3 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Settings
-              </h2>
-              <SettingsNavList sections={sections} />
+              <ScrollArea className="h-full">
+                <div className="p-4">
+                  <h2 className="mb-3 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Settings
+                  </h2>
+                  <SettingsNavList sections={sections} />
+                </div>
+              </ScrollArea>
             </nav>
 
-            <section className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
-              <Outlet />
-            </section>
+            <ScrollArea className="min-h-0 min-w-0 flex-1">
+              <div className="p-4 sm:p-6">
+                <Outlet />
+              </div>
+            </ScrollArea>
           </div>
         </div>
       </section>
