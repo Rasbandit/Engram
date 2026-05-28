@@ -252,6 +252,18 @@ defmodule EngramWeb.Router do
     end
   end
 
+  # MCP transport is POST-only JSON-RPC (see the authed scope above).
+  # Streamable-HTTP clients open a GET on the endpoint for a server→client
+  # SSE stream, and DELETE to end a session — we offer neither. Answer 405 +
+  # Allow here rather than letting GET/DELETE fall through to Phoenix's 404,
+  # which clients treat as a missing endpoint and abort. Auth-free on
+  # purpose: an unsupported method is a method-level fact, not an authz one.
+  scope "/api", EngramWeb do
+    pipe_through :api
+    get "/mcp", McpController, :unsupported_transport
+    delete "/mcp", McpController, :unsupported_transport
+  end
+
   # SPA routes — every path here mounts the React app. Whitelisted (not a
   # blanket /*path catch-all) so unknown URLs hit Phoenix's default 404
   # instead of silently rendering an HTML 200 over a typo'd API/OAuth/asset
