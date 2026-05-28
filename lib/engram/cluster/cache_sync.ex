@@ -20,7 +20,9 @@ defmodule Engram.Cluster.CacheSync do
 
   @topic "cluster:cache_sync"
 
-  @spec subscribe() :: :ok | {:error, term()}
+  # Spec matches Phoenix.PubSub.subscribe/2's success typing exactly — a wider
+  # `{:error, term()}` trips Dialyzer's contract_supertype in CI.
+  @spec subscribe() :: :ok | {:error, {:already_registered, pid()}}
   def subscribe, do: Phoenix.PubSub.subscribe(Engram.PubSub, @topic)
 
   @spec broadcast(term()) :: :ok
