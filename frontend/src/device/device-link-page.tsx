@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAuthAdapter } from '../auth/use-auth-adapter'
 import { useNavigate } from 'react-router'
 import { api } from '../api/client'
+import { setActiveVaultId } from '../api/active-vault'
 import AuthShell from '../layout/auth-shell'
 import AuthPanel from '../layout/auth-panel'
 import { Button } from '@/components/ui/button'
@@ -15,6 +17,7 @@ type Step = 'enter-code' | 'pick-vault' | 'success' | 'error'
 export default function DeviceLinkPage() {
   const { isSignedIn } = useAuthAdapter()
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const [step, setStep] = useState<Step>('enter-code')
   const [userCode, setUserCode] = useState('')
   const [vaults, setVaults] = useState<Vault[]>([])
@@ -72,7 +75,14 @@ export default function DeviceLinkPage() {
         ? { user_code: userCode, vault_id: 'new', vault_name: newVaultName }
         : { user_code: userCode, vault_id: selectedVaultId }
 
-      await api.post('/auth/device/authorize', body)
+      const { vault_id } = await api.post<{ ok: boolean; vault_id: number }>(
+        '/auth/device/authorize',
+        body,
+      )
+      // Forward to the vault that was just linked — not whatever the vault
+      // switcher would otherwise fall back to (the default / first vault).
+      setActiveVaultId(vault_id)
+      qc.invalidateQueries({ queryKey: ['vaults'] })
       setStep('success')
       setTimeout(() => navigate('/'), 1500)
     } catch (e: unknown) {

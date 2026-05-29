@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import DeviceLinkPage from './device-link-page'
 
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
 vi.mock('../api/client', () => ({ api: { get, post } }))
+
+const { setActiveVaultId } = vi.hoisted(() => ({ setActiveVaultId: vi.fn() }))
+vi.mock('../api/active-vault', () => ({ setActiveVaultId }))
 
 const authState = vi.hoisted(() => ({ current: { isSignedIn: true } as { isSignedIn: boolean } }))
 vi.mock('../auth/use-auth-adapter', () => ({ useAuthAdapter: () => authState.current }))
@@ -14,10 +18,13 @@ vi.mock('../theme/theme-toggle', () => ({
 }))
 
 function renderPage() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <MemoryRouter>
-      <DeviceLinkPage />
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <DeviceLinkPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
   )
 }
 
@@ -43,7 +50,7 @@ describe('DeviceLinkPage', () => {
 
   it('verifies a valid code and authorizes the chosen vault', async () => {
     get.mockResolvedValue({ vaults: [{ id: 7, name: 'Personal', note_count: 12 }] })
-    post.mockResolvedValue({})
+    post.mockResolvedValue({ ok: true, vault_id: 7 })
     renderPage()
 
     fireEvent.change(screen.getByPlaceholderText(/XXXX-XXXX/i), { target: { value: 'ENGR7X4K' } })
@@ -59,5 +66,24 @@ describe('DeviceLinkPage', () => {
       ),
     )
     expect(await screen.findByText(/vault linked/i)).toBeInTheDocument()
+  })
+
+  it('forwards to the linked vault (sets it active) after authorizing', async () => {
+    get.mockResolvedValue({
+      vaults: [
+        { id: 7, name: 'Personal', note_count: 12 },
+        { id: 9, name: 'Work', note_count: 3 },
+      ],
+    })
+    post.mockResolvedValue({ ok: true, vault_id: 9 })
+    renderPage()
+
+    fireEvent.change(screen.getByPlaceholderText(/XXXX-XXXX/i), { target: { value: 'ENGR7X4K' } })
+    fireEvent.click(screen.getByRole('button', { name: /verify/i }))
+
+    fireEvent.click(await screen.findByRole('radio', { name: /work/i }))
+    fireEvent.click(screen.getByRole('button', { name: /authorize/i }))
+
+    await waitFor(() => expect(setActiveVaultId).toHaveBeenCalledWith(9))
   })
 })
