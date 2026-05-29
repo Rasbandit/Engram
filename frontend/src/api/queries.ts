@@ -153,6 +153,8 @@ export interface BillingConfig {
   custom_data: {
     user_id: number
   }
+  // Maximum number of active vaults the user may have, or null for unlimited.
+  vaults_cap: number | null
 }
 
 export function useBillingConfig() {
