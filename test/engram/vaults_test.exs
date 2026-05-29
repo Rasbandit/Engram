@@ -165,6 +165,20 @@ defmodule Engram.VaultsTest do
       assert Vaults.content_counts_for(user, [a])[a.id] == %{notes: 1, attachments: 0}
     end
 
+    # Structurally proves the user_id guard fires: this note shares vault a's id
+    # but belongs to `other`. Vault-id filtering alone would count it; only the
+    # explicit user_id clause excludes it.
+    test "user_id guard excludes another user's row on the same vault_id", %{
+      user: user,
+      other_user: other,
+      a: a
+    } do
+      insert(:note, user: other, vault: a)
+      insert(:note, user: user, vault: a)
+
+      assert Vaults.content_counts_for(user, [a])[a.id] == %{notes: 1, attachments: 0}
+    end
+
     test "empty vault list returns empty map", %{user: user} do
       assert Vaults.content_counts_for(user, []) == %{}
     end
