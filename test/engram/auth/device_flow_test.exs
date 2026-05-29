@@ -1,7 +1,10 @@
 defmodule Engram.Auth.DeviceFlowTest do
   use Engram.DataCase, async: true
 
-  alias Engram.Auth.DeviceFlow
+  import Ecto.Query
+
+  alias Engram.Auth.{DeviceFlow, DeviceRefreshToken}
+  alias Engram.Repo
 
   describe "start_device_flow/1" do
     test "creates a pending device authorization" do
@@ -142,7 +145,10 @@ defmodule Engram.Auth.DeviceFlowTest do
       assert refreshed.expires_in == Engram.Token.ttl_seconds()
     end
 
-    test "old refresh token is revoked after rotation" do
+    test "old refresh token still works within the grace window" do
+      # Rotation is single-use, but a short grace window lets a client that lost
+      # the rotated token (e.g. a plugin reload mid-refresh) recover instead of
+      # being bricked for the token's full 90-day life.
       user = insert(:user)
       vault = insert(:vault, user: user)
       {:ok, auth} = DeviceFlow.start_device_flow("client_1")
@@ -150,12 +156,149 @@ defmodule Engram.Auth.DeviceFlowTest do
       {:ok, initial} = DeviceFlow.exchange_device_code(auth.device_code)
       {:ok, _} = DeviceFlow.refresh_access_token(initial.refresh_token)
 
+      # Immediate reuse (well within the grace window) still succeeds.
+      assert {:ok, refreshed} = DeviceFlow.refresh_access_token(initial.refresh_token)
+      assert is_binary(refreshed.access_token)
+    end
+
+    test "old refresh token is rejected after the grace window expires" do
+      user = insert(:user)
+      vault = insert(:vault, user: user)
+      {:ok, auth} = DeviceFlow.start_device_flow("client_1")
+      {:ok, _} = DeviceFlow.authorize_device(auth.user_code, user, vault.id)
+      {:ok, initial} = DeviceFlow.exchange_device_code(auth.device_code)
+      {:ok, _} = DeviceFlow.refresh_access_token(initial.refresh_token)
+
+      # Age the revocation past the grace window.
+      stale = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.truncate(:second)
+
+      Repo.update_all(
+        from(rt in DeviceRefreshToken, where: not is_nil(rt.revoked_at)),
+        [set: [revoked_at: stale]],
+        skip_tenant_check: true
+      )
+
       assert {:error, :invalid_refresh_token} =
                DeviceFlow.refresh_access_token(initial.refresh_token)
     end
 
     test "rejects unknown refresh token" do
       assert {:error, :invalid_refresh_token} = DeviceFlow.refresh_access_token("engram_rt_fake")
+    end
+
+    test "rotation keeps the new token in the same family" do
+      user = insert(:user)
+      vault = insert(:vault, user: user)
+      {:ok, auth} = DeviceFlow.start_device_flow("client_1")
+      {:ok, _} = DeviceFlow.authorize_device(auth.user_code, user, vault.id)
+      {:ok, initial} = DeviceFlow.exchange_device_code(auth.device_code)
+      {:ok, _} = DeviceFlow.refresh_access_token(initial.refresh_token)
+
+      families =
+        Repo.all(from(rt in DeviceRefreshToken, select: rt.family_id), skip_tenant_check: true)
+
+      assert length(families) == 2
+      assert length(Enum.uniq(families)) == 1
+    end
+
+    test "a fresh login starts a distinct family" do
+      user = insert(:user)
+      vault = insert(:vault, user: user)
+
+      {:ok, a} = DeviceFlow.start_device_flow("client_1")
+      {:ok, _} = DeviceFlow.authorize_device(a.user_code, user, vault.id)
+      {:ok, _} = DeviceFlow.exchange_device_code(a.device_code)
+
+      {:ok, b} = DeviceFlow.start_device_flow("client_1")
+      {:ok, _} = DeviceFlow.authorize_device(b.user_code, user, vault.id)
+      {:ok, _} = DeviceFlow.exchange_device_code(b.device_code)
+
+      families =
+        Repo.all(from(rt in DeviceRefreshToken, select: rt.family_id), skip_tenant_check: true)
+
+      assert length(Enum.uniq(families)) == 2
+    end
+
+    test "reuse outside the leeway revokes the entire token family" do
+      # The security-defining case (RFC 9700 §4.14.2): replaying a rotated token
+      # after the leeway is treated as a breach. The whole family is invalidated,
+      # so even the *current, still-valid* token is rejected and the user must
+      # re-authenticate.
+      user = insert(:user)
+      vault = insert(:vault, user: user)
+      {:ok, auth} = DeviceFlow.start_device_flow("client_1")
+      {:ok, _} = DeviceFlow.authorize_device(auth.user_code, user, vault.id)
+      {:ok, initial} = DeviceFlow.exchange_device_code(auth.device_code)
+
+      # initial -> current, both in the same family.
+      {:ok, current} = DeviceFlow.refresh_access_token(initial.refresh_token)
+
+      # Age the old token's revocation past the leeway so its replay is a breach.
+      stale = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.truncate(:second)
+
+      Repo.update_all(
+        from(rt in DeviceRefreshToken, where: not is_nil(rt.revoked_at)),
+        [set: [revoked_at: stale]],
+        skip_tenant_check: true
+      )
+
+      assert {:error, :invalid_refresh_token} =
+               DeviceFlow.refresh_access_token(initial.refresh_token)
+
+      # Family nuked: the current valid token no longer works.
+      assert {:error, :invalid_refresh_token} =
+               DeviceFlow.refresh_access_token(current.refresh_token)
+    end
+
+    test "a breach only revokes the offending family, not other families" do
+      user = insert(:user)
+      vault = insert(:vault, user: user)
+
+      # Family A: rotate then breach.
+      {:ok, a} = DeviceFlow.start_device_flow("client_1")
+      {:ok, _} = DeviceFlow.authorize_device(a.user_code, user, vault.id)
+      {:ok, a0} = DeviceFlow.exchange_device_code(a.device_code)
+      {:ok, _a1} = DeviceFlow.refresh_access_token(a0.refresh_token)
+
+      # Family B: independent, healthy login.
+      {:ok, b} = DeviceFlow.start_device_flow("client_1")
+      {:ok, _} = DeviceFlow.authorize_device(b.user_code, user, vault.id)
+      {:ok, b0} = DeviceFlow.exchange_device_code(b.device_code)
+
+      stale = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.truncate(:second)
+
+      Repo.update_all(
+        from(rt in DeviceRefreshToken, where: not is_nil(rt.revoked_at)),
+        [set: [revoked_at: stale]],
+        skip_tenant_check: true
+      )
+
+      # Breach family A.
+      assert {:error, :invalid_refresh_token} = DeviceFlow.refresh_access_token(a0.refresh_token)
+
+      # Family B is untouched.
+      assert {:ok, _} = DeviceFlow.refresh_access_token(b0.refresh_token)
+    end
+
+    test "an expired token is rejected and never triggers family revocation" do
+      user = insert(:user)
+      vault = insert(:vault, user: user)
+      {:ok, auth} = DeviceFlow.start_device_flow("client_1")
+      {:ok, _} = DeviceFlow.authorize_device(auth.user_code, user, vault.id)
+      {:ok, initial} = DeviceFlow.exchange_device_code(auth.device_code)
+      {:ok, current} = DeviceFlow.refresh_access_token(initial.refresh_token)
+
+      # Expire the whole family.
+      past = DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.truncate(:second)
+
+      Repo.update_all(
+        from(rt in DeviceRefreshToken),
+        [set: [expires_at: past]],
+        skip_tenant_check: true
+      )
+
+      assert {:error, :invalid_refresh_token} =
+               DeviceFlow.refresh_access_token(current.refresh_token)
     end
   end
 
