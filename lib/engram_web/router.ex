@@ -14,6 +14,10 @@ defmodule EngramWeb.Router do
     plug EngramWeb.Plugs.RateLimit, limit: 10, period: 60_000
   end
 
+  pipeline :require_admin do
+    plug EngramWeb.Plugs.RequireAdmin
+  end
+
   pipeline :oauth_api do
     plug :accepts, ["json"]
     plug EngramWeb.Plugs.RateLimit, limit: 10, period: 60_000
@@ -183,6 +187,18 @@ defmodule EngramWeb.Router do
     # JWT after the React consent UI is approved. Returns JSON
     # `{redirect_uri: "..."}` so the SPA can `window.location.assign`.
     post "/oauth/authorize/consent", OAuthAuthorizeController, :consent
+  end
+
+  # Self-host admin scope. 404 under Clerk (RequireAdmin gates on local auth);
+  # 403 for non-admins. There is no named `:authenticated` pipeline, so we list
+  # EngramWeb.Plugs.Auth explicitly. Invite/user routes are added in their own
+  # phases (B4/C4); only registration-mode routes exist for now.
+  scope "/api/admin", EngramWeb.Admin, as: :admin do
+    pipe_through [:api, EngramWeb.Plugs.Auth, :require_admin]
+
+    get "/registration", RegistrationController, :show
+    # PATCH (not PUT): the frontend `api` client exposes get/post/patch/del, no put.
+    patch "/registration", RegistrationController, :update
   end
 
   # OAuth public client metadata — surfaces `client_name` to the SPA
