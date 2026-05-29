@@ -321,6 +321,7 @@ defmodule Engram.VaultsTest do
       insert(:user_limit_override, user: user, key: "vaults_cap", value: %{"v" => 10})
       {:ok, v} = Vaults.create_vault(user, %{name: "Active"})
       assert {:error, :not_found} = Vaults.purge_vault(user, v.id)
+      refute_enqueued(worker: Engram.Workers.CleanupVault)
     end
   end
 
