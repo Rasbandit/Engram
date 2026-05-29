@@ -2,6 +2,10 @@ import { useState } from 'react'
 import { useAuthAdapter } from '../auth/use-auth-adapter'
 import { useNavigate } from 'react-router'
 import { api } from '../api/client'
+import AuthShell from '../layout/auth-shell'
+import AuthPanel from '../layout/auth-panel'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 type Vault = { id: number; name: string; note_count: number }
 
@@ -20,7 +24,18 @@ export default function DeviceLinkPage() {
   const [loading, setLoading] = useState(false)
 
   if (!isSignedIn) {
-    return <p>Please sign in to link your Obsidian vault.</p>
+    return (
+      <AuthShell>
+        <AuthPanel className="flex flex-col gap-3">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+            Link Obsidian Vault
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Please sign in to link your Obsidian vault.
+          </p>
+        </AuthPanel>
+      </AuthShell>
+    )
   }
 
   async function handleVerifyCode() {
@@ -74,79 +89,134 @@ export default function DeviceLinkPage() {
   const canAuthorize = createNew ? newVaultName.trim().length > 0 : selectedVaultId !== null
 
   return (
-    <main style={{ maxWidth: 480, margin: '0 auto', padding: '2rem' }}>
-      <h1>Link Obsidian Vault</h1>
+    <AuthShell>
+      <AuthPanel className="flex flex-col gap-4">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+          Link Obsidian Vault
+        </h1>
 
-      {step === 'enter-code' && (
-        <section>
-          <p>Enter the code shown in your Obsidian plugin:</p>
-          <input
-            type="text"
-            value={userCode}
-            onChange={(e) => setUserCode(e.target.value.toUpperCase())}
-            placeholder="XXXX-XXXX"
-            maxLength={9}
-            style={{ fontFamily: 'monospace', fontSize: '1.5rem', textAlign: 'center', width: '100%', padding: '0.5rem' }}
-            onKeyDown={(e) => e.key === 'Enter' && handleVerifyCode()}
-          />
-          <button onClick={handleVerifyCode} disabled={loading} style={{ marginTop: '1rem', width: '100%' }}>
-            {loading ? 'Verifying...' : 'Verify'}
-          </button>
-        </section>
-      )}
-
-      {step === 'pick-vault' && (
-        <section>
-          <p>{vaults.length > 0 ? 'Code verified. Choose which vault to sync:' : 'Code verified. Create a vault to get started:'}</p>
-          <fieldset style={{ border: 'none', padding: 0 }}>
-            {vaults.map((v) => (
-              <label key={v.id} style={{ display: 'block', padding: '0.5rem 0', cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  name="vault"
-                  checked={!createNew && selectedVaultId === v.id}
-                  onChange={() => { setSelectedVaultId(v.id); setCreateNew(false) }}
-                />
-                {' '}{v.name} ({v.note_count} notes)
-              </label>
-            ))}
-            {vaults.length > 0 && (
-              <label style={{ display: 'block', padding: '0.5rem 0', cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  name="vault"
-                  checked={createNew}
-                  onChange={() => { setCreateNew(true); setSelectedVaultId(null) }}
-                />
-                {' '}+ Create new vault
-              </label>
-            )}
-          </fieldset>
-
-          {createNew && (
+        {step === 'enter-code' && (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-muted-foreground">
+              Enter the code shown in your Obsidian plugin:
+            </p>
             <input
               type="text"
-              value={newVaultName}
-              onChange={(e) => setNewVaultName(e.target.value)}
-              placeholder="Vault name"
-              style={{ width: '100%', padding: '0.5rem', marginTop: '0.5rem' }}
+              value={userCode}
+              onChange={(e) => setUserCode(e.target.value.toUpperCase())}
+              placeholder="XXXX-XXXX"
+              maxLength={9}
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-center font-mono text-2xl tracking-widest text-foreground outline-none transition-colors focus-visible:border-primary"
+              onKeyDown={(e) => e.key === 'Enter' && handleVerifyCode()}
             />
-          )}
+            <Button type="button" onClick={handleVerifyCode} disabled={loading} className="w-full">
+              {loading ? 'Verifying…' : 'Verify'}
+            </Button>
+          </div>
+        )}
 
-          <button onClick={handleAuthorize} disabled={loading || !canAuthorize} style={{ marginTop: '1rem', width: '100%' }}>
-            {loading ? 'Authorizing...' : 'Authorize'}
-          </button>
-        </section>
-      )}
+        {step === 'pick-vault' && (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-muted-foreground">
+              {vaults.length > 0
+                ? 'Code verified. Choose which vault to sync:'
+                : 'Code verified. Create a vault to get started:'}
+            </p>
+            <fieldset className="flex flex-col gap-2">
+              {vaults.map((v) => {
+                const active = !createNew && selectedVaultId === v.id
+                return (
+                  <label
+                    key={v.id}
+                    className={cn(
+                      'flex cursor-pointer items-center gap-3 rounded-lg border p-4 transition-colors',
+                      active
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-primary/50',
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="vault"
+                      checked={active}
+                      onChange={() => {
+                        setSelectedVaultId(v.id)
+                        setCreateNew(false)
+                      }}
+                      className="accent-primary"
+                    />
+                    <span className="text-sm font-medium text-foreground">
+                      {v.name}{' '}
+                      <span className="font-normal text-muted-foreground">
+                        ({v.note_count} notes)
+                      </span>
+                    </span>
+                  </label>
+                )
+              })}
+              {vaults.length > 0 && (
+                <label
+                  className={cn(
+                    'flex cursor-pointer items-center gap-3 rounded-lg border p-4 transition-colors',
+                    createNew
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border hover:border-primary/50',
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="vault"
+                    checked={createNew}
+                    onChange={() => {
+                      setCreateNew(true)
+                      setSelectedVaultId(null)
+                    }}
+                    className="accent-primary"
+                  />
+                  <span className="text-sm font-medium text-foreground">+ Create new vault</span>
+                </label>
+              )}
+            </fieldset>
 
-      {step === 'success' && (
-        <section>
-          <h2>Vault linked!</h2>
-          <p>Your Obsidian plugin is now connected. Redirecting to your vault...</p>
-        </section>
-      )}
+            {createNew && (
+              <input
+                type="text"
+                value={newVaultName}
+                onChange={(e) => setNewVaultName(e.target.value)}
+                placeholder="Vault name"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus-visible:border-primary"
+              />
+            )}
 
-      {error && <p style={{ color: 'red', marginTop: '1rem' }}>{error}</p>}
-    </main>
+            <Button
+              type="button"
+              onClick={handleAuthorize}
+              disabled={loading || !canAuthorize}
+              className="w-full"
+            >
+              {loading ? 'Authorizing…' : 'Authorize'}
+            </Button>
+          </div>
+        )}
+
+        {step === 'success' && (
+          <div className="flex flex-col gap-2">
+            <h2 className="text-lg font-semibold text-foreground">Vault linked!</h2>
+            <p className="text-sm text-muted-foreground">
+              Your Obsidian plugin is now connected. Redirecting to your vault…
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <p
+            role="alert"
+            className="rounded-lg border border-destructive/50 bg-destructive/5 p-3 text-sm text-foreground"
+          >
+            {error}
+          </p>
+        )}
+      </AuthPanel>
+    </AuthShell>
   )
 }
