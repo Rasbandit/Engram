@@ -6,15 +6,24 @@ defmodule Engram.Auth.DeviceFlow do
   """
 
   import Ecto.Query
+
   alias Engram.{Accounts, Vaults}
   alias Engram.Auth.{DeviceAuthorization, DeviceRefreshToken}
   alias Engram.Repo
+
+  require Logger
 
   @device_code_bytes 32
   @refresh_token_prefix "engram_rt_"
   @refresh_token_bytes 32
   @refresh_token_ttl_days 90
   @device_code_ttl_seconds 300
+  # Leeway window after a refresh token is rotated during which the old token is
+  # still accepted, so a client that loses the rotated token (e.g. a plugin
+  # reload mid-refresh, or a brief concurrent retry) can recover instead of
+  # being forced to re-login. Auth0 calls this the "rotation overlap period" and
+  # recommends the shortest viable value; plugin reload races resolve in <1s.
+  @refresh_leeway_seconds 30
 
   # Characters excluding ambiguous: 0, O, 1, I, L
   @user_code_chars ~c"ABCDEFGHJKMNPQRSTUVWXYZ2345679"
@@ -98,10 +107,14 @@ defmodule Engram.Auth.DeviceFlow do
   def refresh_access_token(raw_refresh_token) do
     token_hash = hash_token(raw_refresh_token)
     now = DateTime.utc_now()
+    leeway_cutoff = DateTime.add(now, -@refresh_leeway_seconds, :second)
 
+    # Look the token up regardless of revocation state — a *revoked* token still
+    # has to be classified (benign retry within leeway vs. reuse breach), not
+    # silently rejected. Expired tokens are out of scope entirely.
     query =
       from(rt in DeviceRefreshToken,
-        where: rt.token_hash == ^token_hash and rt.expires_at > ^now and is_nil(rt.revoked_at),
+        where: rt.token_hash == ^token_hash and rt.expires_at > ^now,
         preload: [:user]
       )
 
@@ -109,20 +122,27 @@ defmodule Engram.Auth.DeviceFlow do
       nil ->
         {:error, :invalid_refresh_token}
 
-      old_token ->
+      %{revoked_at: nil} = old_token ->
+        # Active token: normal single-use rotation. Stamp revoked_at so the
+        # leeway is measured from this first rotation and can't be slid forward.
         old_token
         |> Ecto.Changeset.change(%{revoked_at: DateTime.truncate(now, :second)})
         |> Repo.update!(skip_tenant_check: true)
 
-        access_token = Accounts.generate_jwt(old_token.user)
-        {raw_refresh, _hash} = create_refresh_token(old_token.user_id, old_token.vault_id)
+        issue_child(old_token)
 
-        {:ok,
-         %{
-           access_token: access_token,
-           refresh_token: raw_refresh,
-           expires_in: Engram.Token.ttl_seconds()
-         }}
+      old_token ->
+        if DateTime.compare(old_token.revoked_at, leeway_cutoff) == :gt do
+          # Revoked within the leeway: benign retry (lost rotation, concurrent
+          # request). Issue a child in the same family without re-revoking.
+          issue_child(old_token)
+        else
+          # Reuse of a token revoked outside the leeway → breach (RFC 9700
+          # §4.14.2). Invalidate the whole family so the legitimate holder of
+          # the current token is forced to re-authenticate.
+          invalidate_family(old_token)
+          {:error, :invalid_refresh_token}
+        end
     end
   end
 
@@ -164,7 +184,41 @@ defmodule Engram.Auth.DeviceFlow do
      }}
   end
 
-  defp create_refresh_token(user_id, vault_id) do
+  # Rotate the verified old token into a fresh one within its family, minting a
+  # new access token. Inherits the old token's owner, so a token can only ever
+  # mint tokens for its own user/vault.
+  defp issue_child(old_token) do
+    access_token = Accounts.generate_jwt(old_token.user)
+
+    {raw_refresh, _hash} =
+      create_refresh_token(old_token.user_id, old_token.vault_id, old_token.family_id)
+
+    {:ok,
+     %{
+       access_token: access_token,
+       refresh_token: raw_refresh,
+       expires_in: Engram.Token.ttl_seconds()
+     }}
+  end
+
+  # Reuse breach: hard-delete the entire family. Deleting (rather than stamping
+  # revoked_at) is deliberate — a freshly-revoked current token would otherwise
+  # fall inside the leeway window and be mistaken for a benign retry, defeating
+  # the revocation. Scoped by family_id (owner-bound, a family never crosses
+  # users), so only the compromised lineage is touched.
+  defp invalidate_family(old_token) do
+    Logger.warning(
+      "device refresh-token reuse detected; revoking family " <>
+        "family_id=#{old_token.family_id} user_id=#{old_token.user_id}"
+    )
+
+    from(rt in DeviceRefreshToken, where: rt.family_id == ^old_token.family_id)
+    |> Repo.delete_all(skip_tenant_check: true)
+  end
+
+  # A nil family_id starts a new family (fresh login); rotation passes the old
+  # token's family_id to keep the lineage together.
+  defp create_refresh_token(user_id, vault_id, family_id \\ nil) do
     raw =
       @refresh_token_prefix <>
         Base.url_encode64(:crypto.strong_rand_bytes(@refresh_token_bytes), padding: false)
@@ -179,6 +233,7 @@ defmodule Engram.Auth.DeviceFlow do
     %DeviceRefreshToken{}
     |> DeviceRefreshToken.changeset(%{
       token_hash: token_hash,
+      family_id: family_id || Ecto.UUID.generate(),
       user_id: user_id,
       vault_id: vault_id,
       expires_at: expires_at

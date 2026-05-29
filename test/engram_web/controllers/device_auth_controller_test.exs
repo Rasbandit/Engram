@@ -1,7 +1,10 @@
 defmodule EngramWeb.DeviceAuthControllerTest do
   use EngramWeb.ConnCase, async: true
 
-  alias Engram.Auth.DeviceFlow
+  import Ecto.Query
+
+  alias Engram.Auth.{DeviceFlow, DeviceRefreshToken}
+  alias Engram.Repo
 
   defp create_authed_conn(%{conn: conn}) do
     user = insert(:user)
@@ -118,7 +121,7 @@ defmodule EngramWeb.DeviceAuthControllerTest do
       assert resp["expires_in"] == Engram.Token.ttl_seconds()
     end
 
-    test "rejects revoked refresh token", %{conn: conn} do
+    test "rejects a refresh token reused after the grace window", %{conn: conn} do
       user = insert(:user)
       vault = insert(:vault, user: user)
       {:ok, auth} = DeviceFlow.start_device_flow("client_1")
@@ -126,8 +129,45 @@ defmodule EngramWeb.DeviceAuthControllerTest do
       {:ok, tokens} = DeviceFlow.exchange_device_code(auth.device_code)
       {:ok, _} = DeviceFlow.refresh_access_token(tokens.refresh_token)
 
+      # Age the revocation past the grace window so reuse is genuinely rejected.
+      stale = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.truncate(:second)
+
+      Repo.update_all(
+        from(rt in DeviceRefreshToken, where: not is_nil(rt.revoked_at)),
+        [set: [revoked_at: stale]],
+        skip_tenant_check: true
+      )
+
       conn = post(conn, "/api/auth/token/refresh", %{refresh_token: tokens.refresh_token})
       assert json_response(conn, 401)
+    end
+
+    test "a reuse breach revokes the family so the current token also 401s", %{conn: conn} do
+      user = insert(:user)
+      vault = insert(:vault, user: user)
+      {:ok, auth} = DeviceFlow.start_device_flow("client_1")
+      {:ok, _} = DeviceFlow.authorize_device(auth.user_code, user, vault.id)
+      {:ok, tokens} = DeviceFlow.exchange_device_code(auth.device_code)
+      {:ok, current} = DeviceFlow.refresh_access_token(tokens.refresh_token)
+
+      # Age the old token's revocation past the leeway so replay is a breach.
+      stale = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.truncate(:second)
+
+      Repo.update_all(
+        from(rt in DeviceRefreshToken, where: not is_nil(rt.revoked_at)),
+        [set: [revoked_at: stale]],
+        skip_tenant_check: true
+      )
+
+      # Replay triggers the breach.
+      breach = post(conn, "/api/auth/token/refresh", %{refresh_token: tokens.refresh_token})
+      assert json_response(breach, 401)
+
+      # The current, previously-valid token is now rejected too.
+      after_breach =
+        post(conn, "/api/auth/token/refresh", %{refresh_token: current.refresh_token})
+
+      assert json_response(after_breach, 401)
     end
   end
 end
