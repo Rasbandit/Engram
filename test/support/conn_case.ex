@@ -53,6 +53,12 @@ defmodule EngramWeb.ConnCase do
     user
   end
 
+  @doc "Signs `user` in by minting a local access token and setting the Bearer header."
+  def authenticate(conn, user) do
+    {:ok, token} = Engram.Auth.Providers.Local.issue_access_token(user.external_id, user.email)
+    Plug.Conn.put_req_header(conn, "authorization", "Bearer " <> token)
+  end
+
   # Idempotent insert — the helper may be called multiple times against the
   # same user when a test exercises more than one `create_api_key` flow.
   defp upsert_override!(user, key, value) do
