@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import NoteEditor from './note-editor'
 import NoteToc from './note-toc'
 import NoteView from './note-view'
+import { useRemoteUpdateBanner } from './use-remote-update-banner'
 
 type Mode = 'preview' | 'edit'
 
@@ -58,6 +59,7 @@ export default function NotePage() {
 
   const dirty = draft !== note.content
   const saving = update.isPending
+  const remoteUpdate = useRemoteUpdateBanner(note.content, draft)
 
   const handleSave = async () => {
     try {
@@ -118,6 +120,26 @@ export default function NotePage() {
         forceMount
         className="min-h-0 flex-1 data-[state=inactive]:hidden"
       >
+        {mode === 'edit' && remoteUpdate.show && (
+          <div
+            role="status"
+            className="flex shrink-0 items-center justify-between gap-3 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-900 dark:text-amber-200"
+          >
+            <span>This note was updated elsewhere. Your unsaved edits are still here.</span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDraft(remoteUpdate.remoteContent)}
+              >
+                Discard mine &amp; reload
+              </Button>
+              <Button variant="outline" size="sm" onClick={remoteUpdate.acknowledge}>
+                Keep mine
+              </Button>
+            </div>
+          </div>
+        )}
         <ScrollArea className="h-full">
           <div className="px-6 py-6 lg:px-8 lg:py-8">
             <NoteEditor value={draft} onChange={setDraft} />
