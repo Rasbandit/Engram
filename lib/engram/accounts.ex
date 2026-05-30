@@ -201,6 +201,53 @@ defmodule Engram.Accounts do
   def update_password(_user, pw) when is_binary(pw),
     do: {:error, :password_too_long}
 
+  @doc """
+  Self-delete flow for local-auth users:
+    1. verify password
+    2. block if this is the last active admin
+    3. set deleted_at, revoke all refresh tokens, hard-delete api keys
+
+  The existing login chokepoint in `verify_password/2` blocks re-auth as
+  soon as `deleted_at` is set, so no token cleanup is required beyond
+  revoke_all_user_tokens/1.
+  """
+  def delete_self(%User{} = user, password) when is_binary(password) do
+    with {:ok, _} <- verify_password(user.email, password),
+         :ok <- guard_last_admin(user) do
+      Repo.transaction(
+        fn ->
+          now = DateTime.utc_now()
+
+          user
+          |> Ecto.Changeset.change(%{deleted_at: now})
+          |> Repo.update!(skip_tenant_check: true)
+
+          revoke_all_user_tokens(user)
+
+          from(k in Engram.Accounts.ApiKey, where: k.user_id == ^user.id)
+          |> Repo.delete_all(skip_tenant_check: true)
+
+          :ok
+        end,
+        skip_tenant_check: true
+      )
+      |> case do
+        {:ok, :ok} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :invalid_credentials} -> {:error, :invalid_password}
+      {:error, :last_admin} -> {:error, :last_admin}
+      {:error, other} -> {:error, other}
+    end
+  end
+
+  defp guard_last_admin(%User{role: "admin"} = _user) do
+    if active_admin_count() <= 1, do: {:error, :last_admin}, else: :ok
+  end
+
+  defp guard_last_admin(_user), do: :ok
+
   @doc "Spec §8/§10 — revokes all of a user's active refresh tokens (logout-everywhere)."
   def revoke_all_user_tokens(%User{id: user_id}) do
     now = DateTime.utc_now(:second)
