@@ -43,4 +43,26 @@ defmodule Engram.Accounts.ProfileTest do
       assert still_untouched.display_name == "Dan"
     end
   end
+
+  describe "count_active_admins/0" do
+    test "counts only admins that are not deleted or suspended" do
+      {:ok, _bootstrap_admin} =
+        Accounts.create_user_with_password("admin1@example.com", "password123")
+
+      # Subsequent users default to member.
+      {:ok, _member} = Accounts.create_user_with_password("member@example.com", "password123")
+
+      assert Accounts.count_active_admins() == 1
+    end
+
+    test "ignores soft-deleted admins" do
+      {:ok, admin} = Accounts.create_user_with_password("admin2@example.com", "password123")
+
+      admin
+      |> Ecto.Changeset.change(%{deleted_at: DateTime.utc_now()})
+      |> Engram.Repo.update!(skip_tenant_check: true)
+
+      assert Accounts.count_active_admins() == 0
+    end
+  end
 end
