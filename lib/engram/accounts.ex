@@ -156,9 +156,14 @@ defmodule Engram.Accounts do
 
     case Repo.one(from(u in User, where: u.email == ^normalized_email), skip_tenant_check: true) do
       %User{password_hash: hash} = user when is_binary(hash) ->
-        if Bcrypt.verify_pass(password, hash),
-          do: {:ok, user},
-          else: {:error, :invalid_credentials}
+        # Spec §10: block suspended/deleted at the login chokepoint. Check after
+        # password verification so timing matches the wrong-password path.
+        cond do
+          not Bcrypt.verify_pass(password, hash) -> {:error, :invalid_credentials}
+          not is_nil(user.suspended_at) -> {:error, :suspended}
+          not is_nil(user.deleted_at) -> {:error, :deleted}
+          true -> {:ok, user}
+        end
 
       %User{password_hash: nil} ->
         Bcrypt.no_user_verify()
@@ -217,6 +222,13 @@ defmodule Engram.Accounts do
                   Repo.one!(from(u in Engram.Accounts.User, where: u.id == ^token.user_id),
                     skip_tenant_check: true
                   )
+
+                # Spec §10: same guard as the login chokepoint (verify_password).
+                cond do
+                  not is_nil(user.suspended_at) -> Repo.rollback(:suspended)
+                  not is_nil(user.deleted_at) -> Repo.rollback(:deleted)
+                  true -> :ok
+                end
 
                 case create_refresh_token(user, token.family_id) do
                   {:ok, new_raw, new_record} -> {user, new_raw, new_record}
