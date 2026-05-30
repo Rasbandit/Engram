@@ -15,7 +15,19 @@ defmodule Engram.Repo.Migrations.CreateInstanceSettings do
       "ALTER TABLE instance_settings ALTER COLUMN id DROP IDENTITY IF EXISTS"
     )
 
-    # Singleton guard: only id=1 may ever exist.
-    create constraint(:instance_settings, :singleton, check: "id = 1")
+    # Singleton guard: only id=1 may ever exist. Added NOT VALID (no table
+    # scan, brief lock) then VALIDATE separately — squawk constraint-missing-
+    # not-valid. Table is empty here, so the validate is also effectively free,
+    # but the pattern matches how online-safe constraints are added repo-wide
+    # (see 20260528000000_add_family_id_to_device_refresh_tokens.exs).
+    execute(
+      "ALTER TABLE instance_settings ADD CONSTRAINT singleton CHECK (id = 1) NOT VALID",
+      "ALTER TABLE instance_settings DROP CONSTRAINT singleton"
+    )
+
+    execute(
+      "ALTER TABLE instance_settings VALIDATE CONSTRAINT singleton",
+      ""
+    )
   end
 end
