@@ -151,6 +151,8 @@ defmodule EngramWeb.Router do
     # User info
     get "/user/storage", StorageController, :index
     get "/me", UsersController, :me
+    patch "/me", UsersController, :update
+    delete "/me", UsersController, :delete
 
     # Authenticated password change (old + new). Reset (token-gated) is public.
     post "/auth/password/change", PasswordController, :change
