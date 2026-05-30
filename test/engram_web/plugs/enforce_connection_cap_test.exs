@@ -123,5 +123,54 @@ defmodule EngramWeb.Plugs.EnforceConnectionCapTest do
         |> EnforceConnectionCap.call([])
       end
     end
+
+    test "passes when oauth_clients.kind is an unexpected value (fails open + logs)", %{conn: conn, user: user} do
+      import ExUnit.CaptureLog
+
+      drift_client_id = Ecto.UUID.generate()
+
+      # The oauth_clients table has a CHECK constraint (kind IN ('mcp', 'obsidian')).
+      # Drop it inside the ConnCase transaction so we can insert a "desktop" kind row
+      # that simulates DB drift. Postgres DDL is transactional: the DROP is rolled back
+      # at the end of the test along with the row, leaving the real schema intact.
+      Engram.Repo.query!(
+        "ALTER TABLE oauth_clients DROP CONSTRAINT IF EXISTS oauth_clients_kind_check",
+        [],
+        skip_tenant_check: true
+      )
+
+      Engram.Repo.insert_all(
+        "oauth_clients",
+        [
+          %{
+            client_id: Ecto.UUID.dump!(drift_client_id),
+            redirect_uris: ["http://127.0.0.1/cb"],
+            client_name: "Drift Kind Client",
+            kind: "desktop",
+            grant_types: ["authorization_code", "refresh_token"],
+            response_types: ["code"],
+            token_endpoint_auth_method: "none",
+            inserted_at: DateTime.utc_now(),
+            updated_at: DateTime.utc_now()
+          }
+        ],
+        skip_tenant_check: true
+      )
+
+      log =
+        capture_log(fn ->
+          result_conn =
+            conn
+            |> Map.put(:method, "POST")
+            |> Map.put(:request_path, "/api/oauth/authorize/consent")
+            |> Map.put(:params, %{"client_id" => drift_client_id})
+            |> assign(:current_user, user)
+            |> EnforceConnectionCap.call([])
+
+          refute result_conn.halted
+        end)
+
+      assert log =~ "unknown oauth_clients.kind"
+    end
   end
 end
