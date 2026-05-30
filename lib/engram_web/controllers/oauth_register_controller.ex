@@ -11,14 +11,15 @@ defmodule EngramWeb.OAuthRegisterController do
   use EngramWeb, :controller
 
   alias Engram.OAuth
+  alias EngramWeb.RequestMeta
 
   @telemetry_event [:engram, :mcp, :dcr, :register]
 
   def register(conn, params) do
     enriched =
       params
-      |> Map.put("first_user_agent", get_user_agent(conn))
-      |> Map.put("first_ip", format_ip(conn.remote_ip))
+      |> Map.put("first_user_agent", RequestMeta.get_user_agent(conn))
+      |> Map.put("first_ip", RequestMeta.format_ip(conn.remote_ip))
 
     case OAuth.register_client(enriched) do
       {:ok, client} ->
@@ -51,17 +52,6 @@ defmodule EngramWeb.OAuthRegisterController do
       software_id: software_id,
       kind: kind
     })
-  end
-
-  defp format_ip({a, b, c, d}), do: "#{a}.#{b}.#{c}.#{d}"
-  defp format_ip(tuple) when tuple_size(tuple) == 8, do: tuple |> :inet.ntoa() |> to_string()
-  defp format_ip(_), do: nil
-
-  defp get_user_agent(conn) do
-    case Plug.Conn.get_req_header(conn, "user-agent") do
-      [ua | _] -> ua
-      _ -> nil
-    end
   end
 
   defp serialize(client) do
