@@ -100,6 +100,8 @@ defmodule Engram.Connections do
       join: c in Client, on: c.client_id == t.client_id,
       where: t.user_id == ^user_id,
       where: is_nil(t.revoked_at),
+      # Consumed tokens are superseded by rotation; the current row is the
+      # unconsumed successor. Filtering both gives the live grant.
       where: is_nil(t.consumed_at),
       order_by: [desc: coalesce(t.last_used_at, t.inserted_at)],
       distinct: [t.client_id, t.vault_id],
@@ -127,6 +129,7 @@ defmodule Engram.Connections do
         redirect_uris: c.redirect_uris || []
       }
     end)
+    |> Enum.sort_by(&(&1.last_used_at || &1.connected_at), {:desc, DateTime})
   end
 
   defp pat_rows(user_id) do
@@ -140,7 +143,8 @@ defmodule Engram.Connections do
         |> Repo.all()
       end)
 
-    Enum.map(keys, fn k ->
+    keys
+    |> Enum.map(fn k ->
       %{
         kind: :pat,
         client_id: nil,
@@ -159,6 +163,7 @@ defmodule Engram.Connections do
         redirect_uris: []
       }
     end)
+    |> Enum.sort_by(&(&1.last_used_at || &1.connected_at), {:desc, DateTime})
   end
 
   # Inet fields are currently stored as :string (see Task 7 TODO).

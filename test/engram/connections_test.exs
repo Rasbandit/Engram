@@ -92,8 +92,30 @@ defmodule Engram.ConnectionsTest do
       user = insert_user()
       insert(:api_key, user: user, name: "my-script")
 
+      assert [%{kind: :pat, name: "my-script", client_id: nil, key_id: kid, redirect_uris: []}] =
+               Connections.list_for_user(user.id)
+
+      assert is_integer(kid)
+    end
+
+    test "orders connections most-recently-used first" do
+      user = insert_user()
+      client_a = insert(:oauth_client, kind: "mcp", client_name: "A")
+      client_b = insert(:oauth_client, kind: "mcp", client_name: "B")
+      older = ~U[2026-01-01 00:00:00Z]
+      newer = ~U[2026-05-30 00:00:00Z]
+
+      # client_a older, client_b newer — B should sort first regardless of alphabetic order
+      insert(:oauth_refresh_token,
+        user_id: user.id, client_id: client_a.client_id, last_used_at: older
+      )
+      insert(:oauth_refresh_token,
+        user_id: user.id, client_id: client_b.client_id, last_used_at: newer
+      )
+
       rows = Connections.list_for_user(user.id)
-      assert Enum.any?(rows, fn r -> r.kind == :pat and r.name == "my-script" end)
+      names = Enum.map(rows, & &1.name)
+      assert names == ["B", "A"]
     end
 
     test "excludes revoked oauth grants" do
