@@ -16,12 +16,16 @@ defmodule Engram.Repo.Migrations.CreateOnboardingActions do
     end
 
     create unique_index(:onboarding_actions, [:user_id, :action])
-    create index(:onboarding_actions, [:user_id])
 
     # RLS: mirror notes/vaults/user_agreements pattern — tenant scoped by user_id.
     execute(
       "ALTER TABLE onboarding_actions ENABLE ROW LEVEL SECURITY",
       "ALTER TABLE onboarding_actions DISABLE ROW LEVEL SECURITY"
+    )
+
+    execute(
+      "ALTER TABLE onboarding_actions FORCE ROW LEVEL SECURITY",
+      "ALTER TABLE onboarding_actions NO FORCE ROW LEVEL SECURITY"
     )
 
     execute(

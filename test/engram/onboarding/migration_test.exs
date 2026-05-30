@@ -39,5 +39,14 @@ defmodule Engram.Onboarding.MigrationTest do
         """,
         []
       )
+
+    %{rows: [[rls, force_rls]]} =
+      Repo.query!(
+        "SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = 'onboarding_actions'",
+        []
+      )
+
+    assert rls == true
+    assert force_rls == true
   end
 end
