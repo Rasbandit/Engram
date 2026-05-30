@@ -45,7 +45,15 @@ function ActionButton({
   )
 }
 
-export default function MembersTab({ currentUserId }: { currentUserId: number }) {
+export default function MembersTab({
+  currentUserId,
+  onResetIssued,
+}: {
+  currentUserId: number
+  // Lifted to AdminPanel so the one-time reset-link banner can sit OUTSIDE
+  // the Members card — above it, where it's visually separated.
+  onResetIssued: (url: string) => void
+}) {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
   const [pendingDelete, setPendingDelete] = useState<number | null>(null)
@@ -57,8 +65,6 @@ export default function MembersTab({ currentUserId }: { currentUserId: number })
   const [pending, setPending] = useState<Record<number, 'role' | 'suspend' | 'reset' | 'delete'>>(
     {},
   )
-  // Shown once on issue; cleared by Done. Not persisted anywhere.
-  const [resetUrl, setResetUrl] = useState<string | null>(null)
 
   function sortUsers(list: AdminUser[]): AdminUser[] {
     return [...list].sort((a, b) => {
@@ -143,7 +149,7 @@ export default function MembersTab({ currentUserId }: { currentUserId: number })
     setPending((p) => ({ ...p, [u.id]: 'reset' }))
     try {
       const { url } = await adminApi.issueReset(u.id)
-      setResetUrl(url)
+      onResetIssued(url)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Reset link failed')
     } finally {
@@ -155,52 +161,17 @@ export default function MembersTab({ currentUserId }: { currentUserId: number })
     }
   }
 
-  async function copy(url: string) {
-    await navigator.clipboard.writeText(url)
-    toast.success('Copied to clipboard')
-  }
-
   function toggleExpanded(id: number) {
     setExpandedId((cur) => (cur === id ? null : id))
     setPendingDelete(null)
   }
 
   return (
-    <section className="space-y-4">
-      {resetUrl && (
-        <aside
-          className="rounded-md border border-primary/40 bg-primary/5 p-3 text-sm"
-          role="status"
-        >
-          <p className="mb-2 font-medium text-foreground">
-            One-time reset link (shown once — not stored):
-          </p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 overflow-x-auto rounded bg-background px-2 py-1 text-xs">
-              {resetUrl}
-            </code>
-            <button
-              type="button"
-              onClick={() => copy(resetUrl)}
-              className="rounded-md border border-border bg-background px-3 py-1 text-xs font-medium hover:bg-accent"
-            >
-              Copy
-            </button>
-            <button
-              type="button"
-              onClick={() => setResetUrl(null)}
-              className="rounded-md border border-border bg-background px-3 py-1 text-xs font-medium hover:bg-accent"
-            >
-              Done
-            </button>
-          </div>
-        </aside>
-      )}
-
+    <section>
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="p-4 text-sm text-muted-foreground">Loading…</p>
       ) : users.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No users.</p>
+        <p className="p-4 text-sm text-muted-foreground">No users.</p>
       ) : (
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-muted-foreground">
