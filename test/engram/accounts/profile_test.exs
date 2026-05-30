@@ -30,5 +30,17 @@ defmodule Engram.Accounts.ProfileTest do
 
       assert %{display_name: ["should be at most 80 character(s)"]} = errors_on(cs)
     end
+
+    test "no-op when display_name is absent from attrs" do
+      {:ok, user} = Accounts.create_user_with_password("dan@example.com", "password123")
+      {:ok, named} = Accounts.update_profile(user, %{display_name: "Dan"})
+      assert named.display_name == "Dan"
+
+      {:ok, untouched} = Accounts.update_profile(named, %{})
+      assert untouched.display_name == "Dan"
+
+      {:ok, still_untouched} = Accounts.update_profile(untouched, %{unrelated: "ignored"})
+      assert still_untouched.display_name == "Dan"
+    end
   end
 end

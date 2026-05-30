@@ -173,21 +173,17 @@ defmodule Engram.Accounts do
   end
 
   defp profile_changeset(user, attrs) do
-    normalized =
-      case Map.get(attrs, :display_name) || Map.get(attrs, "display_name") do
-        nil -> nil
-        "" -> nil
-        val when is_binary(val) ->
-          case String.trim(val) do
-            "" -> nil
-            trimmed -> trimmed
-          end
-        _ -> nil
-      end
-
     user
-    |> Ecto.Changeset.change(%{display_name: normalized})
-    |> Ecto.Changeset.validate_length(:display_name, max: @max_display_name_chars)
+    |> Ecto.Changeset.cast(attrs, [:display_name])
+    |> Ecto.Changeset.update_change(:display_name, fn
+      nil -> nil
+      val ->
+        case String.trim(val) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+    end)
+    |> Ecto.Changeset.validate_length(:display_name, max: @max_display_name_chars, count: :codepoints)
   end
 
   @doc "Sets a new bcrypt password hash for a user (local auth)."
