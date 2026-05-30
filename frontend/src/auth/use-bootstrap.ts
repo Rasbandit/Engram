@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { config } from '../config'
 
 export interface Bootstrap {
   bootstrap_pending: boolean
@@ -12,12 +13,11 @@ export interface Bootstrap {
 // resolves, avoiding the default→correct flash on every navigation.
 export type BootstrapState = Bootstrap | null | undefined
 
-// Cache the fetch promise at module scope. The bootstrap answer doesn't
-// change during a session (a self-host admin flipping mode in another tab
-// is rare enough not to be worth invalidating for); caching means the
-// second time any auth page mounts, the value is already there and there's
-// no loading state at all.
-let cached: Bootstrap | null | undefined
+// Seed from Phoenix's SSR-injected runtime config when available. In prod
+// this means useBootstrap() is synchronous on first paint — no fetch, no
+// flash. In dev (Vite serves index.html, no injection) `config.bootstrap`
+// is undefined and we fall back to fetching the public endpoint.
+let cached: Bootstrap | null | undefined = config.bootstrap
 let inflight: Promise<Bootstrap | null> | null = null
 
 function fetchBootstrap(): Promise<Bootstrap | null> {
