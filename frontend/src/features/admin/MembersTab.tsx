@@ -1,9 +1,49 @@
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Loader2 } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { ApiError } from '@/api/client'
 import { cn } from '@/lib/utils'
 import { adminApi, type AdminUser } from './api'
+
+// Stable button surface for the row's actions: instant active feedback
+// (active:scale-[0.97]), an inline spinner while the request is in flight,
+// and a destructive red-outline variant. Same width whether busy or not so
+// the layout doesn't shift mid-click.
+function ActionButton({
+  onClick,
+  disabled,
+  busy,
+  variant = 'default',
+  title,
+  children,
+}: {
+  onClick: () => void
+  disabled?: boolean
+  busy?: boolean
+  variant?: 'default' | 'destructive'
+  title?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-medium',
+        'transition-[transform,background-color,opacity] active:scale-[0.97]',
+        'disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100',
+        variant === 'destructive'
+          ? 'border-destructive/40 bg-background text-destructive hover:bg-destructive/10 disabled:border-border disabled:text-muted-foreground disabled:hover:bg-background'
+          : 'border-border bg-background hover:bg-accent disabled:hover:bg-background',
+      )}
+    >
+      {busy && <Loader2 aria-hidden className="size-3 animate-spin" />}
+      {children}
+    </button>
+  )
+}
 
 export default function MembersTab({ currentUserId }: { currentUserId: number }) {
   const [users, setUsers] = useState<AdminUser[]>([])
@@ -11,13 +51,27 @@ export default function MembersTab({ currentUserId }: { currentUserId: number })
   const [pendingDelete, setPendingDelete] = useState<number | null>(null)
   // One open at a time keeps the table calm. null = all collapsed.
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  // Per-user in-flight action: disables that row's buttons + shows a
+  // spinner on the active one, so feedback is instant on click even
+  // while the request is in flight.
+  const [pending, setPending] = useState<Record<number, 'role' | 'suspend' | 'reset' | 'delete'>>(
+    {},
+  )
   // Shown once on issue; cleared by Done. Not persisted anywhere.
   const [resetUrl, setResetUrl] = useState<string | null>(null)
+
+  function sortUsers(list: AdminUser[]): AdminUser[] {
+    return [...list].sort((a, b) => {
+      if (a.id === currentUserId) return -1
+      if (b.id === currentUserId) return 1
+      return 0
+    })
+  }
 
   async function refresh() {
     try {
       const res = await adminApi.listUsers()
-      setUsers(res.users)
+      setUsers(sortUsers(res.users))
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Failed to load users')
     } finally {
@@ -29,37 +83,75 @@ export default function MembersTab({ currentUserId }: { currentUserId: number })
     refresh()
   }, [])
 
-  async function run<T>(label: string, fn: () => Promise<T>) {
+  // Optimistic mutation: patch the local row immediately so the UI
+  // reflects the intent on the next paint. On success we refresh from
+  // the server to canonicalize; on failure refresh also rolls us back.
+  async function optimistic<T>(
+    id: number,
+    kind: 'role' | 'suspend' | 'reset' | 'delete',
+    label: string,
+    patch: Partial<AdminUser> | 'remove',
+    fn: () => Promise<T>,
+  ) {
+    const snapshot = users
+    setPending((p) => ({ ...p, [id]: kind }))
+    if (patch === 'remove') {
+      setUsers((prev) => prev.filter((u) => u.id !== id))
+    } else {
+      setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...patch } : u)))
+    }
     try {
       await fn()
       await refresh()
     } catch (e) {
+      setUsers(snapshot) // explicit rollback before refresh races
       const raw = e instanceof ApiError ? e.message : 'unknown error'
       const friendly = raw === 'last_admin' ? "Can't remove the last admin." : raw
       toast.error(`${label}: ${friendly}`)
+    } finally {
+      setPending((p) => {
+        const next = { ...p }
+        delete next[id]
+        return next
+      })
     }
   }
 
   function toggleRole(u: AdminUser) {
-    return run('Update role', () =>
-      adminApi.updateUser(u.id, { role: u.role === 'admin' ? 'member' : 'admin' }),
+    const next = u.role === 'admin' ? 'member' : 'admin'
+    return optimistic(u.id, 'role', 'Update role', { role: next }, () =>
+      adminApi.updateUser(u.id, { role: next }),
     )
   }
 
   function toggleSuspend(u: AdminUser) {
-    return run('Update status', () => adminApi.updateUser(u.id, { suspended: !u.suspended }))
+    return optimistic(
+      u.id,
+      'suspend',
+      'Update status',
+      { suspended: !u.suspended },
+      () => adminApi.updateUser(u.id, { suspended: !u.suspended }),
+    )
   }
 
   function remove(u: AdminUser) {
-    return run('Remove user', () => adminApi.deleteUser(u.id)).then(() => setPendingDelete(null))
+    setPendingDelete(null)
+    return optimistic(u.id, 'delete', 'Delete user', 'remove', () => adminApi.deleteUser(u.id))
   }
 
   async function issueReset(u: AdminUser) {
+    setPending((p) => ({ ...p, [u.id]: 'reset' }))
     try {
       const { url } = await adminApi.issueReset(u.id)
       setResetUrl(url)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Reset link failed')
+    } finally {
+      setPending((p) => {
+        const next = { ...p }
+        delete next[u.id]
+        return next
+      })
     }
   }
 
@@ -170,7 +262,7 @@ export default function MembersTab({ currentUserId }: { currentUserId: number })
                         {pendingDelete === u.id ? (
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <span className="text-xs text-muted-foreground">
-                              Remove {u.email} + their vault data?
+                              Delete {u.email} + their vault data?
                             </span>
                             <div className="flex items-center gap-2">
                               <button
@@ -185,52 +277,47 @@ export default function MembersTab({ currentUserId }: { currentUserId: number })
                                 onClick={() => remove(u)}
                                 className="rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-destructive/90"
                               >
-                                Confirm remove
+                                Confirm delete
                               </button>
                             </div>
                           </div>
                         ) : (
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
+                              <ActionButton
                                 onClick={() => toggleRole(u)}
-                                disabled={isSelf}
+                                disabled={isSelf || u.id in pending}
+                                busy={pending[u.id] === 'role'}
                                 title={isSelf ? 'Cannot change your own role' : undefined}
-                                className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-background"
                               >
                                 {u.role === 'admin' ? 'Demote to member' : 'Promote to admin'}
-                              </button>
-                              <button
-                                type="button"
+                              </ActionButton>
+                              <ActionButton
                                 onClick={() => issueReset(u)}
-                                className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent"
+                                disabled={u.id in pending}
+                                busy={pending[u.id] === 'reset'}
                               >
                                 Reset password
-                              </button>
+                              </ActionButton>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
+                              <ActionButton
+                                variant="destructive"
                                 onClick={() => toggleSuspend(u)}
-                                disabled={isSelf}
+                                disabled={isSelf || u.id in pending}
+                                busy={pending[u.id] === 'suspend'}
                                 title={isSelf ? 'Cannot suspend yourself' : undefined}
-                                className={cn(
-                                  'rounded-md border border-destructive/40 bg-background px-3 py-1.5 text-xs font-medium text-destructive',
-                                  'hover:bg-destructive/10',
-                                  'disabled:cursor-not-allowed disabled:border-border disabled:text-muted-foreground disabled:opacity-50 disabled:hover:bg-background',
-                                )}
                               >
                                 {u.suspended ? 'Unsuspend' : 'Suspend'}
-                              </button>
+                              </ActionButton>
                               {!isSelf && (
-                                <button
-                                  type="button"
+                                <ActionButton
+                                  variant="destructive"
                                   onClick={() => setPendingDelete(u.id)}
-                                  className="rounded-md border border-destructive/40 bg-background px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+                                  disabled={u.id in pending}
                                 >
-                                  Remove…
-                                </button>
+                                  Delete user
+                                </ActionButton>
                               )}
                             </div>
                           </div>
