@@ -16,6 +16,9 @@ defmodule EngramWeb.Admin.InviteControllerTest do
     body = json_response(conn, 201)
     assert is_binary(body["token"])
     assert String.contains?(body["url"], body["token"])
+    # The path must match the frontend route exactly — `/sign-up`, not
+    # `/signup`. Caught after a hand-test 404 on a copied invite link.
+    assert body["url"] =~ ~r{/sign-up\?invite=}
     assert body["invite"]["label"] == "Mom"
     assert body["invite"]["max_uses"] == 3
   end

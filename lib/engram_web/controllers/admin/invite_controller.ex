@@ -44,7 +44,7 @@ defmodule EngramWeb.Admin.InviteController do
   end
 
   defp invite_url(conn, raw),
-    do: "#{conn.scheme}://#{conn.host}/signup?invite=#{raw}"
+    do: "#{conn.scheme}://#{conn.host}/sign-up?invite=#{raw}"
 
   defp parse_int(nil, default), do: default
   defp parse_int(v, _default) when is_integer(v), do: v

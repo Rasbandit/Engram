@@ -58,5 +58,7 @@ defmodule EngramWeb.Admin.UserControllerTest do
     body = json_response(conn, 201)
     assert is_binary(body["token"])
     assert String.contains?(body["url"], body["token"])
+    # Path must match the frontend route (`/reset-password`).
+    assert body["url"] =~ ~r{/reset-password\?token=}
   end
 end
