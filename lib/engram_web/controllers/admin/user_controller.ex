@@ -6,7 +6,7 @@ defmodule EngramWeb.Admin.UserController do
   alias Engram.Repo
 
   def index(conn, _params) do
-    json(conn, %{users: Enum.map(Accounts.list_users(), &render_user/1)})
+    json(conn, %{users: Enum.map(Accounts.list_users(), &admin_view/1)})
   end
 
   def update(conn, %{"id" => id} = params) do
@@ -21,7 +21,7 @@ defmodule EngramWeb.Admin.UserController do
       end
 
     case result do
-      {:ok, u} -> json(conn, %{user: render_user(u)})
+      {:ok, u} -> json(conn, %{user: admin_view(u)})
       {:error, :last_admin} -> conn |> put_status(409) |> json(%{error: "last_admin"})
       {:error, :no_op} -> conn |> put_status(422) |> json(%{error: "no_op"})
       {:error, _} -> conn |> put_status(422) |> json(%{error: "update_failed"})
@@ -52,7 +52,7 @@ defmodule EngramWeb.Admin.UserController do
     |> json(%{token: raw, url: "#{conn.scheme}://#{conn.host}/reset-password?token=#{raw}"})
   end
 
-  defp render_user(u) do
+  defp admin_view(u) do
     %{
       id: u.id,
       email: u.email,
