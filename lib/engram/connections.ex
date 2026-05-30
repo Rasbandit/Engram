@@ -3,6 +3,17 @@ defmodule Engram.Connections do
   Unified view of credentials a user has granted: OAuth refresh tokens
   (joined to oauth_clients), device refresh tokens (plugin device flow),
   and api_keys. See docs/superpowers/specs/2026-05-30-connections-page-design.md.
+
+  ## Revoke routing
+
+  The same `client_id` JSON field carries different identifiers per kind:
+    * `:obsidian` (device-flow) — `client_id = family_id` (UUID), revoke via
+      `DELETE /api/connections/device/:family_id`
+    * `:mcp`, `:obsidian` (OAuth) — `client_id = oauth_clients.client_id`,
+      revoke via `DELETE /api/connections/oauth/:client_id`
+    * `:pat` — `key_id` (integer), revoke via `DELETE /api/connections/pat/:id`
+
+  Frontend consumers must branch on `kind` to choose the right route.
   """
 
   import Ecto.Query
@@ -226,6 +237,9 @@ defmodule Engram.Connections do
     )
     |> Repo.all(skip_tenant_check: true)
     |> Enum.map(fn rt ->
+      # Hardcoded for the Obsidian plugin — the only device-flow client today.
+      # If other device-flow clients are added, thread
+      # device_authorizations.client_id through to discriminate.
       %{
         kind: :obsidian,
         # family_id is stable per connection lineage — safe to use as client_id
