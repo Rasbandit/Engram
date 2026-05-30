@@ -312,6 +312,87 @@ export function useRevokeApiKey() {
   })
 }
 
+// ── Connections ─────────────────────────────────────────────
+
+export type ConnectionKind = 'obsidian' | 'mcp' | 'pat'
+
+export interface Connection {
+  kind: ConnectionKind
+  client_id: string | null
+  key_id: number | null
+  name: string | null
+  software_id: string | null
+  software_version: string | null
+  verified: boolean
+  logo: string | null
+  vault_id: number | null
+  scope: string | null
+  last_used_at: string | null
+  connected_at: string | null
+  first_user_agent: string | null
+  first_ip: string | null
+  redirect_uris: string[]
+}
+
+export interface CapErrorBody {
+  error: 'connection_cap_reached'
+  kind: 'obsidian' | 'mcp'
+  current: number
+  limit: number
+  upgrade_url: string
+}
+
+export interface PatDisabledErrorBody {
+  error: 'pat_disabled_on_free'
+  upgrade_url: string
+}
+
+export function useConnections() {
+  return useQuery({
+    queryKey: ['connections'],
+    queryFn: () => api.get<Connection[]>('/connections'),
+  })
+}
+
+export function useCreatePat() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) =>
+      api.post<{ key: string; id: number; name: string }>('/connections/pat', { name }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['connections'] })
+      qc.invalidateQueries({ queryKey: ['api-keys'] }) // legacy queries also need refresh
+    },
+  })
+}
+
+export function useRevokeOauthConnection() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (clientId: string) => api.del(`/connections/oauth/${clientId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['connections'] }),
+  })
+}
+
+export function useRevokeDeviceConnection() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (familyId: string) => api.del(`/connections/device/${familyId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['connections'] }),
+  })
+}
+
+export function useRevokePat() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.del(`/connections/pat/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['connections'] })
+      qc.invalidateQueries({ queryKey: ['api-keys'] })
+    },
+  })
+}
+
 // Vault types (encryption fields are the ones we care about for settings)
 
 export type EncryptionStatus = 'none' | 'encrypting' | 'encrypted' | 'decrypt_pending'
