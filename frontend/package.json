@@ -75,6 +75,7 @@
     "culori": "^4.0.2",
     "happy-dom": "^20.9.0",
     "pg": "^8.20.0",
+    "pngquant-bin": "^9.0.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.2",
     "vite": "^8.0.3",
