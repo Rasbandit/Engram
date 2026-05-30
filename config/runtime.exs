@@ -159,8 +159,11 @@ config :engram, :auth_provider, auth_provider
 # pin "open" so fixtures that register many users don't need to seed the gate.
 default_registration_mode =
   case System.get_env("ENGRAM_DEFAULT_REGISTRATION_MODE", "invite_only") do
-    mode when mode in ~w(closed invite_only open) -> mode
-    other -> raise "Invalid ENGRAM_DEFAULT_REGISTRATION_MODE=#{other}. Valid: closed, invite_only, open"
+    mode when mode in ~w(closed invite_only open) ->
+      mode
+
+    other ->
+      raise "Invalid ENGRAM_DEFAULT_REGISTRATION_MODE=#{other}. Valid: closed, invite_only, open"
   end
 
 config :engram, :default_registration_mode, default_registration_mode
