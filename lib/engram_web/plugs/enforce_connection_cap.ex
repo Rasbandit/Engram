@@ -46,33 +46,26 @@ defmodule EngramWeb.Plugs.EnforceConnectionCap do
   def call(%Plug.Conn{assigns: %{current_user: user}, params: params} = conn, _opts) do
     case lookup_client(params) do
       {:ok, %Client{kind: kind_str}} ->
-        kind = kind_atom(kind_str)
-        key = cap_key(kind_str)
-
-        cond do
-          is_nil(key) ->
-            # Unknown kind — falls open (see kind_atom/1 fallback)
+        case cap_for_user(user, kind_str) do
+          :unlimited ->
             conn
 
-          true ->
-            current = Connections.count_active(user.id, kind)
-            limit = Billing.effective_limit(user, key)
+          nil ->
+            conn
 
-            cond do
-              limit in [:unlimited, nil] ->
-                conn
+          limit when is_integer(limit) ->
+            current = Connections.count_active(user.id, kind_atom(kind_str))
 
-              is_integer(limit) and current < limit ->
-                conn
-
-              true ->
-                send_json(conn, 402, %{
-                  error: "connection_cap_reached",
-                  kind: kind_str,
-                  current: current,
-                  limit: limit,
-                  upgrade_url: @upgrade_url
-                })
+            if current < limit do
+              conn
+            else
+              send_json(conn, 402, %{
+                error: "connection_cap_reached",
+                kind: kind_str,
+                current: current,
+                limit: limit,
+                upgrade_url: @upgrade_url
+              })
             end
         end
 
@@ -91,19 +84,17 @@ defmodule EngramWeb.Plugs.EnforceConnectionCap do
   defp kind_atom("obsidian"), do: :obsidian
   defp kind_atom("mcp"), do: :mcp
 
-  # Unknown kind values (DB drift, future schema changes) fall through as
-  # unlimited — better than 500 from an unmatched function clause. Logs a
-  # warning so the drift is visible in observability.
-  defp kind_atom(other) do
+  # Resolve the billing cap for a user using literal LimitKey atoms so the
+  # static lint can verify catalog membership at compile time. Unknown kinds
+  # return :unlimited (falls open) and log a warning for observability.
+  defp cap_for_user(user, "obsidian"), do: Billing.effective_limit(user, :obsidian_connections_cap)
+  defp cap_for_user(user, "mcp"), do: Billing.effective_limit(user, :mcp_connections_cap)
+
+  defp cap_for_user(_user, other) do
     require Logger
     Logger.warning("EnforceConnectionCap: unknown oauth_clients.kind value #{inspect(other)} — passing through as unlimited")
-    :unknown
+    :unlimited
   end
-
-  # Same motivation: avoid to_existing_atom for the LimitKey atoms.
-  defp cap_key("obsidian"), do: :obsidian_connections_cap
-  defp cap_key("mcp"), do: :mcp_connections_cap
-  defp cap_key(_other), do: nil
 
   defp lookup_client(%{"client_id" => client_id}) when is_binary(client_id) do
     case Ecto.UUID.cast(client_id) do
