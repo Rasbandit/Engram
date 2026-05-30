@@ -181,4 +181,73 @@ defmodule Engram.Workers.InactivityCleanupTest do
       refute is_nil(Accounts.get_user(user.id))
     end
   end
+
+  describe "per-user limit overrides" do
+    test "inactivity_warn_60_days=false override suppresses 60-day warning" do
+      user = insert(:user)
+      set_last_active(user.id, 65)
+
+      insert(:user_limit_override,
+        user: user,
+        key: "inactivity_warn_60_days",
+        value: %{"v" => false}
+      )
+
+      # No Mox expect — send/4 must not be called.
+      InactivityCleanup.__sweep_60__()
+
+      reloaded = Accounts.get_user!(user.id)
+      assert is_nil(reloaded.inactivity_warning_60_at)
+    end
+
+    test "inactivity_warn_60_days=false override suppresses 80-day warning" do
+      user = insert(:user)
+      set_last_active(user.id, 85)
+
+      insert(:user_limit_override,
+        user: user,
+        key: "inactivity_warn_60_days",
+        value: %{"v" => false}
+      )
+
+      InactivityCleanup.__sweep_80__()
+
+      reloaded = Accounts.get_user!(user.id)
+      assert is_nil(reloaded.inactivity_warning_80_at)
+    end
+
+    test "inactivity_delete_days=180 override defers soft-delete past Free default" do
+      user = insert(:user)
+      set_last_active(user.id, 95)
+
+      insert(:user_limit_override,
+        user: user,
+        key: "inactivity_delete_days",
+        value: %{"v" => 180}
+      )
+
+      InactivityCleanup.__sweep_soft__()
+
+      reloaded = Accounts.get_user!(user.id)
+      assert is_nil(reloaded.deleted_at)
+    end
+
+    test "inactivity_delete_days=60 override soft-deletes earlier than Free default" do
+      user = insert(:user)
+      set_last_active(user.id, 65)
+
+      insert(:user_limit_override,
+        user: user,
+        key: "inactivity_delete_days",
+        value: %{"v" => 60}
+      )
+
+      expect(Engram.Email.ProviderMock, :send, fn _to, _subject, _html, _opts -> :ok end)
+
+      InactivityCleanup.__sweep_soft__()
+
+      reloaded = Accounts.get_user!(user.id)
+      assert %DateTime{} = reloaded.deleted_at
+    end
+  end
 end

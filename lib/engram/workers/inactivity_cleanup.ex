@@ -34,6 +34,11 @@ defmodule Engram.Workers.InactivityCleanup do
   @days_90 90
   @hard_delete_after_days 30
 
+  # Conservative SQL pre-filter for the soft-delete sweep. Per-user
+  # `inactivity_delete_days` is then applied in Elixir; this floor just
+  # avoids loading every user with a usage_meters row.
+  @soft_delete_sql_floor_days 30
+
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
     sweep_60_day_warning()
@@ -62,7 +67,7 @@ defmodule Engram.Workers.InactivityCleanup do
       )
 
     Enum.each(users, fn user ->
-      if free?(user) do
+      if warn_enabled?(user) do
         _ = Mailer.send_inactivity_warning_60(user)
 
         user
@@ -97,7 +102,7 @@ defmodule Engram.Workers.InactivityCleanup do
       )
 
     Enum.each(users, fn user ->
-      if free?(user) do
+      if warn_enabled?(user) do
         _ = Mailer.send_inactivity_warning_80(user)
 
         user
@@ -114,24 +119,39 @@ defmodule Engram.Workers.InactivityCleanup do
   end
 
   defp sweep_soft_delete do
-    cutoff = days_ago(@days_90)
+    floor_cutoff = days_ago(@soft_delete_sql_floor_days)
+    now = DateTime.utc_now()
 
-    users =
+    candidates =
       Repo.all(
         from(u in User,
           join: m in "usage_meters",
           on: m.user_id == u.id,
-          where: is_nil(u.deleted_at) and m.last_active_at < ^cutoff
+          where: is_nil(u.deleted_at) and m.last_active_at < ^floor_cutoff,
+          select: {u, m.last_active_at}
         ),
         skip_tenant_check: true
       )
 
-    Enum.each(users, fn user ->
-      if free?(user) do
-        soft_delete(user)
+    Enum.each(candidates, fn {user, last_active_at} ->
+      case delete_after_days(user) do
+        days when is_integer(days) and days > 0 ->
+          cutoff = DateTime.add(now, -days * 86_400, :second)
+          if compare_lt?(last_active_at, cutoff), do: soft_delete(user)
+
+        _ ->
+          :skip
       end
     end)
   end
+
+  # Raw column lands as NaiveDateTime when joined via string table name;
+  # coerce to DateTime so the comparison works regardless of how the row
+  # was selected.
+  defp compare_lt?(%DateTime{} = a, %DateTime{} = b), do: DateTime.compare(a, b) == :lt
+
+  defp compare_lt?(%NaiveDateTime{} = a, %DateTime{} = b),
+    do: DateTime.compare(DateTime.from_naive!(a, "Etc/UTC"), b) == :lt
 
   defp soft_delete(user) do
     # Drop Qdrant points — vault rows survive so the audit trail stays.
@@ -223,7 +243,13 @@ defmodule Engram.Workers.InactivityCleanup do
       :error
   end
 
-  defp free?(user), do: Billing.tier(user) == :free
+  defp warn_enabled?(user) do
+    Billing.effective_limit(user, :inactivity_warn_60_days) == true
+  end
+
+  defp delete_after_days(user) do
+    Billing.effective_limit(user, :inactivity_delete_days)
+  end
 
   defp days_ago(days) do
     DateTime.utc_now() |> DateTime.add(-days * 86_400, :second)
