@@ -152,6 +152,11 @@ export interface BillingStatus {
     tier: string
     current_period_end: string
   } | null
+  caps: {
+    obsidian_connections: number | null
+    mcp_connections: number | null
+    api_write_enabled: boolean
+  }
 }
 
 // Billing hooks

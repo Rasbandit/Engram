@@ -14,16 +14,21 @@ import { ApiError } from '../api/client'
 
 // ── Tier caps ─────────────────────────────────────────────────
 
+// Caps come from /billing/status which resolves UserLimitOverride +
+// tier defaults via Engram.Billing.effective_limit/2. Don't re-derive
+// from tier here — overrides (support comps, demo seeds) would render
+// stale.
 function useTierCaps() {
   const { data } = useBillingStatus()
   const tier = data?.tier ?? 'free'
   const isFree = tier === 'free' || tier === 'none'
+  const caps = data?.caps
   return {
     tier,
     isFree,
-    apiWriteEnabled: !isFree, // PAT minting allowed on paid tiers
-    obsidianCap: isFree ? 1 : null, // null = unlimited
-    mcpCap: isFree ? 1 : null,
+    apiWriteEnabled: caps?.api_write_enabled ?? !isFree,
+    obsidianCap: caps ? caps.obsidian_connections : isFree ? 1 : null,
+    mcpCap: caps ? caps.mcp_connections : isFree ? 1 : null,
   }
 }
 
