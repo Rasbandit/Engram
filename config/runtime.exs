@@ -284,9 +284,12 @@ if config_env() != :test do
   config :engram, :paddle_env, System.get_env("PADDLE_ENV", "sandbox")
 end
 
-# Onboarding wizard toggle. Active when Paddle API key is set (SaaS mode);
-# disabled in self-host (no PADDLE_API_KEY → no payment → no wizard).
-config :engram, :billing_enabled, System.get_env("PADDLE_API_KEY") != nil
+# Onboarding wizard toggle. Self-host (AUTH_PROVIDER=local) never shows the
+# SaaS wizard — operators own their own legal posture and there is no Paddle.
+# SaaS (clerk) needs the wizard whenever the Paddle API key is configured.
+config :engram,
+       :billing_enabled,
+       auth_provider == :clerk and System.get_env("PADDLE_API_KEY") != nil
 
 # Plan limits enforcement toggle.
 # SaaS default: enforce when Paddle is configured.
@@ -303,7 +306,7 @@ if config_env() != :test do
         false
 
       nil ->
-        System.get_env("PADDLE_API_KEY") != nil
+        auth_provider == :clerk and System.get_env("PADDLE_API_KEY") != nil
 
       other ->
         raise """
