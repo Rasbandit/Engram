@@ -50,7 +50,7 @@ defmodule EngramWeb.UsersController do
 
     case Accounts.delete_self(user, password) do
       :ok ->
-        send_resp(conn, 204, "")
+        json(conn, %{ok: true})
 
       {:error, :invalid_password} ->
         conn |> put_status(403) |> json(%{error: "invalid_password"})

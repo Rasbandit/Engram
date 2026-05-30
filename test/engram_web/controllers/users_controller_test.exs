@@ -55,9 +55,9 @@ defmodule EngramWeb.UsersControllerTest do
   end
 
   describe "DELETE /api/me" do
-    test "204 with correct password, soft-deletes", %{user: user} do
+    test "200 with correct password, soft-deletes", %{user: user} do
       conn = auth_conn(user) |> delete("/api/me?password=password123")
-      assert response(conn, 204)
+      assert %{"ok" => true} = json_response(conn, 200)
 
       reloaded = Engram.Repo.get!(Engram.Accounts.User, user.id, skip_tenant_check: true)
       refute is_nil(reloaded.deleted_at)
