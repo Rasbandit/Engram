@@ -16,12 +16,6 @@ defmodule Engram.Accounts do
 
   def get_user(id), do: Repo.get(User, id, skip_tenant_check: true)
 
-  @doc """
-  True if no users exist yet — the claim window. While open, registration
-  bypasses the mode gate and the first user becomes admin.
-  """
-  def first_user?, do: Repo.aggregate(User, :count, skip_tenant_check: true) == 0
-
   # ── Clerk Auth ─────────────────────────────────────────────────
 
   @doc """
@@ -113,28 +107,34 @@ defmodule Engram.Accounts do
 
     Repo.transaction(
       fn ->
-        # Serialize bootstrap admin check so only one concurrent signup can win
+        # Serialize bootstrap claim so two concurrent first-time signups can't
+        # both become admin. The second one enters the tx after the first
+        # commits, sees bootstrap_pending? == false, and is created as member.
         _ =
           Ecto.Adapters.SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [
             @admin_bootstrap_lock
           ])
 
-        role = if Repo.aggregate(User, :count) == 0, do: "admin", else: "member"
+        bootstrap_pending = Engram.Instance.bootstrap_pending?()
+        role = if bootstrap_pending, do: "admin", else: "member"
 
-        case %User{
-               email: cleaned_email,
-               normalized_email: normalized,
-               external_id: external_id,
-               password_hash: password_hash,
-               role: role
-             }
-             |> Ecto.Changeset.change()
-             |> Ecto.Changeset.unique_constraint(:email, name: :users_email_lower_index)
-             |> Ecto.Changeset.unique_constraint(:normalized_email,
-               name: :users_normalized_email_index
-             )
-             |> Repo.insert(skip_tenant_check: true) do
-          {:ok, user} -> user
+        with {:ok, user} <-
+               %User{
+                 email: cleaned_email,
+                 normalized_email: normalized,
+                 external_id: external_id,
+                 password_hash: password_hash,
+                 role: role
+               }
+               |> Ecto.Changeset.change()
+               |> Ecto.Changeset.unique_constraint(:email, name: :users_email_lower_index)
+               |> Ecto.Changeset.unique_constraint(:normalized_email,
+                 name: :users_normalized_email_index
+               )
+               |> Repo.insert(skip_tenant_check: true),
+             :ok <- maybe_close_bootstrap(bootstrap_pending) do
+          user
+        else
           {:error, changeset} -> Repo.rollback(changeset)
         end
       end,
@@ -150,6 +150,15 @@ defmodule Engram.Accounts do
   def create_user_with_password(_email, _password) do
     {:error, :password_too_short}
   end
+
+  defp maybe_close_bootstrap(true) do
+    case Engram.Instance.mark_bootstrap_complete() do
+      {:ok, _} -> :ok
+      {:error, cs} -> {:error, cs}
+    end
+  end
+
+  defp maybe_close_bootstrap(false), do: :ok
 
   @doc "Sets a new bcrypt password hash for a user (local auth)."
   def update_password(%User{} = user, new_password)

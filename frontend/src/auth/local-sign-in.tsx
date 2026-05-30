@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ROUTES } from '../routes'
 import { safeReturnTo } from './safe-return-to'
 import { useAuthAdapter } from './use-auth-adapter'
+import { useBootstrap } from './use-bootstrap'
 import AuthLayout from './auth-layout'
 import { Button } from '@/components/ui/button'
 import { heading, fieldInput, destructiveAlert } from '@/lib/ui-classes'
@@ -13,6 +14,7 @@ export default function LocalSignIn() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const returnTo = safeReturnTo(searchParams.get('return_to'))
+  const bootstrap = useBootstrap()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -22,6 +24,14 @@ export default function LocalSignIn() {
   useEffect(() => {
     if (isSignedIn) navigate(returnTo, { replace: true })
   }, [isSignedIn, navigate, returnTo])
+
+  // Self-host first-run: bounce to /sign-up so the operator creates the
+  // admin account instead of staring at an unusable sign-in form.
+  useEffect(() => {
+    if (bootstrap?.bootstrap_pending) {
+      navigate(ROUTES.SIGN_UP, { replace: true })
+    }
+  }, [bootstrap, navigate])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()

@@ -62,12 +62,13 @@ defmodule EngramWeb.LocalAuthController do
     conn |> put_status(422) |> json(%{error: "email and password required"})
   end
 
-  # Claim-window first: the first user is always allowed and becomes admin
-  # inside `Accounts.create_user_with_password/2` (advisory-locked). Race note:
-  # the invite is redeemed BEFORE user creation; if creation then fails on a
+  # Claim-window first: until bootstrap closes, registration is open and the
+  # first user becomes admin inside `Accounts.create_user_with_password/2`
+  # (advisory-locked, atomic with the bootstrap flag flip). Race note: the
+  # invite is redeemed BEFORE user creation; if creation then fails on a
   # duplicate email the invite is already consumed — acceptable for v1.
   defp check_registration_allowed(invite) do
-    if Accounts.first_user?() do
+    if Instance.bootstrap_pending?() do
       :ok
     else
       case Instance.registration_mode() do
@@ -160,5 +161,22 @@ defmodule EngramWeb.LocalAuthController do
   """
   def invite_preview(conn, %{"token" => token}) do
     json(conn, Invites.preview(token))
+  end
+
+  @doc """
+  Public self-host bootstrap probe. Returns the state the unauthenticated
+  sign-in/sign-up pages need to render the first-run experience:
+  `bootstrap_pending` (admin claim window still open) + `registration_mode`.
+  404 under Clerk — the feature is local-provider-only.
+  """
+  def bootstrap(conn, _params) do
+    if Engram.Auth.supports_credentials?() do
+      json(conn, %{
+        bootstrap_pending: Instance.bootstrap_pending?(),
+        registration_mode: Instance.registration_mode()
+      })
+    else
+      conn |> put_status(404) |> json(%{error: "not_found"})
+    end
   end
 end

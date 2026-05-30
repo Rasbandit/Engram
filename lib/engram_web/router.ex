@@ -132,6 +132,9 @@ defmodule EngramWeb.Router do
     # Public preview — confirms an invite is valid + shows its label before signup.
     get "/invite/:token", LocalAuthController, :invite_preview
 
+    # Public self-host bootstrap probe — drives first-run UX on the sign-in/up pages.
+    get "/bootstrap", LocalAuthController, :bootstrap
+
     # Public reset — the one-time token is itself the credential.
     post "/password/reset", PasswordController, :reset
   end

@@ -2,6 +2,7 @@ import { useState, useEffect, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { ROUTES } from '../routes'
 import { useAuthAdapter } from './use-auth-adapter'
+import { useBootstrap } from './use-bootstrap'
 import AuthLayout from './auth-layout'
 import { Button } from '@/components/ui/button'
 import { heading, fieldInput, destructiveAlert } from '@/lib/ui-classes'
@@ -17,6 +18,7 @@ export default function LocalSignUp() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const invite = searchParams.get('invite') ?? ''
+  const bootstrap = useBootstrap()
   const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -70,8 +72,24 @@ export default function LocalSignUp() {
       >
         <div className="flex flex-col items-center gap-2 text-center">
           <img src="/engram-mark.svg" alt="Engram" className="size-12" />
-          <h1 className={heading}>Create your account</h1>
+          <h1 className={heading}>
+            {bootstrap?.bootstrap_pending ? 'Set up your instance' : 'Create your account'}
+          </h1>
         </div>
+
+        {bootstrap?.bootstrap_pending && (
+          <aside
+            className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm text-foreground"
+            role="status"
+          >
+            <p className="font-medium">This account will be the admin.</p>
+            <p className="mt-1 text-muted-foreground">
+              After signup, new accounts will need an invite link. You can manage
+              members, invites, and registration mode under Settings →
+              Administration.
+            </p>
+          </aside>
+        )}
 
         {invite && invitePreview && (
           invitePreview.valid ? (

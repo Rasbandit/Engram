@@ -177,6 +177,25 @@ defmodule EngramWeb.LocalAuthControllerTest do
     end
   end
 
+  describe "GET /api/auth/bootstrap" do
+    test "reports bootstrap_pending=true on a fresh instance", %{conn: conn} do
+      body = json_response(get(conn, ~p"/api/auth/bootstrap"), 200)
+      assert body["bootstrap_pending"] == true
+      assert body["registration_mode"] in ~w(closed invite_only open)
+    end
+
+    test "reports bootstrap_pending=false after mark_bootstrap_complete", %{conn: conn} do
+      {:ok, _} = Engram.Instance.mark_bootstrap_complete()
+      body = json_response(get(conn, ~p"/api/auth/bootstrap"), 200)
+      assert body["bootstrap_pending"] == false
+    end
+
+    test "returns 404 under Clerk", %{conn: conn} do
+      Application.put_env(:engram, :auth_provider, :clerk)
+      assert %{"error" => "not_found"} = json_response(get(conn, ~p"/api/auth/bootstrap"), 404)
+    end
+  end
+
   describe "POST /api/auth/register — registration control" do
     test "first signup becomes admin regardless of mode (claim window)", %{conn: conn} do
       {:ok, _} = Engram.Instance.set_registration_mode("closed")
@@ -189,6 +208,7 @@ defmodule EngramWeb.LocalAuthControllerTest do
 
     test "second signup is rejected when mode=closed", %{conn: conn} do
       _ = insert(:user, role: "admin")
+      {:ok, _} = Engram.Instance.mark_bootstrap_complete()
       {:ok, _} = Engram.Instance.set_registration_mode("closed")
 
       conn =
@@ -199,6 +219,7 @@ defmodule EngramWeb.LocalAuthControllerTest do
 
     test "open mode lets anyone register as member", %{conn: conn} do
       _ = insert(:user, role: "admin")
+      {:ok, _} = Engram.Instance.mark_bootstrap_complete()
       {:ok, _} = Engram.Instance.set_registration_mode("open")
 
       conn =
@@ -209,6 +230,7 @@ defmodule EngramWeb.LocalAuthControllerTest do
 
     test "invite_only rejects without a token", %{conn: conn} do
       _ = insert(:user, role: "admin")
+      {:ok, _} = Engram.Instance.mark_bootstrap_complete()
       {:ok, _} = Engram.Instance.set_registration_mode("invite_only")
 
       conn =
@@ -219,6 +241,7 @@ defmodule EngramWeb.LocalAuthControllerTest do
 
     test "invite_only accepts a valid token and consumes it", %{conn: conn} do
       admin = insert(:user, role: "admin")
+      {:ok, _} = Engram.Instance.mark_bootstrap_complete()
       {:ok, _} = Engram.Instance.set_registration_mode("invite_only")
       {:ok, {raw, _}} = Engram.Invites.create_invite(admin, %{})
 
@@ -235,6 +258,7 @@ defmodule EngramWeb.LocalAuthControllerTest do
 
     test "invite_only rejects a bad token", %{conn: conn} do
       _ = insert(:user, role: "admin")
+      {:ok, _} = Engram.Instance.mark_bootstrap_complete()
       {:ok, _} = Engram.Instance.set_registration_mode("invite_only")
 
       conn =
