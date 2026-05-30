@@ -104,6 +104,12 @@ defmodule EngramWeb.LocalAuthController do
             conn |> put_status(500) |> json(%{error: "session_creation_failed"})
         end
 
+      # Distinct from invalid_credentials: the password was correct but the
+      # account is administratively blocked. Self-host operator surface — we
+      # accept the existence-leak in exchange for a useful error message.
+      {:error, :suspended} ->
+        conn |> put_status(403) |> json(%{error: "account_suspended"})
+
       {:error, _} ->
         conn |> put_status(401) |> json(%{error: "invalid_credentials"})
     end

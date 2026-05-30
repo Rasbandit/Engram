@@ -99,6 +99,29 @@ defmodule EngramWeb.LocalAuthControllerTest do
 
       assert %{"error" => "invalid_credentials"} = json_response(conn, 401)
     end
+
+    test "rejects suspended account with account_suspended (distinct from invalid_credentials)",
+         %{conn: conn} do
+      # describe-level setup already registered login@test.com (admin) and
+      # closed bootstrap. Open registration so we can sign up the victim.
+      {:ok, _} = Engram.Instance.set_registration_mode("open")
+
+      post(build_conn(), "/api/auth/register", %{
+        email: "sus@test.com",
+        password: "StrongPass123!"
+      })
+
+      user =
+        Engram.Repo.get_by!(Engram.Accounts.User, [email: "sus@test.com"],
+          skip_tenant_check: true
+        )
+
+      {:ok, _} = Engram.Accounts.suspend(user)
+
+      conn = post(conn, "/api/auth/login", %{email: "sus@test.com", password: "StrongPass123!"})
+
+      assert %{"error" => "account_suspended"} = json_response(conn, 403)
+    end
   end
 
   describe "POST /api/auth/refresh" do

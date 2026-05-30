@@ -78,17 +78,43 @@ export default function LocalSignUp() {
         </div>
 
         {bootstrap?.bootstrap_pending && (
-          <aside
-            className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm text-foreground"
-            role="status"
-          >
-            <p className="font-medium">This account will be the admin.</p>
-            <p className="mt-1 text-muted-foreground">
-              After signup, new accounts will need an invite link. You can manage
-              members, invites, and registration mode under Settings →
-              Administration.
-            </p>
-          </aside>
+          <>
+            <aside
+              className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm text-foreground"
+              role="status"
+            >
+              <p className="font-medium">Welcome — you're setting up this instance.</p>
+              <p className="mt-1 text-muted-foreground">
+                This first account becomes the administrator. After signup, new
+                accounts will need an invite link. Manage members, invites, and
+                registration mode under Settings → Administration.
+              </p>
+            </aside>
+
+            <aside
+              className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+              role="note"
+            >
+              Engram self-host is in active development — your feedback shapes
+              what ships next. File issues at{' '}
+              <a
+                href="https://github.com/engram-app/Engram/issues"
+                target="_blank"
+                rel="noreferrer noopener"
+                className="font-medium text-primary hover:underline"
+              >
+                github.com/engram-app/Engram
+              </a>{' '}
+              or email{' '}
+              <a
+                href="mailto:support@engram.page"
+                className="font-medium text-primary hover:underline"
+              >
+                support@engram.page
+              </a>
+              .
+            </aside>
+          </>
         )}
 
         {invite && invitePreview && (

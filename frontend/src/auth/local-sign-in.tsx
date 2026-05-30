@@ -9,6 +9,17 @@ import { Button } from '@/components/ui/button'
 import { heading, fieldInput, destructiveAlert } from '@/lib/ui-classes'
 import { cn } from '@/lib/utils'
 
+function loginErrorMessage(code: string): string {
+  switch (code) {
+    case 'account_suspended':
+      return 'This account is suspended. Contact an admin to restore access.'
+    case 'invalid_credentials':
+      return 'Incorrect email or password.'
+    default:
+      return code
+  }
+}
+
 export default function LocalSignIn() {
   const { login, isSignedIn } = useAuthAdapter()
   const navigate = useNavigate()
@@ -42,7 +53,8 @@ export default function LocalSignIn() {
       if (!login) throw new Error('Login not available for this auth provider')
       await login(email, password)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
+      const raw = err instanceof Error ? err.message : 'Login failed'
+      setError(loginErrorMessage(raw))
     } finally {
       setLoading(false)
     }
