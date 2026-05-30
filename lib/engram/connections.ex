@@ -35,15 +35,15 @@ defmodule Engram.Connections do
   end
 
   @doc """
-  Revokes all non-revoked refresh tokens for `(user_id, client_id, vault_id)`.
+  Revokes (sets `revoked_at = now`) all active refresh tokens for `(user_id, client_id, vault_id)`.
 
-  When `vault_id` is `nil`, all vaults are matched (device-flow tokens that
-  carry no vault scope).
+  When `vault_id` is `nil`, ALL vault scopes for that user+client are revoked —
+  this is the device-flow case where the original grant had no vault binding.
+  Vault-scoped controllers MUST pass the originating `vault_id` to avoid
+  inadvertent cross-vault revocation.
 
-  Returns `:ok` on success (including when there are no live tokens — idempotent).
-  Returns `{:error, :not_found}` when `client_id` has never been seen for
-  `user_id` at all (prevents callers from revoking other users' tokens via
-  guessed UUIDs).
+  Idempotent: a second call after revoke returns `:ok`. Unknown user+client
+  combinations return `{:error, :not_found}`.
   """
   @spec revoke_oauth_family(integer(), String.t(), integer() | nil) ::
           :ok | {:error, :not_found}

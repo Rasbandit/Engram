@@ -37,10 +37,10 @@ defmodule Engram.OAuth.Client do
     # Read-only metadata populated at DCR time (Task 7 wires into changeset).
     # Queries in Connections use :kind to distinguish MCP vs Obsidian clients.
     field :kind, :string, default: "mcp"
-    # first_user_agent/first_ip stored as :string — Postgrex.INET is not an
-    # Ecto primitive type; the DB column is inet but Postgres accepts text via
-    # implicit cast. These fields are populated by Task 7's DCR update.
     field :first_user_agent, :string
+    # Task 7 NOTE: :inet at the DB level may return %Postgrex.INET{} struct
+    # when loaded; verify round-trip before adding to @cast_fields, may need
+    # a custom Ecto type.
     field :first_ip, :string
 
     timestamps(type: :utc_datetime_usec)

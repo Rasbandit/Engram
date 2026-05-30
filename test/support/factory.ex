@@ -193,6 +193,9 @@ defmodule Engram.Factory do
     }
   end
 
+  # user_id MUST be supplied by caller; NOT NULL at DB level and in @required.
+  # Bare insert(:oauth_refresh_token) will fail with an opaque DB error — always
+  # pass `user_id: some_user.id` at the call site.
   def oauth_refresh_token_factory do
     %Engram.OAuth.RefreshToken{
       token_hash:

@@ -22,11 +22,14 @@ defmodule Engram.ConnectionsTest do
       assert Connections.count_active(user.id, :obsidian) == 1
     end
 
-    test "two active refresh tokens for same client count as one connection" do
+    test "two simultaneously active tokens for same client collapse to 1 (DISTINCT)" do
       user = insert_user()
       client = insert(:oauth_client, kind: "mcp")
       family = Ecto.UUID.generate()
 
+      # Both tokens are active (revoked_at: nil, consumed_at: nil). Without
+      # DISTINCT client_id in the query this would return 2 — the DISTINCT is
+      # the load-bearing assertion here.
       insert(:oauth_refresh_token,
         user_id: user.id,
         client_id: client.client_id,
@@ -36,11 +39,30 @@ defmodule Engram.ConnectionsTest do
       insert(:oauth_refresh_token,
         user_id: user.id,
         client_id: client.client_id,
-        family_id: family,
-        consumed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        family_id: family
       )
 
       assert Connections.count_active(user.id, :mcp) == 1
+    end
+
+    test "consumed and revoked tokens are excluded from active count" do
+      user = insert_user()
+      client = insert(:oauth_client, kind: "mcp")
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      insert(:oauth_refresh_token,
+        user_id: user.id,
+        client_id: client.client_id,
+        consumed_at: now
+      )
+
+      insert(:oauth_refresh_token,
+        user_id: user.id,
+        client_id: client.client_id,
+        revoked_at: now
+      )
+
+      assert Connections.count_active(user.id, :mcp) == 0
     end
   end
 
