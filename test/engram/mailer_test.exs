@@ -157,7 +157,7 @@ defmodule Engram.MailerTest do
       user = insert(:user, email: "user@example.com", display_name: "Sam")
 
       expect(Engram.Email.ProviderMock, :send, fn _to, _subject, html, _opts ->
-        assert html =~ "https://engram.page/install",
+        assert html =~ "https://community.obsidian.md/plugins/engram-vault-sync",
                "expected install CTA href"
 
         :ok

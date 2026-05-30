@@ -21,7 +21,7 @@ defmodule Engram.Mailer do
 
   require Logger
 
-  @install_url "https://engram.page/install"
+  @install_url "https://community.obsidian.md/plugins/engram-vault-sync"
 
   def send_welcome(%User{email: email} = user) do
     name = Template.esc(greeting_name(user))
