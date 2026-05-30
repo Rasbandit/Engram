@@ -8,10 +8,15 @@ defmodule Engram.Instance do
 
   @default_mode "invite_only"
 
-  @doc "Returns the current registration mode, defaulting to invite_only."
+  @doc """
+  Returns the current registration mode. Falls back to the application-configured
+  default (`:default_registration_mode`, settable via the `ENGRAM_DEFAULT_REGISTRATION_MODE`
+  env var) when no instance_settings row exists yet. The app-env default lets CI
+  pin "open" without rewriting every e2e fixture; production keeps "invite_only".
+  """
   def registration_mode do
     case Repo.get(InstanceSettings, 1) do
-      nil -> @default_mode
+      nil -> Application.get_env(:engram, :default_registration_mode, @default_mode)
       %InstanceSettings{registration_mode: mode} -> mode
     end
   end
