@@ -15,16 +15,27 @@ defmodule EngramWeb.OAuthRegisterController do
   @telemetry_event [:engram, :mcp, :dcr, :register]
 
   def register(conn, params) do
-    case OAuth.register_client(params) do
+    enriched =
+      params
+      |> Map.put("first_user_agent", get_user_agent(conn))
+      |> Map.put("first_ip", format_ip(conn.remote_ip))
+
+    case OAuth.register_client(enriched) do
       {:ok, client} ->
-        emit_telemetry(:ok, client.client_id, client.software_id)
+        emit_telemetry(:ok, client.client_id, client.software_id, client.kind)
 
         conn
         |> put_status(:created)
         |> json(serialize(client))
 
       {:error, changeset} ->
-        emit_telemetry(:error, nil, Ecto.Changeset.get_field(changeset, :software_id))
+        emit_telemetry(
+          :error,
+          nil,
+          Ecto.Changeset.get_field(changeset, :software_id),
+          Ecto.Changeset.get_field(changeset, :kind)
+        )
+
         {error, description} = changeset_error(changeset)
 
         conn
@@ -33,12 +44,24 @@ defmodule EngramWeb.OAuthRegisterController do
     end
   end
 
-  defp emit_telemetry(result, client_id, software_id) do
+  defp emit_telemetry(result, client_id, software_id, kind) do
     :telemetry.execute(@telemetry_event, %{count: 1}, %{
       result: result,
       client_id: client_id,
-      software_id: software_id
+      software_id: software_id,
+      kind: kind
     })
+  end
+
+  defp format_ip({a, b, c, d}), do: "#{a}.#{b}.#{c}.#{d}"
+  defp format_ip(tuple) when tuple_size(tuple) == 8, do: tuple |> :inet.ntoa() |> to_string()
+  defp format_ip(_), do: nil
+
+  defp get_user_agent(conn) do
+    case Plug.Conn.get_req_header(conn, "user-agent") do
+      [ua | _] -> ua
+      _ -> nil
+    end
   end
 
   defp serialize(client) do

@@ -166,10 +166,8 @@ defmodule Engram.Connections do
     |> Enum.sort_by(&(&1.last_used_at || &1.connected_at), {:desc, DateTime})
   end
 
-  # Inet fields are currently stored as :string (see Task 7 TODO).
-  # This helper survives the eventual switch to %Postgrex.INET{} struct.
+  # first_ip is stored as :text (migration 20260530000005 converted from :inet).
   defp format_inet(nil), do: nil
-  defp format_inet(%{__struct__: Postgrex.INET} = inet), do: to_string(:inet.ntoa(inet.address))
   defp format_inet(s) when is_binary(s), do: s
 
   # Returns true if `user_id` has any refresh token (of any state) for

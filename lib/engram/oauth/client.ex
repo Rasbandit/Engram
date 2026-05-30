@@ -34,13 +34,11 @@ defmodule Engram.OAuth.Client do
     field :tos_uri, :string
     field :policy_uri, :string
 
-    # Read-only metadata populated at DCR time (Task 7 wires into changeset).
+    # Read-only metadata populated at DCR time.
     # Queries in Connections use :kind to distinguish MCP vs Obsidian clients.
     field :kind, :string, default: "mcp"
     field :first_user_agent, :string
-    # Task 7 NOTE: :inet at the DB level may return %Postgrex.INET{} struct
-    # when loaded; verify round-trip before adding to @cast_fields, may need
-    # a custom Ecto type.
+    # DB column was changed from :inet to :text (migration 20260530000005).
     field :first_ip, :string
 
     timestamps(type: :utc_datetime_usec)
@@ -48,13 +46,15 @@ defmodule Engram.OAuth.Client do
 
   @cast_fields ~w(redirect_uris client_name scope grant_types response_types
                   token_endpoint_auth_method software_id software_version
-                  logo_uri tos_uri policy_uri)a
+                  logo_uri tos_uri policy_uri
+                  kind first_user_agent first_ip)a
 
   @metadata_uri_fields ~w(logo_uri tos_uri policy_uri)a
 
   def registration_changeset(client, attrs) do
     client
     |> cast(attrs, @cast_fields)
+    |> coerce_kind()
     |> apply_defaults()
     |> ensure_redirect_uris_present()
     |> validate_redirect_uris()
@@ -68,11 +68,22 @@ defmodule Engram.OAuth.Client do
       message: "must be one of: #{Enum.join(@valid_auth_methods, ", ")}"
     )
     |> validate_length(:client_name, max: 200)
-    # Attacker-controlled on a public, unauthenticated endpoint; both are
-    # persisted and emitted in DCR telemetry, so cap to bound row/metadata size.
+    # Attacker-controlled on a public, unauthenticated endpoint; cap to bound
+    # row/metadata size.
     |> validate_length(:software_id, max: 255)
     |> validate_length(:software_version, max: 255)
+    |> validate_length(:first_user_agent, max: 500)
     |> validate_metadata_uris()
+  end
+
+  # DCR is a forgiving public endpoint. Unknown or absent kind values silently
+  # default to "mcp" — bad actors sending kind: "garbage" get a client with
+  # kind: "mcp", no 400 error.
+  defp coerce_kind(changeset) do
+    case get_field(changeset, :kind) do
+      k when k in ["mcp", "obsidian"] -> changeset
+      _ -> put_change(changeset, :kind, "mcp")
+    end
   end
 
   defp validate_metadata_uris(changeset) do
