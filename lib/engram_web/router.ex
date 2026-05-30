@@ -131,6 +131,9 @@ defmodule EngramWeb.Router do
 
     # Public preview — confirms an invite is valid + shows its label before signup.
     get "/invite/:token", LocalAuthController, :invite_preview
+
+    # Public reset — the one-time token is itself the credential.
+    post "/password/reset", PasswordController, :reset
   end
 
   # User-scoped authenticated endpoints (no vault context needed)
@@ -145,6 +148,9 @@ defmodule EngramWeb.Router do
     # User info
     get "/user/storage", StorageController, :index
     get "/me", UsersController, :me
+
+    # Authenticated password change (old + new). Reset (token-gated) is public.
+    post "/auth/password/change", PasswordController, :change
 
     # Device flow authorization (authenticated — web app confirms)
     post "/auth/device/authorize", DeviceAuthController, :authorize
