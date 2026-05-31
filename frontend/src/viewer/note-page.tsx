@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import NoteEditor from './note-editor'
 import NoteToc from './note-toc'
 import NoteView from './note-view'
+import { useRemoteUpdateBanner } from './use-remote-update-banner'
 
 type Mode = 'preview' | 'edit'
 
@@ -42,6 +43,10 @@ export default function NotePage() {
     setRightContent(<NoteToc content={note.content} />)
     return () => setRightContent(null)
   }, [note?.path, note?.content, mode, setRightContent])
+
+  // Must run on every render — calling after the early returns below would
+  // change hook count between the loading/loaded states and crash React.
+  const remoteUpdate = useRemoteUpdateBanner(note?.content ?? '', draft)
 
   if (!path) {
     return <p className="p-6 text-muted-foreground">No note selected</p>
@@ -118,6 +123,26 @@ export default function NotePage() {
         forceMount
         className="min-h-0 flex-1 data-[state=inactive]:hidden"
       >
+        {mode === 'edit' && remoteUpdate.show && (
+          <div
+            role="status"
+            className="flex shrink-0 items-center justify-between gap-3 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-900 dark:text-amber-200"
+          >
+            <span>This note was updated elsewhere. Your unsaved edits are still here.</span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDraft(remoteUpdate.remoteContent)}
+              >
+                Discard mine &amp; reload
+              </Button>
+              <Button variant="outline" size="sm" onClick={remoteUpdate.acknowledge}>
+                Keep mine
+              </Button>
+            </div>
+          </div>
+        )}
         <ScrollArea className="h-full">
           <div className="px-6 py-6 lg:px-8 lg:py-8">
             <NoteEditor value={draft} onChange={setDraft} />

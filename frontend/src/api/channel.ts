@@ -11,10 +11,45 @@ interface ConnectOptions {
   queryClient: QueryClient
 }
 
-interface NoteChangedPayload {
+export interface NoteChangedPayload {
   event_type: string
   path: string
-  kind: string
+  vault_id: number
+  content?: string
+  title?: string
+  folder?: string
+  tags?: string[]
+  mtime?: number
+  updated_at?: string
+  version?: number
+}
+
+type NoteChangedListener = (payload: NoteChangedPayload) => void
+const listeners = new Set<NoteChangedListener>()
+
+export function subscribeToNoteChanges(listener: NoteChangedListener): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+export function handleNoteChanged(
+  payload: NoteChangedPayload,
+  queryClient: QueryClient,
+  activeVaultId: number,
+): void {
+  // Server broadcasts on the vault topic; this guard protects against
+  // an unrelated vault's payload reaching the wrong queryClient (e.g.
+  // mid-vault-switch race).
+  if (payload.vault_id !== activeVaultId) return
+
+  queryClient.invalidateQueries({ queryKey: ['note', activeVaultId, payload.path] })
+  queryClient.invalidateQueries({ queryKey: ['folders', activeVaultId] })
+  queryClient.invalidateQueries({ queryKey: ['folderNotes', activeVaultId] })
+  queryClient.invalidateQueries({ queryKey: ['search', activeVaultId] })
+
+  for (const listener of listeners) listener(payload)
 }
 
 export async function connectChannel({ userId, vaultId, getToken, queryClient }: ConnectOptions) {
@@ -32,12 +67,7 @@ export async function connectChannel({ userId, vaultId, getToken, queryClient }:
   channel = socket.channel(topic)
 
   channel.on('note_changed', (payload: NoteChangedPayload) => {
-    if (payload.kind === 'note') {
-      queryClient.invalidateQueries({ queryKey: ['note', vaultId, payload.path] })
-      queryClient.invalidateQueries({ queryKey: ['folders', vaultId] })
-      queryClient.invalidateQueries({ queryKey: ['folderNotes', vaultId] })
-      queryClient.invalidateQueries({ queryKey: ['search', vaultId] })
-    }
+    handleNoteChanged(payload, queryClient, vaultId)
   })
 
   channel
