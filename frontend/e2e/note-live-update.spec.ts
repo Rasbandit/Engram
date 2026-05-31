@@ -71,21 +71,34 @@ async function upsertNote(
   if (!res.ok) throw new Error(`note upsert failed: ${res.status} ${await res.text()}`)
 }
 
-async function signIn(page: Page, email: string): Promise<void> {
-  await page.goto('/sign-in/')
-  await page.getByLabel('Email').fill(email)
-  await page.getByLabel('Password', { exact: true }).fill(PASS)
-  await page.getByRole('button', { name: /sign in/i }).click()
-  await expect(page).toHaveURL(/\/$/, { timeout: 10_000 })
-}
+/**
+ * Sign in by going to the target note URL first — AuthGuard redirects to
+ * `/sign-in?return_to=...` and bounces back after sign-in completes.
+ * Seed `engram.activeVaultId` on the sign-in page so it survives the post-
+ * sign-in route change (same origin, same storage).
+ */
+async function signInForNote(
+  page: Page,
+  email: string,
+  vaultId: number,
+  notePath: string,
+): Promise<void> {
+  // Hitting /note/* unauth → AuthGuard redirects to /sign-in?return_to=…
+  await page.goto(`/note/${notePath}`)
+  await expect(page).toHaveURL(/\/sign-in/, { timeout: 10_000 })
 
-async function seedActiveVault(page: Page, vaultId: number): Promise<void> {
-  // The SPA reads `engram.activeVaultId` from localStorage on mount; without
-  // this, queries fire without an X-Vault-Id header and the viewer can't
-  // resolve the note before the auto-switch effect races us.
+  // Seed active vault before sign-in completes so the post-redirect render
+  // already has it (vault-switcher's auto-select wouldn't pick our new vault
+  // before NotePage's first query fires).
   await page.evaluate((id) => {
     localStorage.setItem('engram.activeVaultId', String(id))
   }, vaultId)
+
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Password', { exact: true }).fill(PASS)
+  await page.getByRole('button', { name: /sign in/i }).click()
+
+  await expect(page).toHaveURL(new RegExp(`/note/${notePath}`), { timeout: 10_000 })
 }
 
 test.describe('SPA viewer live-update (#277)', () => {
@@ -101,10 +114,7 @@ test.describe('SPA viewer live-update (#277)', () => {
 
     const ctx = await browser.newContext()
     const page = await ctx.newPage()
-    await signIn(page, email)
-
-    await seedActiveVault(page, vault.id)
-    await page.goto(`/note/${path}`)
+    await signInForNote(page, email, vault.id, path)
     await expect(page.getByText('First body.')).toBeVisible({ timeout: 10_000 })
 
     // Remote upsert (simulates plugin push / MCP write / other web tab Save).
@@ -128,10 +138,7 @@ test.describe('SPA viewer live-update (#277)', () => {
 
     const ctx = await browser.newContext()
     const page = await ctx.newPage()
-    await signIn(page, email)
-
-    await seedActiveVault(page, vault.id)
-    await page.goto(`/note/${path}`)
+    await signInForNote(page, email, vault.id, path)
     await expect(page.getByText('original text.')).toBeVisible({ timeout: 10_000 })
 
     // Switch into edit mode and type a local unsaved edit into CodeMirror.
