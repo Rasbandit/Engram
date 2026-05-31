@@ -33,6 +33,15 @@ export default function NotePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note?.path])
 
+  // Signal the onboarding tour that the user opened a note. The controller
+  // listens for this on window and advances any gated step bound to it.
+  useEffect(() => {
+    if (!note?.path) return
+    window.dispatchEvent(
+      new CustomEvent('engram:note-opened', { detail: { path: note.path } }),
+    )
+  }, [note?.path])
+
   // Push the ToC into the app-shell right sidebar while we're in preview;
   // clear it when leaving the page or switching to edit mode.
   useEffect(() => {

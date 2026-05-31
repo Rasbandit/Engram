@@ -7,6 +7,7 @@ import type { Step } from 'react-joyride'
 // configured interaction.
 export const GATED_STEPS: Record<number, string> = {
   0: 'engram:vault-switched',
+  2: 'engram:note-opened',
 }
 
 // react-joyride v3 renamed `disableBeacon` → `skipBeacon`. Lives in Options, so
@@ -35,12 +36,16 @@ export const tourSteps: Step[] = [
     skipBeacon: true,
   },
   {
-    target: '[data-tour="note-viewer"]',
-    title: 'Read and edit anywhere',
+    target: '[data-tour="folder-tree"]',
+    title: 'Open a note',
     content:
-      'Click any note to view it. Full Obsidian-style markdown — wikilinks, callouts, math, mermaid.',
-    placement: 'left',
+      'Expand a folder, then click any note to open it. Engram renders the full Obsidian-style markdown — wikilinks, callouts, math, mermaid.',
+    placement: 'right',
     skipBeacon: true,
+    // Gated on `engram:note-opened` — NotePage dispatches this when it
+    // mounts with a path. See controller.tsx + steps.ts GATED_STEPS.
+    buttons: [],
+    blockTargetInteraction: false,
   },
   {
     target: '[data-tour="search"]',
