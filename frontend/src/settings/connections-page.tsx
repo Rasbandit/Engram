@@ -164,7 +164,10 @@ function ConnectionCard({
             )}
           </div>
           <div className="truncate text-xs text-muted-foreground">
-            <strong className="font-semibold">Connected vaults:</strong> {vaultLabel}
+            <strong className="font-semibold">
+              {connection.kind === 'obsidian' ? 'Vault:' : 'Vaults:'}
+            </strong>{' '}
+            {vaultLabel}
           </div>
         </div>
         <button
