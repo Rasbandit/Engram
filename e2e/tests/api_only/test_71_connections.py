@@ -255,8 +255,11 @@ async def test_dcr_rejects_kind_obsidian(clerk_client):
     test_device_flow_connection_appears_in_list below."""
     clerk_user_id, _jwt, _email = _make_clerk_user(clerk_client)
     try:
+        # DCR lives at OAUTH_BASE/oauth/register (not under /api), so call
+        # requests directly with the un-prefixed base — register_client/3
+        # raises on non-201, which would mask the 400 we want to assert.
         resp = requests.post(
-            f"{API_URL}/oauth/register",
+            f"{OAUTH_BASE}/oauth/register",
             json={
                 "software_id": "engram-vault-sync",
                 "client_name": "Engram Vault Sync",
