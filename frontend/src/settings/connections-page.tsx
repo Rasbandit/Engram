@@ -73,22 +73,34 @@ export default function ConnectionsPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           Manage what's connected to your Engram account.
         </p>
-        <nav aria-label="Connection documentation" className="mt-3 flex flex-wrap gap-x-4 text-sm">
+        <nav aria-label="Connection documentation" className="mt-4 grid gap-2 sm:grid-cols-2">
           <a
             href="https://engram.page/docs/integrations/"
             target="_blank"
             rel="noreferrer"
-            className="text-primary hover:underline"
+            className="group rounded-lg border border-border bg-card p-3 hover:border-primary"
           >
-            AI integrations →
+            <p className="text-sm font-medium text-foreground group-hover:text-primary">
+              AI integrations →
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Step-by-step setup for Claude Desktop, Cursor, ChatGPT, and other MCP-aware
+              clients.
+            </p>
           </a>
           <a
             href="https://engram.page/docs/mcp/"
             target="_blank"
             rel="noreferrer"
-            className="text-primary hover:underline"
+            className="group rounded-lg border border-border bg-card p-3 hover:border-primary"
           >
-            MCP docs →
+            <p className="text-sm font-medium text-foreground group-hover:text-primary">
+              MCP protocol →
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Build a custom integration against Engram's MCP server — tool list, auth flow,
+              endpoint URL.
+            </p>
           </a>
         </nav>
       </header>
