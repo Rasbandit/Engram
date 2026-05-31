@@ -44,6 +44,10 @@ export default function NotePage() {
     return () => setRightContent(null)
   }, [note?.path, note?.content, mode, setRightContent])
 
+  // Must run on every render — calling after the early returns below would
+  // change hook count between the loading/loaded states and crash React.
+  const remoteUpdate = useRemoteUpdateBanner(note?.content ?? '', draft)
+
   if (!path) {
     return <p className="p-6 text-muted-foreground">No note selected</p>
   }
@@ -59,7 +63,6 @@ export default function NotePage() {
 
   const dirty = draft !== note.content
   const saving = update.isPending
-  const remoteUpdate = useRemoteUpdateBanner(note.content, draft)
 
   const handleSave = async () => {
     try {
