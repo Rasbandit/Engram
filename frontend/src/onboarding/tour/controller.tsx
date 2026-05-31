@@ -1,6 +1,6 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Joyride, type EventData, type Step, STATUS, EVENTS, ACTIONS } from 'react-joyride'
-import { tourSteps } from './steps'
+import { tourSteps, GATED_STEP_INDEXES } from './steps'
 
 interface Props {
   active: boolean
@@ -17,14 +17,49 @@ export function TourController({ active, onExit, setReachedEnd }: Props) {
   onExitRef.current = onExit
   setReachedEndRef.current = setReachedEnd
 
+  // Controlled stepIndex so we can advance gated steps from a target click
+  // listener (joyride's continuous mode otherwise drives index internally).
+  const [stepIndex, setStepIndex] = useState(0)
+
+  // Reset to first step whenever the tour (re)starts.
+  useEffect(() => {
+    if (active) setStepIndex(0)
+  }, [active])
+
+  // Gated steps: hide the Next button + advance only when the user actually
+  // clicks the highlighted target. Attach a one-shot listener on the target
+  // element while we're parked on a gated step.
+  useEffect(() => {
+    if (!active) return
+    if (!GATED_STEP_INDEXES.has(stepIndex)) return
+
+    const step = tourSteps[stepIndex]
+    if (!step) return
+    const target = document.querySelector(step.target as string)
+    if (!target) return
+
+    const handler = () => setStepIndex((i) => i + 1)
+    target.addEventListener('click', handler, { once: true })
+    return () => target.removeEventListener('click', handler)
+  }, [active, stepIndex])
+
   const handle = (data: EventData) => {
     const { status, index, action, type } = data
-    // Track final step reached for the "Create my vault" CTA semantics.
-    if (type === EVENTS.STEP_AFTER && index === tourSteps.length - 1 && action === ACTIONS.NEXT) {
-      setReachedEndRef.current(true)
-      onExitRef.current(true)
+
+    if (type === EVENTS.STEP_AFTER) {
+      if (action === ACTIONS.NEXT) {
+        if (index === tourSteps.length - 1) {
+          setReachedEndRef.current(true)
+          onExitRef.current(true)
+          return
+        }
+        setStepIndex(index + 1)
+      } else if (action === ACTIONS.PREV) {
+        setStepIndex(Math.max(0, index - 1))
+      }
       return
     }
+
     if (status === STATUS.FINISHED || status === STATUS.SKIPPED) {
       onExitRef.current(status === STATUS.FINISHED)
     }
@@ -34,6 +69,7 @@ export function TourController({ active, onExit, setReachedEnd }: Props) {
     <Joyride
       steps={tourSteps as Step[]}
       run={active}
+      stepIndex={stepIndex}
       continuous
       onEvent={handle}
       locale={{ last: 'Create my vault', skip: 'Skip' }}
