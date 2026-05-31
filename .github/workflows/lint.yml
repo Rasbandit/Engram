@@ -99,3 +99,67 @@ jobs:
             exit 1
           fi
           echo "OK — no known-stale facts in CLAUDE.md files."
+
+  migrations-immutable:
+    name: migrations immutable
+    runs-on: ubuntu-latest
+    # Block in-place edits to already-applied migrations. Triggering incident:
+    # 2026-05-30 PR #368 edited migration 20260530000002 in place from :inet
+    # to :text after FastRaid prod had already run the :inet version, leaving
+    # prod's oauth_clients.first_ip column as inet while CI's fresh DB
+    # provisioned text — DCR endpoint crashed with Postgrex.EncodeError on
+    # every register. Spec: workspace docs/superpowers/specs/2026-05-30-deploy-guardrails-design.md
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Need history to diff against origin/main. depth=50 is plenty for
+          # PR-sized diffs and avoids the full clone cost.
+          fetch-depth: 50
+
+      - name: Check migrations are not modified in place
+        env:
+          PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+
+          # Genuine emergency bypass: PR carries the 'allow-migration-edit' label.
+          # Use only when fixing a migration that has NOT reached any deployed
+          # environment (rare; deliberately friction-y).
+          if echo "$PR_LABELS" | grep -q '"allow-migration-edit"'; then
+            echo "::notice::Bypass label 'allow-migration-edit' present — skipping immutable-migrations check."
+            exit 0
+          fi
+
+          # On push-to-main runs (no PR context), nothing to compare. Skip.
+          if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
+            echo "Not a pull_request event — nothing to check."
+            exit 0
+          fi
+
+          # Fail loud on fetch errors — silencing stderr would let a transient
+          # network failure produce a false-negative green run (the subsequent
+          # process-substitution `< <(git diff ...)` would silently see no
+          # input under `set -e` and the loop would report "OK").
+          if ! git fetch origin "${GITHUB_BASE_REF}" --depth=50 >/dev/null; then
+            echo "::error::Failed to fetch base ref origin/${GITHUB_BASE_REF}"
+            exit 1
+          fi
+
+          failed=0
+          # --diff-filter=MTD catches modifications, type changes, and deletions.
+          # --no-renames disables git's default rename detection so a `git mv` of
+          # an already-applied migration decomposes into add+delete; the delete
+          # half then matches the filter and gets flagged. Without --no-renames,
+          # renames surface as status R and slip the check silently.
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            if git cat-file -e "origin/${GITHUB_BASE_REF}:$file" 2>/dev/null; then
+              echo "::error file=$file::Migration was modified in place. Applied migrations are immutable — write a NEW migration to amend the schema. (Bypass with PR label 'allow-migration-edit'.)"
+              failed=1
+            fi
+          done < <(git diff --name-only --no-renames --diff-filter=MTD "origin/${GITHUB_BASE_REF}...HEAD" -- 'priv/repo/migrations/*.exs')
+
+          if [ "$failed" -eq 0 ]; then
+            echo "OK — no applied migrations modified in place."
+          fi
+          exit $failed
