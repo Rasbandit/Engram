@@ -247,35 +247,30 @@ async def test_connections_empty_for_fresh_user(clerk_client):
 
 
 @pytest.mark.asyncio
-async def test_dcr_kind_obsidian_appears_with_verified_logo(clerk_client):
-    """DCR with kind=obsidian + software_id=engram-vault-sync → connection
-    shows up in /api/connections with kind='obsidian', verified=true,
-    display_name from LogoAllowlist."""
-    clerk_user_id, jwt, email = _make_clerk_user(clerk_client)
-    grant_test_plan(email)
+async def test_dcr_rejects_kind_obsidian(clerk_client):
+    """DCR with kind=obsidian must be rejected: revoke routing in the
+    Connections UI only handles device-flow Obsidian today. Accepting a
+    DCR-minted Obsidian client would silently 404 on revoke. The real
+    Obsidian flow goes through device-flow — see
+    test_device_flow_connection_appears_in_list below."""
+    clerk_user_id, _jwt, _email = _make_clerk_user(clerk_client)
     try:
-        client = register_client(
-            software_id="engram-vault-sync",
-            client_name="Engram Vault Sync",
-            kind="obsidian",
+        resp = requests.post(
+            f"{API_URL}/oauth/register",
+            json={
+                "software_id": "engram-vault-sync",
+                "client_name": "Engram Vault Sync",
+                "redirect_uris": ["http://127.0.0.1:51234/cb"],
+                "kind": "obsidian",
+            },
+            timeout=10,
         )
-        client_id = client["client_id"]
-
-        resp = consent(jwt, client_id)
-        assert resp.status_code == 200, (
-            f"consent failed: {resp.status_code} {resp.text}"
+        assert resp.status_code == 400, (
+            f"expected 400 on DCR kind=obsidian, got {resp.status_code}: {resp.text}"
         )
-        code = _extract_code(resp.json()["redirect_uri"])
-        exchange_code(client_id, code)
-
-        rows = list_connections(jwt)
-        obsidian = [r for r in rows if r["kind"] == "obsidian"]
-        assert len(obsidian) == 1, f"expected 1 obsidian connection, got {len(obsidian)}"
-        assert obsidian[0]["client_id"] == client_id
-        assert obsidian[0]["verified"] is True, "engram-vault-sync should be verified"
-        assert obsidian[0]["name"] == "Obsidian Vault Sync", (
-            f"unexpected display name: {obsidian[0]['name']!r}"
-        )
+        body = resp.json()
+        assert body["error"] == "invalid_client_metadata"
+        assert "obsidian" in body.get("error_description", "")
     finally:
         clerk_client.delete_user(clerk_user_id)
 
@@ -479,7 +474,11 @@ def device_token_poll(device_code: str, *, max_attempts: int = 10) -> dict:
 
 
 def create_vault(jwt_token: str, name: str) -> int:
-    """POST /api/vaults — create a vault. Returns vault_id (int)."""
+    """POST /api/vaults — create a vault. Returns vault_id (int).
+
+    The controller wraps the row under a "vault" key — see
+    EngramWeb.VaultsController.create/2 returning %{vault: vault_json(...)}.
+    """
     resp = requests.post(
         f"{API_URL}/vaults",
         json={"name": name},
@@ -487,7 +486,7 @@ def create_vault(jwt_token: str, name: str) -> int:
         timeout=10,
     )
     resp.raise_for_status()
-    return resp.json()["id"]
+    return resp.json()["vault"]["id"]
 
 
 def revoke_device(jwt_token: str, family_id: str) -> int:
