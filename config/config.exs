@@ -120,6 +120,17 @@ config :engram, :boot_canary_enabled, true
 # SaaS prod flips to :redis in runtime.exs when REDIS_URL is set (cluster-shared).
 config :engram, EngramWeb.RateLimiter, backend: :ets
 
+# Sentry — exception + error-log capture. DSN is wired in runtime.exs from
+# the SENTRY_DSN env var; an unset DSN disables capture (safe default for
+# self-host + dev + test). The `Engram.Sentry.Scrubber` PII filter is wired
+# from the next commit; until then `before_send` is omitted so a missing
+# module doesn't crash boot.
+config :sentry,
+  environment_name: Mix.env(),
+  enable_source_code_context: true,
+  root_source_code_paths: [File.cwd!()],
+  context_lines: 5
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"
