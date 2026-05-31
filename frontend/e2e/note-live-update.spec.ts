@@ -115,13 +115,17 @@ test.describe('SPA viewer live-update (#277)', () => {
     const ctx = await browser.newContext()
     const page = await ctx.newPage()
     await signInForNote(page, email, vault.id, path)
-    await expect(page.getByText('First body.')).toBeVisible({ timeout: 10_000 })
+
+    // `forceMount` on both Tabs.Content means the Edit panel is in the DOM
+    // alongside Preview; scope assertions to the visible Preview panel.
+    const preview = page.getByRole('tabpanel', { name: 'Preview' })
+    await expect(preview.getByText('First body.')).toBeVisible({ timeout: 10_000 })
 
     // Remote upsert (simulates plugin push / MCP write / other web tab Save).
     await upsertNote(baseURL!, token, vault.id, path, '# Initial\n\nSecond body remote.')
 
-    await expect(page.getByText('Second body remote.')).toBeVisible({ timeout: 5_000 })
-    await expect(page.getByText('First body.')).toBeHidden()
+    await expect(preview.getByText('Second body remote.')).toBeVisible({ timeout: 5_000 })
+    await expect(preview.getByText('First body.')).toBeHidden()
 
     await ctx.close()
   })
@@ -139,11 +143,14 @@ test.describe('SPA viewer live-update (#277)', () => {
     const ctx = await browser.newContext()
     const page = await ctx.newPage()
     await signInForNote(page, email, vault.id, path)
-    await expect(page.getByText('original text.')).toBeVisible({ timeout: 10_000 })
+
+    const preview = page.getByRole('tabpanel', { name: 'Preview' })
+    const editPanel = page.getByRole('tabpanel', { name: 'Edit' })
+    await expect(preview.getByText('original text.')).toBeVisible({ timeout: 10_000 })
 
     // Switch into edit mode and type a local unsaved edit into CodeMirror.
     await page.getByRole('tab', { name: 'Edit' }).click()
-    const editor = page.locator('.cm-content')
+    const editor = editPanel.locator('.cm-content')
     await editor.click()
     await page.keyboard.press('Control+End')
     await page.keyboard.type(' local-unsaved-edit')
@@ -152,8 +159,8 @@ test.describe('SPA viewer live-update (#277)', () => {
     await upsertNote(baseURL!, token, vault.id, path, '# Initial\n\noriginal text. remote-edit')
 
     // Banner appears; draft is preserved (local-unsaved-edit still in editor).
-    await expect(page.getByText(/updated elsewhere/i)).toBeVisible({ timeout: 5_000 })
-    await expect(page.getByText('local-unsaved-edit')).toBeVisible()
+    await expect(editPanel.getByText(/updated elsewhere/i)).toBeVisible({ timeout: 5_000 })
+    await expect(editPanel.getByText('local-unsaved-edit')).toBeVisible()
 
     await ctx.close()
   })
