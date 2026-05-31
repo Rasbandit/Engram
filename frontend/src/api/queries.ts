@@ -503,11 +503,32 @@ export interface EncryptionProgress {
 // Vault hooks
 
 export function useVaults() {
-  return useQuery({
+  const demo = useDemoVaultOptional()
+  const query = useQuery({
     queryKey: ['vaults'],
     queryFn: () => api.get<{ vaults: Vault[] }>('/vaults'),
     select: (data) => data.vaults,
+    enabled: !demo?.active,
   })
+  if (demo?.active && demo.vault) {
+    const fake: Vault = {
+      id: -1,
+      name: demo.vault.name,
+      description: null,
+      slug: demo.vault.id,
+      is_default: true,
+      created_at: new Date(0).toISOString(),
+      encrypted: false,
+      encryption_status: 'none',
+      encrypted_at: null,
+      decrypt_requested_at: null,
+      last_toggle_at: null,
+      cooldown_days: null,
+      note_count: demo.notes.length,
+    }
+    return { ...query, data: [fake], isLoading: false, isPending: false, error: null } as typeof query
+  }
+  return query
 }
 
 export function useEncryptVault() {
