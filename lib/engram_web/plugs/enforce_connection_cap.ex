@@ -53,6 +53,11 @@ defmodule EngramWeb.Plugs.EnforceConnectionCap do
           nil ->
             conn
 
+          # -1 is the canonical "unlimited" sentinel — same convention as
+          # Engram.Billing.check_limit/3 and BillingController.cap_json/1.
+          -1 ->
+            conn
+
           limit when is_integer(limit) ->
             current = Connections.count_active(user.id, kind_atom(kind_str))
 

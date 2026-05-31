@@ -126,6 +126,33 @@ defmodule EngramWeb.Plugs.EnforceConnectionCapTest do
       refute conn.halted
     end
 
+    test "passes when override sets cap to -1 (unlimited sentinel)", %{
+      conn: conn,
+      user: user,
+      mcp: client
+    } do
+      # -1 is the canonical unlimited sentinel; cap_json/-1 → nil on the
+      # wire, and the plug must treat it the same as :unlimited / nil.
+      insert(:user_limit_override,
+        user: user,
+        key: "mcp_connections_cap",
+        value: %{"v" => -1}
+      )
+
+      # Existing connection: even with one live grant, -1 still passes.
+      insert(:oauth_refresh_token, user_id: user.id, client_id: client.client_id)
+
+      conn =
+        conn
+        |> Map.put(:method, "POST")
+        |> Map.put(:request_path, "/api/oauth/authorize/consent")
+        |> Map.put(:params, %{"client_id" => client.client_id})
+        |> assign(:current_user, user)
+        |> EnforceConnectionCap.call([])
+
+      refute conn.halted
+    end
+
     test "raises if :current_user is not assigned (programmer error guard)", %{conn: conn} do
       assert_raise RuntimeError, ~r/requires :current_user/, fn ->
         conn

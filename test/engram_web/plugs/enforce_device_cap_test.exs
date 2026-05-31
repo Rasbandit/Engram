@@ -23,6 +23,27 @@ defmodule EngramWeb.Plugs.EnforceDeviceCapTest do
       refute result.halted
     end
 
+    test "passes through when override value is -1 (unlimited sentinel)" do
+      # -1 is the canonical unlimited sentinel; cap_json/-1 → nil on the
+      # wire, and the plug must treat it the same as :unlimited / nil.
+      user = insert(:user)
+      vault = insert(:vault, user: user)
+
+      insert(:user_limit_override,
+        user: user,
+        key: "obsidian_connections_cap",
+        value: %{"v" => -1}
+      )
+
+      # Existing connection: even with one live device family, -1 should
+      # still pass through.
+      insert(:device_refresh_token, user: user, vault: vault)
+
+      conn = conn_with_user(user)
+      result = EnforceDeviceCap.call(conn, [])
+      refute result.halted
+    end
+
     test "passes through when current count is below the limit" do
       user = insert(:user)
       # Set cap to 3 — user has 0 active device connections

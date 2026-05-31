@@ -30,7 +30,9 @@ defmodule EngramWeb.Plugs.EnforceDeviceCap do
     current = Connections.count_active(user.id, :obsidian)
 
     cond do
-      limit in [:unlimited, nil] ->
+      # -1 is the canonical "unlimited" sentinel — same convention as
+      # Engram.Billing.check_limit/3 and BillingController.cap_json/1.
+      limit in [:unlimited, nil, -1] ->
         conn
 
       is_integer(limit) and current < limit ->
