@@ -17,6 +17,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { useBillingStatus } from '../api/queries'
 import { useChannel } from '../api/use-channel'
+import { useDemoVaultOptional } from '../onboarding/tour/demo-vault-provider'
 import AppHeader from './app-header'
 import FolderTree from '../viewer/folder-tree'
 import FolderActions from './folder-actions'
@@ -33,6 +34,10 @@ function DesktopLayout() {
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const { content: rightContent, collapsed: rightCollapsed, setCollapsed: setRightCollapsed } =
     useRightSidebar()
+  // During the FTUX tour the vault-switcher dropdown opens upward into
+  // empty space. Stretch the data-tour anchor so the Joyride spotlight
+  // cutout extends over the menu items, not just the trigger row.
+  const demoActive = useDemoVaultOptional()?.active === true
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: 'engram:app-layout',
     panelIds: LAYOUT_PANEL_IDS,
@@ -103,7 +108,12 @@ function DesktopLayout() {
                 <FolderTree />
               </ScrollArea>
               <FolderActions />
-              <section data-tour="sidebar-vaults">
+              <section
+                data-tour="sidebar-vaults"
+                className={
+                  demoActive ? 'flex min-h-32 flex-col justify-end' : undefined
+                }
+              >
                 <VaultSwitcher />
               </section>
             </div>
