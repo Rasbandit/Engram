@@ -123,11 +123,26 @@ defmodule Engram.Paddle.Client.HTTP do
       iso = DateTime.to_iso8601(since)
       url = base_url() <> "/subscriptions"
       params = [{"updated_at[GTE]", iso}, {"per_page", 200}]
-      list_pages(url, params, headers(api_key), [])
+      list_pages(url, params, headers(api_key), [], MapSet.new([url]), 1)
     end
   end
 
-  defp list_pages(url, params, headers, acc) do
+  # Hard cap on pagination to bound the daily Oban worker even if Paddle
+  # misbehaves. At per_page=200 this allows 10k subscriptions per
+  # reconciliation window — comfortably past current scale and easy to
+  # bump if we ever approach it.
+  @max_pages 50
+
+  defp list_pages(_url, _params, _headers, acc, _seen, page) when page > @max_pages do
+    Logger.error("Paddle subscriptions-list page cap exceeded",
+      category: :paddle,
+      reason_label: :max_pages_exceeded
+    )
+
+    {:ok, Enum.reverse(acc) |> List.flatten()}
+  end
+
+  defp list_pages(url, params, headers, acc, seen, page) do
     case Req.get(url, params: params, headers: headers, receive_timeout: 15_000) do
       {:ok, %Req.Response{status: 200, body: %{"data" => data} = body}} when is_list(data) ->
         case get_in(body, ["meta", "pagination", "next"]) do
@@ -138,9 +153,20 @@ defmodule Engram.Paddle.Client.HTTP do
             {:ok, Enum.reverse([data | acc]) |> List.flatten()}
 
           next_url when is_binary(next_url) ->
-            # Paddle's `next` is a fully-qualified URL with all query params
-            # encoded — don't pass `params:` again or Req appends them.
-            list_pages(next_url, [], headers, [data | acc])
+            if MapSet.member?(seen, next_url) do
+              # Paddle returned a `next` URL we've already fetched — would
+              # be an infinite loop. Stop and surface what we have.
+              Logger.error("Paddle subscriptions-list pagination loop detected",
+                category: :paddle,
+                reason_label: :pagination_loop
+              )
+
+              {:ok, Enum.reverse([data | acc]) |> List.flatten()}
+            else
+              # Paddle's `next` is a fully-qualified URL with all query params
+              # encoded — don't pass `params:` again or Req appends them.
+              list_pages(next_url, [], headers, [data | acc], MapSet.put(seen, next_url), page + 1)
+            end
         end
 
       {:ok, %Req.Response{status: status, body: body}} ->
@@ -148,6 +174,12 @@ defmodule Engram.Paddle.Client.HTTP do
         {:error, {:paddle_error, status}}
 
       {:error, reason} ->
+        Logger.warning("Paddle subscriptions-list transport error",
+          category: :paddle,
+          reason: inspect(reason),
+          reason_label: :transport
+        )
+
         {:error, reason}
     end
   end
@@ -186,9 +218,15 @@ defmodule Engram.Paddle.Client.HTTP do
   end
 
   defp base_url do
-    case Application.get_env(:engram, :paddle_env, "sandbox") do
-      "production" -> @production_base
-      _ -> @sandbox_base
+    case Application.get_env(:engram, :paddle_api_base_url) do
+      url when is_binary(url) and url != "" ->
+        url
+
+      _ ->
+        case Application.get_env(:engram, :paddle_env, "sandbox") do
+          "production" -> @production_base
+          _ -> @sandbox_base
+        end
     end
   end
 
