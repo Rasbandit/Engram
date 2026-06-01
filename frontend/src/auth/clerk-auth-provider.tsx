@@ -3,7 +3,9 @@ import { dark } from "@clerk/themes"
 import { useCallback, useEffect, useMemo } from 'react'
 import { AuthContext, type AuthAdapter } from './auth-context'
 import { rememberSignupUser } from './signup-rejection'
+import { useClearQueryCacheOnUserChange } from './use-clear-query-cache-on-user-change'
 import { setTokenGetter } from '../api/client'
+import { queryClient } from '../api/query-client'
 import { config } from '../config'
 import { router } from '../router'
 import { ROUTES } from '../routes'
@@ -49,6 +51,8 @@ function ClerkAdapterInner({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (clerkUserId) rememberSignupUser(clerkUserId)
   }, [clerkUserId])
+
+  useClearQueryCacheOnUserChange(queryClient, clerkUserId)
 
   const email = clerk.user?.primaryEmailAddress?.emailAddress
   const imageUrl = clerk.user?.imageUrl
